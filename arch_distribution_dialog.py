@@ -16,9 +16,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
 
         # Default colors
-        self.heritage_stroke_color = QtGui.QColor(0, 0, 0)
-        self.heritage_fill_color = QtGui.QColor(255, 0, 0)
-        self.study_stroke_color = QtGui.QColor(255, 0, 0)
+        self.heritage_stroke_color = QtGui.QColor(60, 60, 60)
+        self.heritage_fill_color = QtGui.QColor(255, 120, 120)
+        self.study_stroke_color = QtGui.QColor(255, 64, 129)
+        
+        # Set Default Values for SpinBoxes
+        self.spinHeritageStrokeWidth.setValue(0.3)
+        self.spinHeritageOpacity.setValue(40)
+        self.spinStudyStrokeWidth.setValue(0.5)
+        self.spinWidth.setValue(210) # A4 width
+        self.spinHeight.setValue(297) # A4 height
+        self.spinScale.setValue(5000)
+        self.comboSortOrder.setCurrentIndex(0)
+        self.tabWidget.setCurrentIndex(0)
         
         self.update_button_colors()
 
