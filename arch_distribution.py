@@ -1,10 +1,11 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
-from qgis.PyQt.QtGui import QIcon, QColor
+from qgis.PyQt.QtGui import QIcon, QColor, QFont
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
                        QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
-                       QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer)
+                       QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer,
+                       QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling)
 
 import os.path
 import processing
@@ -343,7 +344,7 @@ class ArchDistribution:
             layer.commitChanges()
 
     def apply_heritage_style(self, layer, style):
-        """Apply complex symbology to heritage layer."""
+        """Apply complex symbology and labeling to heritage layer."""
         rgb_fill = QColor(style['fill_color'])
         rgba_fill = f"{rgb_fill.red()},{rgb_fill.green()},{rgb_fill.blue()},{int(style['opacity'] * 255)}"
         
@@ -365,4 +366,33 @@ class ArchDistribution:
         if symbol:
             renderer = QgsSingleSymbolRenderer(symbol)
             layer.setRenderer(renderer)
-            layer.triggerRepaint()
+
+        # Labeling for Dist_No
+        label_settings = QgsPalLayerSettings()
+        label_settings.fieldName = "Dist_No"
+        label_settings.enabled = True
+        
+        text_format = QgsTextFormat()
+        text_format.setFont(QFont("Arial", 10, QFont.Bold))
+        text_format.setColor(QColor(0, 0, 0)) # Black text
+        
+        # Add a buffer (halo) to labels for readability
+        from qgis.core import QgsTextBufferSettings
+        buffer_settings = QgsTextBufferSettings()
+        buffer_settings.setEnabled(True)
+        buffer_settings.setSize(0.7)
+        buffer_settings.setColor(QColor(255, 255, 255)) # White halo
+        text_format.setBuffer(buffer_settings)
+        
+        label_settings.setFormat(text_format)
+        
+        # Placement
+        if layer.geometryType() == 2: # Polygon
+            label_settings.placement = QgsPalLayerSettings.Horizontal
+        else:
+            label_settings.placement = QgsPalLayerSettings.AroundPoint
+            
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
+        layer.setLabelsEnabled(True)
+        
+        layer.triggerRepaint()

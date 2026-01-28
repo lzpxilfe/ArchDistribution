@@ -26,11 +26,25 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnHeritageStrokeColor.clicked.connect(lambda: self.pick_color('heritage_stroke'))
         self.btnHeritageFillColor.clicked.connect(lambda: self.pick_color('heritage_fill'))
         self.btnStudyStrokeColor.clicked.connect(lambda: self.pick_color('study_stroke'))
+        
         self.btnAddBuffer.clicked.connect(self.add_buffer_to_list)
         self.listBuffers.itemDoubleClicked.connect(self.remove_buffer_from_list)
 
+        # Batch selection signals
+        self.btnCheckTopo.clicked.connect(lambda: self.set_batch_check(self.listTopoLayers, True))
+        self.btnUncheckTopo.clicked.connect(lambda: self.set_batch_check(self.listTopoLayers, False))
+        self.btnCheckHeritage.clicked.connect(lambda: self.set_batch_check(self.listHeritageLayers, True))
+        self.btnUncheckHeritage.clicked.connect(lambda: self.set_batch_check(self.listHeritageLayers, False))
+
         # Initialize layers
         self.populate_layers()
+
+    def set_batch_check(self, list_widget, check_state):
+        """Set check state for all currently selected items in the list widget."""
+        selected_items = list_widget.selectedItems()
+        target_state = QtCore.Qt.Checked if check_state else QtCore.Qt.Unchecked
+        for item in selected_items:
+            item.setCheckState(target_state)
 
     def update_button_colors(self):
         self.btnHeritageStrokeColor.setStyleSheet(f"background-color: {self.heritage_stroke_color.name()};")
