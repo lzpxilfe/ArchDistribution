@@ -3,7 +3,8 @@ from qgis.PyQt.QtGui import QIcon, QColor
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
                        QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
-                       QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest)
+                       QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
+                       QgsFillSymbol)
 
 import os.path
 import processing
@@ -76,6 +77,9 @@ class ArchDistribution:
                 QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
                 return
 
+            # Apply Study Area Symbology
+            self.apply_study_style(study_layer, settings['study_style'])
+
             # 2. Merge & Style Topo Maps
             if settings['topo_layer_ids']:
                 self.merge_and_style_topo(settings['topo_layer_ids'])
@@ -92,13 +96,15 @@ class ArchDistribution:
             
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'])
 
-            # 5. Number Heritage Sites
+            # 5. Style & Number Heritage Sites
             if settings['heritage_layer_ids']:
-                self.process_heritage_numbering(
+                self.process_heritage_numbering_v2(
                     settings['heritage_layer_ids'], 
                     extent_geom, 
                     centroid, 
-                    settings['sort_order']
+                    settings['sort_order'],
+                    study_layer,
+                    settings['heritage_style']
                 )
             
             self.iface.messageBar().pushMessage("ArchDistribution", "작업이 완료되었습니다.", level=0)
@@ -224,14 +230,46 @@ class ArchDistribution:
         QgsProject.instance().addMapLayer(vl)
         return rect_geom
 
-    def process_heritage_numbering(self, heritage_layer_ids, extent_geom, centroid, sort_order):
-        """Load heritage layers and number sites within extent."""
+    def apply_study_style(self, layer, style):
+        """Apply outline style to study area."""
+        symbol = None
+        if layer.geometryType() == 2: # Polygon
+            symbol = QgsFillSymbol.createSimple({
+                'color': '0,0,0,0', # Transparent fill
+                'outline_color': style['stroke_color'],
+                'outline_width': str(style['stroke_width']),
+                'outline_width_unit': 'MM'
+            })
+        elif layer.geometryType() == 1: # Line
+            symbol = QgsLineSymbol.createSimple({
+                'color': style['stroke_color'],
+                'width': str(style['stroke_width']),
+                'width_unit': 'MM'
+            })
+        
+        if symbol:
+            renderer = QgsSingleSymbolRenderer(symbol)
+            layer.setRenderer(renderer)
+            layer.triggerRepaint()
+
+    def process_heritage_numbering_v2(self, heritage_layer_ids, extent_geom, centroid, sort_order, study_layer, style):
+        """Number sites outside study area and apply symbology."""
+        
+        # Merge study area geometries for fast intersection check
+        study_geom = QgsGeometry()
+        for f in study_layer.getFeatures():
+            if study_geom.isNull(): study_geom = f.geometry()
+            else: study_geom = study_geom.combine(f.geometry())
+
         for lid in heritage_layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
             if not layer or layer.type() != 0:
                 continue
             
-            # Add a field for numbering if it doesn't exist
+            # Apply Symbology
+            self.apply_heritage_style(layer, style)
+
+            # Add field
             if layer.fields().indexFromName("Dist_No") == -1:
                 layer.startEditing()
                 layer.addAttribute(QgsField("Dist_No", QVariant.Int))
@@ -239,26 +277,53 @@ class ArchDistribution:
             
             idx = layer.fields().indexFromName("Dist_No")
             
-            # Collect features within extent
+            # Filter features: 1. Inside Extent, 2. Outside Study Area
             features_to_number = []
             for feat in layer.getFeatures():
-                if feat.geometry().intersects(extent_geom):
-                    # Calculate metric for sorting
-                    if sort_order == 0: # Proximity
-                        val = feat.geometry().centroid().asPoint().sqrDist(centroid)
-                    else: # Top to Bottom
-                        val = -feat.geometry().centroid().asPoint().y() # Negative Y for descending
+                geom = feat.geometry()
+                if geom.intersects(extent_geom):
+                    # Check if IT IS NOT inside study area
+                    # If heritage is a polygon, we check if it is NOT completely within study area
+                    # or if its centroid is not in study area for simplicity
+                    is_inside_study = geom.within(study_geom) if not study_geom.isNull() else False
                     
-                    features_to_number.append({'feat': feat, 'sort_val': val})
+                    if not is_inside_study:
+                        if sort_order == 0: # Proximity
+                            val = geom.centroid().asPoint().sqrDist(centroid)
+                        else: # Top to Bottom
+                            val = -geom.centroid().asPoint().y()
+                        
+                        features_to_number.append({'feat': feat, 'sort_val': val})
             
-            # Sort
+            # Sort & Label
             features_to_number.sort(key=lambda x: x['sort_val'])
             
-            # Apply numbers
             layer.startEditing()
             for i, item in enumerate(features_to_number):
-                feat_id = item['feat'].id()
-                layer.changeAttributeValue(feat_id, idx, i + 1)
+                layer.changeAttributeValue(item['feat'].id(), idx, i + 1)
             layer.commitChanges()
-            
-            QgsProject.instance().addMapLayer(layer)
+
+    def apply_heritage_style(self, layer, style):
+        """Apply complex symbology to heritage layer."""
+        rgb_fill = QColor(style['fill_color'])
+        rgba_fill = f"{rgb_fill.red()},{rgb_fill.green()},{rgb_fill.blue()},{int(style['opacity'] * 255)}"
+        
+        symbol = None
+        if layer.geometryType() == 2: # Polygon
+            symbol = QgsFillSymbol.createSimple({
+                'color': rgba_fill,
+                'outline_color': style['stroke_color'],
+                'outline_width': str(style['stroke_width']),
+                'outline_width_unit': 'MM'
+            })
+        elif layer.geometryType() == 1: # Line
+            symbol = QgsLineSymbol.createSimple({
+                'color': style['stroke_color'],
+                'width': str(style['stroke_width']),
+                'width_unit': 'MM'
+            })
+        
+        if symbol:
+            renderer = QgsSingleSymbolRenderer(symbol)
+            layer.setRenderer(renderer)
+            layer.triggerRepaint()

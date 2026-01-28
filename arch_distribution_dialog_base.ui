@@ -6,189 +6,213 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>500</width>
-    <height>650</height>
+    <width>550</width>
+    <height>800</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - Cultural Heritage Map</string>
+   <string>ArchDistribution - Cultural Heritage Map Settings</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QGroupBox" name="groupBox">
-     <property name="title">
-      <string>수치지형도 레이어 선택 (Digital Topo Maps)</string>
+    <widget class="QScrollArea" name="scrollArea">
+     <property name="widgetResizable">
+      <bool>true</bool>
      </property>
-     <layout class="QVBoxLayout" name="verticalLayout_2">
-      <item>
-       <widget class="QListWidget" name="listTopoLayers">
-        <property name="selectionMode">
-         <enum>QAbstractItemView::NoSelection</enum>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_2">
-     <property name="title">
-      <string>문화유산 SHP 레이어 선택 (Heritage Sites)</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayout_3">
-      <item>
-       <widget class="QListWidget" name="listHeritageLayers">
-        <property name="selectionMode">
-         <enum>QAbstractItemView::NoSelection</enum>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_3">
-     <property name="title">
-      <string>조사지역 및 버퍼 (Study Area &amp; Buffers)</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="label">
-        <property name="text">
-         <string>조사지역 레이어:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QComboBox" name="comboStudyArea"/>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_2">
-        <property name="text">
-         <string>버퍼 거리 (m, 콤마로 구분):</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QLineEdit" name="editBuffers">
-        <property name="text">
-         <string>300, 500, 1000</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_4">
-     <property name="title">
-      <string>도면 설정 (Drawing Settings)</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout_2">
-      <item row="0" column="0">
-       <widget class="QLabel" name="label_3">
-        <property name="text">
-         <string>도면 크기 (mm):</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <layout class="QHBoxLayout" name="horizontalLayout_3">
-        <item>
-         <widget class="QSpinBox" name="spinWidth">
-          <property name="maximum">
-           <number>9999</number>
-          </property>
-          <property name="value">
-           <number>160</number>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLabel" name="label_4">
-          <property name="text">
-           <string>x</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="spinHeight">
-          <property name="maximum">
-           <number>9999</number>
-          </property>
-          <property name="value">
-           <number>240</number>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_5">
-        <property name="text">
-         <string>축척 (1:Scale):</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QSpinBox" name="spinScale">
-        <property name="maximum">
-         <number>100000</number>
-        </property>
-        <property name="value">
-         <number>5000</number>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="label_6">
-        <property name="text">
-         <string>번호 매기기 순서:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <widget class="QComboBox" name="comboSortOrder">
-        <item>
-         <property name="text">
-          <string>중심에서 가까운 순</string>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
+        <widget class="QGroupBox" name="groupTopo">
+         <property name="title">
+          <string>1. 수치지형도 설정 (Topo Maps)</string>
          </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>위에서 아래로 (지리적)</string>
+         <property name="toolTip">
+          <string>현재 QGIS에 로드된 레이어 중 수치지형도를 선택하세요. 도곽선(H0017334)은 자동으로 제거됩니다.</string>
          </property>
-        </item>
-       </widget>
-      </item>
-     </layout>
+         <layout class="QVBoxLayout" name="verticalLayout_2">
+          <item>
+           <widget class="QListWidget" name="listTopoLayers"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupHeritage">
+         <property name="title">
+          <string>2. 문화유산 및 번호 설정 (Heritage &amp; Numbering)</string>
+         </property>
+         <property name="toolTip">
+          <string>주변 유적 레이어를 선택하고 스타일을 지정합니다. 조사구역 내 유적은 번호 매기기에서 제외됩니다.</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_3">
+          <item>
+           <widget class="QListWidget" name="listHeritageLayers"/>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="gridHeritageStyle">
+            <item row="0" column="0">
+             <widget class="QLabel" name="label_10">
+              <string>외곽선 색상:</string>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QPushButton" name="btnHeritageStrokeColor">
+              <property name="text"><string>선택</string></property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QLabel" name="label_11">
+              <string>선 두께 (mm):</string>
+             </widget>
+            </item>
+            <item row="0" column="3">
+             <widget class="QDoubleSpinBox" name="spinHeritageStrokeWidth">
+              <property name="value"><double>0.2</double></property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="label_12">
+              <string>채우기 색상:</string>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QPushButton" name="btnHeritageFillColor">
+              <property name="text"><string>선택</string></property>
+             </widget>
+            </item>
+            <item row="1" column="2">
+             <widget class="QLabel" name="label_13">
+              <string>불투명도 (%):</string>
+             </widget>
+            </item>
+            <item row="1" column="3">
+             <widget class="QSpinBox" name="spinHeritageOpacity">
+              <property name="maximum"><number>100</number></property>
+              <property name="value"><number>50</number></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupStudy">
+         <property name="title">
+          <string>3. 조사구역 및 버퍼 (Study Area &amp; Buffers)</string>
+         </property>
+         <property name="toolTip">
+          <string>중심이 될 조사구역을 선택하고 버퍼 거리를 입력하세요.</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label">
+            <string>조사구역 선택:</string>
+           </widget>
+          </item>
+          <item row="0" column="1" colspan="2">
+           <widget class="QComboBox" name="comboStudyArea"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_14">
+            <string>조사구역 선 색상:</string>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPushButton" name="btnStudyStrokeColor">
+            <property name="text"><string>선택</string></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QDoubleSpinBox" name="spinStudyStrokeWidth">
+            <property name="value"><double>0.5</double></property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_2">
+            <string>버퍼 거리 (m, 추가):</string>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="editBufferDistance"/>
+          </item>
+          <item row="2" column="2">
+           <widget class="QPushButton" name="btnAddBuffer">
+            <property name="text"><string>추가</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1" colspan="2">
+           <widget class="QListWidget" name="listBuffers">
+            <property name="maximumHeight"><number>100</number></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupDrawing">
+         <property name="title">
+          <string>4. 도면 설정 (Drawing Settings)</string>
+         </property>
+         <property name="toolTip">
+          <string>출력할 종이 크기와 축척을 설정합니다. 중심점 기준으로 자동 줌인됩니다.</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_2">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_3">
+            <string>도면 크기 (mm):</string>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <layout class="QHBoxLayout" name="horizontalLayout_3">
+            <item>
+             <widget class="QSpinBox" name="spinWidth">
+              <property name="maximum"><number>9999</number></property>
+              <property name="value"><number>160</number></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_4"><string>x</string></widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="spinHeight">
+              <property name="maximum"><number>9999</number></property>
+              <property name="value"><number>240</number></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_5"><string>축척 (1:Scale):</string></widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QSpinBox" name="spinScale">
+            <property name="maximum"><number>1000000</number></property>
+            <property name="value"><number>5000</number></property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_6"><string>번호 순서:</string></widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="comboSortOrder">
+            <item><property name="text"><string>중심에서 가까운 순</string></property></item>
+            <item><property name="text"><string>위에서 아래로 (지리적)</string></property></item>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-     <property name="standardButtons">
-      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
-     </property>
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+     <property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property>
     </widget>
    </item>
   </layout>
  </widget>
- <resources/>
- <connections>
-  <connection>
-   <sender>buttonBox</sender>
-   <signal>accepted()</signal>
-   <receiver>ArchDistributionDialogBase</receiver>
-   <slot>accept()</slot>
-  </connection>
-  <connection>
-   <sender>buttonBox</sender>
-   <signal>rejected()</signal>
-   <receiver>ArchDistributionDialogBase</receiver>
-   <slot>reject()</slot>
-  </connection>
- </connections>
 </ui>
