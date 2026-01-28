@@ -15,10 +15,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         super(ArchDistributionDialog, self).__init__(parent)
         self.setupUi(self)
 
-        # Default colors
-        self.heritage_stroke_color = QtGui.QColor(60, 60, 60)
-        self.heritage_fill_color = QtGui.QColor(255, 120, 120)
-        self.study_stroke_color = QtGui.QColor(255, 64, 129)
+        # Default colors (Matching professional archaeological standards)
+        self.heritage_stroke_color = QtGui.QColor(139, 69, 19) # SaddleBrown
+        self.heritage_fill_color = QtGui.QColor(255, 178, 102) # Light Orange/Peach
+        self.study_stroke_color = QtGui.QColor(255, 0, 0) # Red for Study Area
         
         # Set Default Values for SpinBoxes
         self.spinHeritageStrokeWidth.setValue(0.3)

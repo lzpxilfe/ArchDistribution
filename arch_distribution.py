@@ -440,8 +440,9 @@ class ArchDistribution:
                 subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
             subset_pr = subset_layer.dataProvider()
             
-            # Define standard fields
+            # Define standard fields (번호 comes first for report readiness)
             standard_fields = [
+                QgsField("번호", QVariant.Int),
                 QgsField("유적명", QVariant.String),
                 QgsField("주소", QVariant.String),
                 QgsField("면적_m2", QVariant.Double),
@@ -517,12 +518,6 @@ class ArchDistribution:
         final_layer = result['OUTPUT']
         final_layer.setName("수집_및_병합된_주변유적")
 
-        # Add No field for numbering
-        if final_layer.fields().indexFromName("번호") == -1:
-            final_layer.startEditing()
-            final_layer.addAttribute(QgsField("번호", QVariant.Int))
-            final_layer.commitChanges()
-
         return final_layer
 
     def number_heritage_v4(self, layer, centroid, sort_order):
@@ -575,14 +570,14 @@ class ArchDistribution:
         label_settings.enabled = True
         
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Arial", 10, QFont.Bold))
+        text_format.setFont(QFont("Malgun Gothic", 10, QFont.Bold)) # Korean standard font
         text_format.setColor(QColor(0, 0, 0)) # Black text
         
         # Add a buffer (halo) to labels for readability
         from qgis.core import QgsTextBufferSettings
         buffer_settings = QgsTextBufferSettings()
         buffer_settings.setEnabled(True)
-        buffer_settings.setSize(0.7)
+        buffer_settings.setSize(1.0) # Slightly larger buffer for map clarity
         buffer_settings.setColor(QColor(255, 255, 255)) # White halo
         text_format.setBuffer(buffer_settings)
         
