@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0)</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #fafafa; font-family: 'Malgun Gothic', sans-serif; }
@@ -44,7 +44,7 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
   <layout class="QVBoxLayout" name="vMain">
    <item>
     <layout class="QHBoxLayout" name="hHeader">
-     <item><widget class="QLabel" name="lTitle"><property name="text"><string>🏛 ArchDistribution Pro Edition</string></property></widget></item>
+     <item><widget class="QLabel" name="lTitle"><property name="text"><string>🏛 ArchDistribution Pro v1.0</string></property></widget></item>
      <item><spacer><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
      <item><widget class="QLabel" name="lSub"><property name="text"><string>보고서용 최상의 분포지도 솔루션</string></property><property name="styleSheet"><string>color: #757575; font-size: 11px;</string></property></widget></item>
     </layout>
