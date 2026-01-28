@@ -100,8 +100,10 @@ class ArchDistribution:
             if existing_out: root.removeChildNode(existing_out)
             out_group = root.insertGroup(0, "ArchDistribution_결과물")
             
-            ext_group = out_group.addGroup("01_도곽_및_영역")
-            her_group = out_group.addGroup("02_유적_현황")
+            # Sub-groups in specific order (Top to Bottom)
+            stu_group = out_group.addGroup("00_조사구역_및_표제")
+            her_group = out_group.addGroup("01_유적_현황")
+            ext_group = out_group.addGroup("02_도곽_및_영역")
             buf_group = out_group.addGroup("03_조사구역_버퍼")
             topo_merged_group = out_group.addGroup("04_수치지형도_병합")
             
@@ -115,20 +117,35 @@ class ArchDistribution:
             current_step += 1
             progress.setValue(current_step)
 
-            # Step 2: Study Area
-            self.log("조사구역 레이어 로드 중...")
-            study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
-            if not study_layer:
+            # Step 2: Study Area (Clone for display)
+            self.log("조사구역 처리 중...")
+            original_study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
+            if not original_study_layer:
                 self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
                 return
 
             # CRS Validation
-            if study_layer.crs().isGeographic():
-                 self.log("경고: 현재 레이어가 지리좌표계(도 단위)입니다. 미터 단위 투영좌표계를 권장합니다.")
+            if original_study_layer.crs().isGeographic():
+                 self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
             
-            self.fix_layer_encoding(study_layer)
-            self.apply_study_style(study_layer, settings['study_style'])
-            self.move_layer_to_group(study_layer, src_group)
+            # Create a clone in memory for the results group
+            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType()==2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
+            study_result_pr = study_result_layer.dataProvider()
+            
+            # Copy all features
+            new_feats = []
+            for f in original_study_layer.getFeatures():
+                nf = QgsFeature(f)
+                new_feats.append(nf)
+            study_result_pr.addFeatures(new_feats)
+            study_result_layer.updateExtents()
+            
+            self.apply_study_style(study_result_layer, settings['study_style'])
+            QgsProject.instance().addMapLayer(study_result_layer, False)
+            stu_group.addLayer(study_result_layer)
+            
+            # Also keep original in source group (hidden)
+            self.move_layer_to_group(original_study_layer, src_group)
             current_step += 1
             progress.setValue(current_step)
 
@@ -144,14 +161,14 @@ class ArchDistribution:
             progress.setValue(current_step)
 
             # Step 4: Centroid & Extent
-            self.log("중심점 및 도곽 영역 계산 중...")
-            centroid = self.get_study_area_centroid(study_layer)
+            self.log("도곽(Extent) 영역 계산 중...")
+            centroid = self.get_study_area_centroid(original_study_layer)
             if not centroid:
                 self.log("오류: 조사지역의 데이터가 비어있거나 중심점을 계산할 수 없습니다.")
                 return
             
-            self.log(f"중심점 계산 완료: {centroid.x()}, {centroid.y()}. 도곽 생성 중...")
-            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, study_layer.crs())
+            self.log(f"중심점 기반 도곽 생성 중 (Scale 1:{settings['scale']})...")
+            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, original_study_layer.crs())
             self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
             current_step += 1
             progress.setValue(current_step)
@@ -161,7 +178,7 @@ class ArchDistribution:
                 self.log(f"버퍼 생성 시작 ({len(settings['buffers'])}개)...")
                 for distance in settings['buffers']:
                     if progress.wasCanceled(): break
-                    self.create_buffer(study_layer, distance, buf_group)
+                    self.create_buffer(original_study_layer, distance, buf_group)
                     self.log(f"{distance}m 버퍼 생성 완료.")
                 current_step += 1
                 progress.setValue(current_step)
@@ -172,12 +189,12 @@ class ArchDistribution:
                 merged_heritage = self.consolidate_heritage_layers(
                     settings['heritage_layer_ids'], 
                     extent_geom, 
-                    study_layer, 
+                    original_study_layer, 
                     src_group
                 )
                 
                 if merged_heritage:
-                    self.log(f"유적 병합 완료 ({merged_heritage.featureCount()}개소). 번호 부여 중...")
+                    self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
                     self.number_heritage_v4(merged_heritage, centroid, settings['sort_order'])
                     self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
                     self.apply_heritage_style(merged_heritage, settings['heritage_style'])
@@ -441,13 +458,19 @@ class ArchDistribution:
 
             new_features = []
             for feat in layer.getFeatures():
+                if not feat.hasGeometry(): continue
+                
                 geom = feat.geometry()
                 if do_reproject:
                     geom.transform(transform)
                 
+                # Check if heritage site intersects the map extent
                 if geom.intersects(extent_geom):
-                    is_inside_study = geom.within(study_geom) if not study_geom.isNull() else False
-                    if not is_inside_study:
+                    # We exclude sites that are entirely within the study area (as they are 'internal')
+                    # But we include ones that overlap or are outside
+                    is_entirely_inside = geom.within(study_geom) if not study_geom.isNull() else False
+                    
+                    if not is_entirely_inside:
                         new_feat = QgsFeature(subset_layer.fields())
                         new_feat.setGeometry(geom)
                         
@@ -455,9 +478,12 @@ class ArchDistribution:
                         new_feat["유적명"] = feat[name_field] if name_field else "N/A"
                         new_feat["주소"] = feat[addr_field] if addr_field else "N/A"
                         
-                        # Area logic: if source has area use it, otherwise calculate from geometry
+                        # Area logic
                         if area_field and feat[area_field]:
-                            new_feat["면적_m2"] = float(feat[area_field])
+                            try:
+                                new_feat["면적_m2"] = float(feat[area_field])
+                            except:
+                                new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
                         else:
                             new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
                         
@@ -465,8 +491,11 @@ class ArchDistribution:
                         new_features.append(new_feat)
             
             if new_features:
+                self.log(f"  -> {len(new_features)}개소 수집됨.")
                 subset_pr.addFeatures(new_features)
                 temp_layers.append(subset_layer)
+            else:
+                self.log("  -> 영역 내 수집된 유적 없음.")
             
             self.move_layer_to_group(layer, src_group)
 

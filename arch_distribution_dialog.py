@@ -50,6 +50,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnRun.clicked.connect(self.emit_run_requested)
         self.buttonBox.rejected.connect(self.reject) # Close button
 
+        # Presets
+        self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
+        self.btnPresetA4.clicked.connect(lambda: self.apply_preset(210, 297))
+
         # Initialize layers
         self.populate_layers()
 
@@ -104,8 +108,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             except ValueError:
                 pass
 
-    def remove_buffer_from_list(self, item):
-        self.listBuffers.takeItem(self.listBuffers.row(item))
+    def apply_preset(self, w, h):
+        self.spinWidth.setValue(w)
+        self.spinHeight.setValue(h)
+        self.log(f"판형 규격이 설정되었습니다: {w} x {h} mm")
 
     def populate_layers(self):
         self.comboStudyArea.clear()

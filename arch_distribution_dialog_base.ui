@@ -151,14 +151,21 @@ QPlainTextEdit#txtLogs { background-color: #2b2b2b; color: #a9b7c6; font-family:
         <widget class="QGroupBox" name="groupPrintSpecs">
          <property name="title"><string>정밀 출력 판형 설정</string></property>
          <layout class="QGridLayout" name="g3">
-          <item row="0" column="0"><widget class="QLabel" name="lP1"><string>도면 가로 크기 (mm):</string></widget></item>
-          <item row="0" column="1"><widget class="QSpinBox" name="spinWidth"/><property name="toolTip"><string>출력물(종이)의 실제 가로 크기를 mm 단위로 입력합니다.</string></property></item>
-          <item row="1" column="0"><widget class="QLabel" name="lP2"><string>도면 세로 크기 (mm):</string></widget></item>
-          <item row="1" column="1"><widget class="QSpinBox" name="spinHeight"/><property name="toolTip"><string>출력물(종이)의 실제 세로 크기를 mm 단위로 입력합니다.</string></property></item>
-          <item row="2" column="0"><widget class="QLabel" name="lP3"><string>출력 축척 (1 : N):</string></widget></item>
-          <item row="2" column="1"><widget class="QSpinBox" name="spinScale"/><property name="toolTip"><string>예: 5000 입력 시 1:5000 축척으로 도곽을 생성합니다.</string></property></item>
-          <item row="3" column="0"><widget class="QLabel" name="lP4"><string>번호 정렬 기준:</string></widget></item>
-          <item row="3" column="1">
+          <item row="0" column="0" colspan="2">
+           <layout class="QHBoxLayout" name="hPresets">
+            <item><widget class="QLabel" name="lP0"><string>상용 규격:</string></widget></item>
+            <item><widget class="QPushButton" name="btnPresetReport"><property name="text"><string>보고서 (160x240)</string></property></widget></item>
+            <item><widget class="QPushButton" name="btnPresetA4"><property name="text"><string>A4 (210x297)</string></property></widget></item>
+           </layout>
+          </item>
+          <item row="1" column="0"><widget class="QLabel" name="lP1"><string>도면 가로 크기 (mm):</string></widget></item>
+          <item row="1" column="1"><widget class="QSpinBox" name="spinWidth"/><property name="toolTip"><string>출력물(종이)의 실제 가로 크기를 mm 단위로 입력합니다.</string></property></item>
+          <item row="2" column="0"><widget class="QLabel" name="lP2"><string>도면 세로 크기 (mm):</string></widget></item>
+          <item row="2" column="1"><widget class="QSpinBox" name="spinHeight"/><property name="toolTip"><string>출력물(종이)의 실제 세로 크기를 mm 단위로 입력합니다.</string></property></item>
+          <item row="3" column="0"><widget class="QLabel" name="lP3"><string>출력 축척 (1 : N):</string></widget></item>
+          <item row="3" column="1"><widget class="QSpinBox" name="spinScale"/><property name="toolTip"><string>예: 5000 입력 시 1:5000 축척으로 도곽을 생성합니다.</string></property></item>
+          <item row="4" column="0"><widget class="QLabel" name="lP4"><string>번호 정렬 기준:</string></widget></item>
+          <item row="4" column="1">
            <widget class="QComboBox" name="comboSortOrder">
             <item><string>조사구역에서 가까운 순</string></item>
             <item><string>북(위)에서 남(아래) 순</string></item>
