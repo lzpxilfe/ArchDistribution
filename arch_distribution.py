@@ -1,6 +1,6 @@
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant, Qt
 from qgis.PyQt.QtGui import QIcon, QColor, QFont
-from qgis.PyQt.QtWidgets import QAction, QMessageBox
+from qgis.PyQt.QtWidgets import QAction, QMessageBox, QProgressDialog
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
                        QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
@@ -68,76 +68,106 @@ class ArchDistribution:
             self.process_distribution_map(settings)
 
     def process_distribution_map(self, settings):
-        """Core logic to process layers, buffers, and numbering."""
-        self.iface.messageBar().pushMessage("ArchDistribution", "지표 작업 및 도면 생성을 시작합니다...", level=0)
+        """Core logic to process layers, multi-layer, and numbering with progress bar."""
+        
+        # 0. Setup Progress Dialog
+        total_steps = 1 + len(settings['buffers']) + 2 + (len(settings['heritage_layer_ids']) if settings['heritage_layer_ids'] else 0)
+        progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowTitle("ArchDistribution 진행률")
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
         
         try:
-            # 0. Setup Groups
+            current_step = 0
+            
+            # Step 1: Groups
+            progress.setLabelText("레이어 그룹을 생성하고 있습니다...")
             root = QgsProject.instance().layerTreeRoot()
             
-            # Output Group (Top)
+            # Remove existing groups if they exist
+            existing_out = root.findGroup("ArchDistribution_결과물")
+            if existing_out: root.removeChildNode(existing_out)
+            existing_src = root.findGroup("ArchDistribution_원본_데이터")
+            if existing_src: root.removeChildNode(existing_src)
+
             out_group = root.insertGroup(0, "ArchDistribution_결과물")
             ext_group = out_group.addGroup("01_도곽_및_영역")
             her_group = out_group.addGroup("02_유적_현황")
             buf_group = out_group.addGroup("03_조사구역_버퍼")
             topo_merged_group = out_group.addGroup("04_수치지형도_병합")
-            
-            # Source Group (Bottom)
             src_group = root.addGroup("ArchDistribution_원본_데이터")
-            
-            # 1. Load & Move Study Area
+            current_step += 1
+            progress.setValue(current_step)
+
+            # Step 2: Study Area
+            progress.setLabelText("조사구역 정보를 읽어오고 있습니다...")
             study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
             if not study_layer:
                 QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
                 return
 
-            # Set Encoding for Study Area
             self.fix_layer_encoding(study_layer)
-
-            # Apply Study Area Symbology
             self.apply_study_style(study_layer, settings['study_style'])
             self.move_layer_to_group(study_layer, src_group)
+            current_step += 1
+            progress.setValue(current_step)
 
-            # 2. Merge & Style Topo Maps
+            # Step 3: Topo Merge
             if settings['topo_layer_ids']:
-                self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group)
+                progress.setLabelText(f"수치지형도 {len(settings['topo_layer_ids'])}매를 병합하고 있습니다...")
+                try:
+                    self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group)
+                except Exception as e:
+                    self.iface.messageBar().pushMessage("ArchDistribution", f"지형도 병합 중 오류(데이터 부족 등)가 발생했으나 계속 진행합니다: {str(e)}", level=1)
+            current_step += 1
+            progress.setValue(current_step)
 
-            # 3. Generate Buffers
+            # Step 4: Buffers
             for distance in settings['buffers']:
+                if progress.wasCanceled(): break
+                progress.setLabelText(f"{distance}m 버퍼를 생성하고 있습니다...")
                 self.create_buffer(study_layer, distance, buf_group)
+                current_step += 1
+                progress.setValue(current_step)
 
-            # 4. Calculate Extent (Centered on Study Area)
+            # Step 5: Extent
+            progress.setLabelText("도각 및 출력이미지 영역을 계산하고 있습니다...")
             centroid = self.get_study_area_centroid(study_layer)
-            if not centroid:
-                QMessageBox.warning(None, "경고", "조사지역의 중심점을 계산할 수 없습니다.")
-                return
-            
-            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
-
-            # 5. Style & Number Heritage Sites
-            if settings['heritage_layer_ids']:
-                self.process_heritage_numbering_v3(
-                    settings['heritage_layer_ids'], 
-                    extent_geom, 
-                    centroid, 
-                    settings['sort_order'],
-                    study_layer,
-                    settings['heritage_style'],
-                    her_group,
-                    src_group
-                )
-            
-            self.iface.messageBar().pushMessage("ArchDistribution", "작업이 완료되었습니다. 레이어 그룹을 확인해 주세요.", level=0)
-            
-            # Zoom to extent
-            if extent_geom:
+            if centroid:
+                extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
+                
+                # Step 6: Heritage Numbering
+                if settings['heritage_layer_ids']:
+                    for i, lid in enumerate(settings['heritage_layer_ids']):
+                        if progress.wasCanceled(): break
+                        progress.setLabelText(f"유적 레이어({i+1}/{len(settings['heritage_layer_ids'])}) 정보를 처리하고 있습니다...")
+                        self.process_heritage_numbering_v3(
+                            [lid], 
+                            extent_geom, 
+                            centroid, 
+                            settings['sort_order'],
+                            study_layer,
+                            settings['heritage_style'],
+                            her_group,
+                            src_group
+                        )
+                        current_step += 1
+                        progress.setValue(current_step)
+                
+                # Zoom to extent
                 self.iface.mapCanvas().setExtent(extent_geom.boundingBox())
                 self.iface.mapCanvas().refresh()
+            
+            progress.setValue(total_steps)
+            self.iface.messageBar().pushMessage("ArchDistribution", "모든 작업이 완료되었습니다.", level=0)
 
         except Exception as e:
             QMessageBox.critical(None, "오류", f"작업 중 오류 발생: {str(e)}")
             import traceback
             print(traceback.format_exc())
+        finally:
+            progress.close()
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group."""
