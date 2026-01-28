@@ -20,6 +20,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.heritage_fill_color = QtGui.QColor(255, 178, 102) # Light Orange/Peach
         self.study_stroke_color = QtGui.QColor(255, 0, 0) # Red for Study Area
         self.topo_stroke_color = QtGui.QColor(0, 0, 0) # Black for Topo Maps
+        self.buffer_color = QtGui.QColor(100, 100, 100) # Gray for Buffers
         
         # Set Default Values for SpinBoxes
         self.spinHeritageStrokeWidth.setValue(0.3)
@@ -39,6 +40,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnHeritageFillColor.clicked.connect(lambda: self.pick_color('heritage_fill'))
         self.btnStudyStrokeColor.clicked.connect(lambda: self.pick_color('study_stroke'))
         self.btnTopoStrokeColor.clicked.connect(lambda: self.pick_color('topo_stroke'))
+        self.btnBufferColor.clicked.connect(lambda: self.pick_color('buffer'))
         
         self.btnAddBuffer.clicked.connect(self.add_buffer_to_list)
         self.listBuffers.itemDoubleClicked.connect(self.remove_buffer_from_list)
@@ -93,6 +95,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnHeritageFillColor.setStyleSheet(f"background-color: {self.heritage_fill_color.name()}; color: {'white' if self.heritage_fill_color.lightness() < 128 else 'black'};")
         self.btnStudyStrokeColor.setStyleSheet(f"background-color: {self.study_stroke_color.name()}; color: {'white' if self.study_stroke_color.lightness() < 128 else 'black'};")
         self.btnTopoStrokeColor.setStyleSheet(f"background-color: {self.topo_stroke_color.name()}; color: {'white' if self.topo_stroke_color.lightness() < 128 else 'black'};")
+        self.btnBufferColor.setStyleSheet(f"background-color: {self.buffer_color.name()}; color: {'white' if self.buffer_color.lightness() < 128 else 'black'};")
 
     def pick_color(self, target):
         color = QColorDialog.getColor()
@@ -101,6 +104,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             elif target == 'heritage_fill': self.heritage_fill_color = color
             elif target == 'study_stroke': self.study_stroke_color = color
             elif target == 'topo_stroke': self.topo_stroke_color = color
+            elif target == 'buffer': self.buffer_color = color
             self.update_button_colors()
 
     def add_buffer_to_list(self):
@@ -160,6 +164,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "heritage_layer_ids": heritage_layer_ids,
             "study_area_id": self.comboStudyArea.currentData(),
             "buffers": buffers,
+            "buffer_style": {
+                "color": self.buffer_color.name(),
+                "style": self.comboBufferStyle.currentIndex() # 0: Solid, 1: Dash, 2: Dot
+            },
             "heritage_style": {
                 "stroke_color": self.heritage_stroke_color.name(),
                 "stroke_width": self.spinHeritageStrokeWidth.value(),

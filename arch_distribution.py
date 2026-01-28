@@ -178,7 +178,7 @@ class ArchDistribution:
                 self.log(f"버퍼 생성 시작 ({len(settings['buffers'])}개)...")
                 for distance in settings['buffers']:
                     if progress.wasCanceled(): break
-                    self.create_buffer(original_study_layer, distance, buf_group)
+                    self.create_buffer(original_study_layer, distance, buf_group, settings['buffer_style'])
                     self.log(f"{distance}m 버퍼 생성 완료.")
                 current_step += 1
                 progress.setValue(current_step)
@@ -300,20 +300,30 @@ class ArchDistribution:
         QgsProject.instance().addMapLayer(merged_layer, False)
         target_group.addLayer(merged_layer)
 
-    def create_buffer(self, layer, distance, group):
+    def create_buffer(self, layer, distance, group, style):
         params = {
             'INPUT': layer,
             'DISTANCE': distance,
             'SEGMENTS': 50,
-            'END_CAP_STYLE': 0,
-            'JOIN_STYLE': 0,
-            'MITER_LIMIT': 2,
             'DISSOLVE': False,
             'OUTPUT': 'memory:Buffer_' + str(distance)
         }
         result = processing.run("native:buffer", params)
         buffer_layer = result['OUTPUT']
         buffer_layer.setName(f"Buffer_{distance}m")
+        
+        # Apply outline-only style with custom color and dash pattern
+        pen_styles = ['solid', 'dash', 'dot']
+        target_style = pen_styles[style['style']] if style['style'] < len(pen_styles) else 'solid'
+        
+        symbol = QgsFillSymbol.createSimple({
+            'color': '0,0,0,0', # Transparent fill
+            'outline_color': style['color'],
+            'outline_width': '0.3', # Standard buffer line weight
+            'outline_style': target_style
+        })
+        buffer_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        
         QgsProject.instance().addMapLayer(buffer_layer, False)
         group.addLayer(buffer_layer)
 
@@ -364,9 +374,16 @@ class ArchDistribution:
         # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
         vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory") 
         if not vl.isValid():
-            # Fallback to EPSG:5186 if WKT fails
             vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "도곽_Extent", "memory")
         
+        # Explicit outline-only styling
+        symbol = QgsFillSymbol.createSimple({
+            'color': '0,0,0,0', # No fill
+            'outline_color': '0,0,0,255', # Black outline
+            'outline_width': '0.3'
+        })
+        vl.setRenderer(QgsSingleSymbolRenderer(symbol))
+
         pr = vl.dataProvider()
         feat = QgsFeature()
         feat.setGeometry(rect_geom)
@@ -532,8 +549,10 @@ class ArchDistribution:
             geom = feat.geometry()
             if sort_order == 0: # Proximity
                 val = geom.centroid().asPoint().sqrDist(centroid)
-            else: # Top to Bottom
+            elif sort_order == 1: # Geo-Top (North to South)
                 val = -geom.centroid().asPoint().y()
+            else: # Alphabetical
+                val = feat["유적명"] if "유적명" in feat.fields().names() else ""
             features_to_sort.append({'feat': feat, 'sort_val': val})
         
         features_to_sort.sort(key=lambda x: x['sort_val'])
