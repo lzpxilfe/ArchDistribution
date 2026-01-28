@@ -11,14 +11,21 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.2)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.3)</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #f5f5f5; }
 QGroupBox { font-size: 13px; font-weight: bold; border: 1px solid #c0c0c0; border-radius: 6px; margin-top: 20px; padding-top: 15px; background-color: #ffffff; }
 QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; color: #333333; }
 QLabel { color: #333333; font-size: 11px; }
-QLabel#ld1, QLabel#ld2, QLabel#ld3, QLabel#ls1, QLabel#ls2, QLabel#ls3, QLabel#lb1, QLabel#lb2 { font-weight: bold; color: #000000; font-size: 12px; }
+/* FORCE LABEL VISIBILITY: Blue color, scalable font, explicit identification */
+QLabel#ld1, QLabel#ld2, QLabel#ld3, QLabel#ls1, QLabel#ls2, QLabel#ls3, QLabel#lb1, QLabel#lb2 { 
+    font-weight: bold; 
+    color: #1565c0; 
+    font-size: 13px; 
+    min-width: 160px; 
+    margin-right: 5px;
+}
 QLabel#lTitle { color: #2c3e50; font-size: 16px; font-weight: bold; }
 QPushButton#btnRun { 
   background-color: #2980b9; 
@@ -45,7 +52,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.0.2</string>
+        <string>🏛 ArchDistribution Pro v1.0.3</string>
        </property>
       </widget>
      </item>
@@ -98,7 +105,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ld1">
-            <string>① 조사지역 선택 (기준):</string>
+            <property name="minimumWidth"><number>160</number></property>
+            <property name="text"><string>① 조사지역 선택 (기준):</string></property>
+            <property name="alignment"><enum>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</enum></property>
            </widget>
           </item>
           <item row="0" column="1">
@@ -115,7 +124,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="ld2">
-            <string>② 수치지형도 (배경):</string>
+            <property name="minimumWidth"><number>160</number></property>
+            <property name="text"><string>② 수치지형도 (배경):</string></property>
+            <property name="alignment"><enum>Qt::AlignRight|Qt::AlignTop|Qt::AlignTrailing</enum></property>
            </widget>
           </item>
           <item row="1" column="1">
@@ -173,7 +184,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="ld3">
-            <string>③ 주변 유적 (분석):</string>
+            <property name="minimumWidth"><number>160</number></property>
+            <property name="text"><string>③ 주변 유적 (분석):</string></property>
+            <property name="alignment"><enum>Qt::AlignRight|Qt::AlignTop|Qt::AlignTrailing</enum></property>
            </widget>
           </item>
           <item row="2" column="1">
