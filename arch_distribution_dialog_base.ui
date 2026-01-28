@@ -11,21 +11,13 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.3)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.4)</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #f5f5f5; }
 QGroupBox { font-size: 13px; font-weight: bold; border: 1px solid #c0c0c0; border-radius: 6px; margin-top: 20px; padding-top: 15px; background-color: #ffffff; }
 QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; color: #333333; }
 QLabel { color: #333333; font-size: 11px; }
-/* FORCE LABEL VISIBILITY: Blue color, scalable font, explicit identification */
-QLabel#ld1, QLabel#ld2, QLabel#ld3, QLabel#ls1, QLabel#ls2, QLabel#ls3, QLabel#lb1, QLabel#lb2 { 
-    font-weight: bold; 
-    color: #1565c0; 
-    font-size: 13px; 
-    min-width: 160px; 
-    margin-right: 5px;
-}
 QLabel#lTitle { color: #2c3e50; font-size: 16px; font-weight: bold; }
 QPushButton#btnRun { 
   background-color: #2980b9; 
@@ -52,7 +44,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.0.3</string>
+        <string>🏛 ArchDistribution Pro v1.0.4</string>
        </property>
       </widget>
      </item>
@@ -105,8 +97,20 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ld1">
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
             <property name="text">
              <string>① 조사지역 선택 (기준):</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
@@ -124,8 +128,20 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="ld2">
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
             <property name="text">
              <string>② 수치지형도 (배경):</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
@@ -184,8 +200,20 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="ld3">
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
             <property name="text">
              <string>③ 주변 유적 (분석):</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
@@ -371,7 +399,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ls1">
-            <string>① 주변 유적 스타일:</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>① 주변 유적 스타일:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="0" column="1">
@@ -414,7 +456,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="ls2">
-            <string>② 조사지역 스타일:</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>② 조사지역 스타일:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="1" column="1">
@@ -444,7 +500,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="ls3">
-            <string>③ 수치지형도 스타일:</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>③ 수치지형도 스타일:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="2" column="1">
@@ -458,7 +528,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           <item row="2" column="3">
            <widget class="QPushButton" name="btnTopoStrokeColor">
             <property name="text">
-             <string>등고선 색상</string>
+             <string>수치지형도 색상</string>
             </property>
            </widget>
           </item>
@@ -483,7 +553,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
          <layout class="QGridLayout" name="gBuffer">
           <item row="0" column="0">
            <widget class="QLabel" name="lb1">
-            <string>① 조사구역 버퍼 거리(m):</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>① 조사구역 버퍼 거리(m):</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="0" column="1">
@@ -518,7 +602,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="lb2">
-            <string>② 버퍼 라인 스타일:</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>② 버퍼 라인 스타일:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="1" column="1" colspan="2">
@@ -528,6 +626,12 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
             </property>
             <item>
              <widget class="QComboBox" name="comboBufferStyle">
+              <property name="styleSheet">
+               <string notr="true">color: black; background-color: white;</string>
+              </property>
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
               <item>
                <string>실선 (Solid)</string>
               </item>
@@ -559,11 +663,31 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
          <layout class="QGridLayout" name="gNum">
           <item row="0" column="0">
            <widget class="QLabel" name="ln1">
-            <string>번호 부여 질서(목록):</string>
+            <property name="minimumSize">
+             <size>
+              <width>160</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #1565c0; font-weight: bold; font-size: 13px;</string>
+            </property>
+            <property name="text">
+             <string>번호 부여 질서(목록):</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
           <item row="0" column="1">
            <widget class="QComboBox" name="comboSortOrder">
+            <property name="styleSheet">
+             <string notr="true">color: black; background-color: white;</string>
+            </property>
+            <property name="currentIndex">
+             <number>0</number>
+            </property>
             <item>
              <string>가까운 순 (1번: 최단거리 유적)</string>
             </item>
