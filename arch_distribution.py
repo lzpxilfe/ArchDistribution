@@ -62,16 +62,23 @@ class ArchDistribution:
 
     def run(self):
         """Run the plugin main dialog."""
-        dlg = ArchDistributionDialog()
-        if dlg.exec_():
-            settings = dlg.get_settings()
+        self.dlg = ArchDistributionDialog()
+        if self.dlg.exec_():
+            settings = self.dlg.get_settings()
             self.process_distribution_map(settings)
 
+    def log(self, message):
+        """Log a message to the dialog log window and QGIS message bar."""
+        if hasattr(self, 'dlg') and self.dlg:
+            self.dlg.log(f"[{QtCore.QDateTime.currentDateTime().toString('hh:mm:ss')}] {message}")
+        print(f"ArchDistribution: {message}")
+
     def process_distribution_map(self, settings):
-        """Core logic to process layers, multi-layer, and numbering with progress bar."""
+        """Core logic with logging, progress, and heritage merging."""
+        self.log("작업을 시작합니다...")
         
         # 0. Setup Progress Dialog
-        total_steps = 1 + len(settings['buffers']) + 2 + (len(settings['heritage_layer_ids']) if settings['heritage_layer_ids'] else 0)
+        total_steps = 10 # Simplified step count for logging
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
         progress.setWindowModality(Qt.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
@@ -82,10 +89,8 @@ class ArchDistribution:
             current_step = 0
             
             # Step 1: Groups
-            progress.setLabelText("레이어 그룹을 생성하고 있습니다...")
+            self.log("레이어 그룹 설정 중...")
             root = QgsProject.instance().layerTreeRoot()
-            
-            # Remove existing groups if they exist
             existing_out = root.findGroup("ArchDistribution_결과물")
             if existing_out: root.removeChildNode(existing_out)
             existing_src = root.findGroup("ArchDistribution_원본_데이터")
@@ -101,10 +106,10 @@ class ArchDistribution:
             progress.setValue(current_step)
 
             # Step 2: Study Area
-            progress.setLabelText("조사구역 정보를 읽어오고 있습니다...")
+            self.log("조사구역 레이어 로드 중...")
             study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
             if not study_layer:
-                QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
+                self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
                 return
 
             self.fix_layer_encoding(study_layer)
@@ -115,57 +120,73 @@ class ArchDistribution:
 
             # Step 3: Topo Merge
             if settings['topo_layer_ids']:
-                progress.setLabelText(f"수치지형도 {len(settings['topo_layer_ids'])}매를 병합하고 있습니다...")
+                self.log(f"수치지형도 병합 시작 ({len(settings['topo_layer_ids'])}매)...")
                 try:
                     self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group)
+                    self.log("수치지형도 병합 및 스타일 적용 완료.")
                 except Exception as e:
-                    self.iface.messageBar().pushMessage("ArchDistribution", f"지형도 병합 중 오류(데이터 부족 등)가 발생했으나 계속 진행합니다: {str(e)}", level=1)
+                    self.log(f"경고: 지형도 병합 중 일부 데이터 건립 오류 발생 (계속 진행): {str(e)}")
             current_step += 1
             progress.setValue(current_step)
 
-            # Step 4: Buffers
-            for distance in settings['buffers']:
-                if progress.wasCanceled(): break
-                progress.setLabelText(f"{distance}m 버퍼를 생성하고 있습니다...")
-                self.create_buffer(study_layer, distance, buf_group)
+            # Step 4: Centroid & Extent
+            self.log("중심점 및 도곽 영역 계산 중...")
+            centroid = self.get_study_area_centroid(study_layer)
+            if not centroid:
+                self.log("오류: 조사지역의 중심점을 계산할 수 없습니다.")
+                return
+            
+            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
+            self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
+            current_step += 1
+            progress.setValue(current_step)
+
+            # Step 5: Buffers
+            if settings['buffers']:
+                self.log(f"버퍼 생성 시작 ({len(settings['buffers'])}개)...")
+                for distance in settings['buffers']:
+                    if progress.wasCanceled(): break
+                    self.create_buffer(study_layer, distance, buf_group)
+                    self.log(f"{distance}m 버퍼 생성 완료.")
                 current_step += 1
                 progress.setValue(current_step)
 
-            # Step 5: Extent
-            progress.setLabelText("도각 및 출력이미지 영역을 계산하고 있습니다...")
-            centroid = self.get_study_area_centroid(study_layer)
-            if centroid:
-                extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
+            # Step 6: Heritage Consolidation & Numbering
+            if settings['heritage_layer_ids']:
+                self.log("주변 유적 데이터 수집 및 병합 시작...")
+                merged_heritage = self.consolidate_heritage_layers(
+                    settings['heritage_layer_ids'], 
+                    extent_geom, 
+                    study_layer, 
+                    src_group
+                )
                 
-                # Step 6: Heritage Numbering
-                if settings['heritage_layer_ids']:
-                    for i, lid in enumerate(settings['heritage_layer_ids']):
-                        if progress.wasCanceled(): break
-                        progress.setLabelText(f"유적 레이어({i+1}/{len(settings['heritage_layer_ids'])}) 정보를 처리하고 있습니다...")
-                        self.process_heritage_numbering_v3(
-                            [lid], 
-                            extent_geom, 
-                            centroid, 
-                            settings['sort_order'],
-                            study_layer,
-                            settings['heritage_style'],
-                            her_group,
-                            src_group
-                        )
-                        current_step += 1
-                        progress.setValue(current_step)
-                
-                # Zoom to extent
-                self.iface.mapCanvas().setExtent(extent_geom.boundingBox())
-                self.iface.mapCanvas().refresh()
+                if merged_heritage:
+                    self.log(f"유적 병합 완료 ({merged_heritage.featureCount()}개소). 번호 부여 중...")
+                    self.number_heritage_v4(merged_heritage, centroid, settings['sort_order'])
+                    self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
+                    self.apply_heritage_style(merged_heritage, settings['heritage_style'])
+                    
+                    QgsProject.instance().addMapLayer(merged_heritage, False)
+                    her_group.addLayer(merged_heritage)
+                    self.log("최종 결과 유적 레이어 등록 완료.")
+                else:
+                    self.log("알림: 영역 내에 수집된 유적이 없습니다.")
             
-            progress.setValue(total_steps)
-            self.iface.messageBar().pushMessage("ArchDistribution", "모든 작업이 완료되었습니다.", level=0)
+            current_step = total_steps
+            progress.setValue(current_step)
+            
+            # Zoom to extent
+            self.iface.mapCanvas().setExtent(extent_geom.boundingBox())
+            self.iface.mapCanvas().refresh()
+            self.log("모든 작업이 성공적으로 완료되었습니다.")
+            self.iface.messageBar().pushMessage("ArchDistribution", "작업 완료", level=0)
 
         except Exception as e:
-            QMessageBox.critical(None, "오류", f"작업 중 오류 발생: {str(e)}")
+            self.log(f"치명적 오류 발생: {str(e)}")
             import traceback
-            print(traceback.format_exc())
+            self.log(traceback.format_exc())
+            QMessageBox.critical(None, "오류", f"작업 중 오류 발생: {str(e)}")
         finally:
             progress.close()
 
@@ -329,8 +350,9 @@ class ArchDistribution:
             layer.setRenderer(renderer)
             layer.triggerRepaint()
 
-    def process_heritage_numbering_v3(self, heritage_layer_ids, extent_geom, centroid, sort_order, study_layer, style, target_group, src_group):
-        """Number sites outside study area and apply symbology."""
+    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group):
+        """Merge selected heritage layers and filter by extent and study area."""
+        temp_layers = []
         
         # Merge study area geometries for fast intersection check
         study_geom = QgsGeometry()
@@ -338,55 +360,93 @@ class ArchDistribution:
             if study_geom.isNull(): study_geom = f.geometry()
             else: study_geom = study_geom.combine(f.geometry())
 
+        target_crs = study_layer.crs()
+
         for lid in heritage_layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
-            if not layer or layer.type() != 0:
-                continue
+            if not layer or layer.type() != 0: continue
             
-            # Fix Encoding
+            self.log(f"데이터 수집 중: {layer.name()}")
             self.fix_layer_encoding(layer)
-
-            # Move to source group (we might use a copy instead if user wants, but request says "group old ones")
-            # Let's clone for the result group and move original to source group
-            # Actually, per user request "묶어두면 좋겠어" for old ones.
-            self.move_layer_to_group(layer, target_group) # Move to top results for now as it's modified
-
-            # Apply Symbology
-            self.apply_heritage_style(layer, style)
-
-            # Add field
-            if layer.fields().indexFromName("Dist_No") == -1:
-                layer.startEditing()
-                layer.addAttribute(QgsField("Dist_No", QVariant.Int))
-                layer.commitChanges()
             
-            idx = layer.fields().indexFromName("Dist_No")
+            # Detect geometry type
+            geom_type_str = ""
+            if layer.geometryType() == 0: geom_type_str = "Point"
+            elif layer.geometryType() == 1: geom_type_str = "LineString"
+            elif layer.geometryType() == 2: geom_type_str = "Polygon"
             
-            # Filter features: 1. Inside Extent, 2. Outside Study Area
-            features_to_number = []
+            # Create a subset of features within extent and NOT in study area
+            subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
+            subset_pr = subset_layer.dataProvider()
+            
+            # Copy fields
+            subset_pr.addAttributes(layer.fields())
+            subset_layer.updateFields()
+            
+            # Reproject if necessary
+            do_reproject = layer.crs() != target_crs
+            if do_reproject:
+                from qgis.core import QgsCoordinateTransformContext, QgsCoordinateTransform
+                transform = QgsCoordinateTransform(layer.crs(), target_crs, QgsProject.instance())
+
+            new_features = []
             for feat in layer.getFeatures():
                 geom = feat.geometry()
+                if do_reproject:
+                    geom.transform(transform)
+                
                 if geom.intersects(extent_geom):
-                    # Check if IT IS NOT inside study area
-                    # If heritage is a polygon, we check if it is NOT completely within study area
-                    # or if its centroid is not in study area for simplicity
                     is_inside_study = geom.within(study_geom) if not study_geom.isNull() else False
-                    
                     if not is_inside_study:
-                        if sort_order == 0: # Proximity
-                            val = geom.centroid().asPoint().sqrDist(centroid)
-                        else: # Top to Bottom
-                            val = -geom.centroid().asPoint().y()
-                        
-                        features_to_number.append({'feat': feat, 'sort_val': val})
+                        new_feat = QgsFeature(feat)
+                        new_feat.setGeometry(geom)
+                        new_features.append(new_feat)
             
-            # Sort & Label
-            features_to_number.sort(key=lambda x: x['sort_val'])
+            if new_features:
+                subset_pr.addFeatures(new_features)
+                temp_layers.append(subset_layer)
             
-            layer.startEditing()
-            for i, item in enumerate(features_to_number):
-                layer.changeAttributeValue(item['feat'].id(), idx, i + 1)
-            layer.commitChanges()
+            self.move_layer_to_group(layer, src_group)
+
+        if not temp_layers: return None
+
+        # Merge all subsets
+        self.log("레이어 병합 처리 중...")
+        params = {
+            'LAYERS': temp_layers,
+            'CRS': target_crs,
+            'OUTPUT': 'memory:Consolidated_Heritage'
+        }
+        result = processing.run("native:mergevectorlayers", params)
+        final_layer = result['OUTPUT']
+        final_layer.setName("수집_및_병합된_주변유적")
+
+        # Add No field if missing
+        if final_layer.fields().indexFromName("Dist_No") == -1:
+            final_layer.startEditing()
+            final_layer.addAttribute(QgsField("Dist_No", QVariant.Int))
+            final_layer.commitChanges()
+
+        return final_layer
+
+    def number_heritage_v4(self, layer, centroid, sort_order):
+        """Sort features and assign numbers to Dist_No field."""
+        idx = layer.fields().indexFromName("Dist_No")
+        features_to_sort = []
+        for feat in layer.getFeatures():
+            geom = feat.geometry()
+            if sort_order == 0: # Proximity
+                val = geom.centroid().asPoint().sqrDist(centroid)
+            else: # Top to Bottom
+                val = -geom.centroid().asPoint().y()
+            features_to_sort.append({'feat': feat, 'sort_val': val})
+        
+        features_to_sort.sort(key=lambda x: x['sort_val'])
+        
+        layer.startEditing()
+        for i, item in enumerate(features_to_sort):
+            layer.changeAttributeValue(item['feat'].id(), idx, i + 1)
+        layer.commitChanges()
 
     def apply_heritage_style(self, layer, style):
         """Apply complex symbology and labeling to heritage layer."""

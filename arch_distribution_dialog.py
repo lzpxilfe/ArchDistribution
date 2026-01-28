@@ -39,6 +39,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Initialize layers
         self.populate_layers()
 
+    def log(self, message):
+        """Append a message to the log window."""
+        self.txtLogs.appendPlainText(message)
+        # Force UI update
+        QtWidgets.QApplication.processEvents()
+
     def set_batch_check(self, list_widget, check_state):
         """Set check state for all currently selected items in the list widget."""
         selected_items = list_widget.selectedItems()
