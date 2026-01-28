@@ -3,7 +3,7 @@ from qgis.PyQt.QtGui import QIcon, QColor
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
                        QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
-                       QgsLineSymbol, QgsSingleSymbolRenderer)
+                       QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest)
 
 import os.path
 import processing
@@ -128,6 +128,23 @@ class ArchDistribution:
         result = processing.run("native:mergevectorlayers", params)
         merged_layer = result['OUTPUT']
         merged_layer.setName("수치지형도_병합")
+
+        # Boundary filtering (H0017334)
+        boundary_code = "H0017334"
+        fields = [f.name() for f in merged_layer.fields()]
+        target_field = None
+        for f in fields:
+            if f.upper() in ['LAYER', 'REFNAME', 'NAME']:
+                target_field = f
+                break
+        
+        if target_field:
+            expr = f"\"{target_field}\" = '{boundary_code}'"
+            merged_layer.startEditing()
+            ids_to_delete = [f.id() for f in merged_layer.getFeatures(QgsFeatureRequest().setFilterExpression(expr))]
+            if ids_to_delete:
+                merged_layer.deleteFeatures(ids_to_delete)
+            merged_layer.commitChanges()
 
         # Styling
         symbol = QgsLineSymbol.createSimple({'color': '0,0,0,255', 'width': '0.05', 'width_unit': 'MM'})
