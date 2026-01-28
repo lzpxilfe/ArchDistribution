@@ -603,12 +603,11 @@ class ArchDistribution:
         text_format.setFont(font)
         text_format.setColor(QColor(0, 0, 0)) # Black text
         
-        # Add a buffer (halo) to labels for readability
+        # Add a buffer (halo) - Removed for Illustrator compatibility as requested
+        # (Halos often become separate complex paths in AI, solid black is easier to edit)
         from qgis.core import QgsTextBufferSettings
         buffer_settings = QgsTextBufferSettings()
-        buffer_settings.setEnabled(True)
-        buffer_settings.setSize(1.0) # Slightly larger buffer for map clarity
-        buffer_settings.setColor(QColor(255, 255, 255)) # White halo
+        buffer_settings.setEnabled(False) # Now Disabled
         text_format.setBuffer(buffer_settings)
         
         label_settings.setFormat(text_format)
