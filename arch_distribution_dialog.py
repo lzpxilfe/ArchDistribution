@@ -55,8 +55,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.run_requested.emit(settings)
 
     def log(self, message):
-        """Append a message to the log window."""
+        """Append a message to the log window and scroll to bottom."""
         self.txtLogs.appendPlainText(message)
+        # Scroll to bottom
+        cursor = self.txtLogs.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.End)
+        self.txtLogs.setTextCursor(cursor)
         # Force UI update
         QtWidgets.QApplication.processEvents()
 

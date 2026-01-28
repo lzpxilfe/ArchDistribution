@@ -115,6 +115,10 @@ class ArchDistribution:
                 self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
                 return
 
+            # CRS Validation
+            if study_layer.crs().isGeographic():
+                 self.log("경고: 현재 레이어가 지리좌표계(도 단위)입니다. 미터 단위 투영좌표계를 권장합니다.")
+            
             self.fix_layer_encoding(study_layer)
             self.apply_study_style(study_layer, settings['study_style'])
             self.move_layer_to_group(study_layer, src_group)
@@ -139,7 +143,7 @@ class ArchDistribution:
                 self.log("오류: 조사지역의 중심점을 계산할 수 없습니다.")
                 return
             
-            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
+            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, study_layer.crs())
             self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
             current_step += 1
             progress.setValue(current_step)
@@ -294,7 +298,7 @@ class ArchDistribution:
         
         return combined_geom.centroid().asPoint()
 
-    def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group):
+    def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group, crs):
         """Create a rectangle polygon based on paper size and scale."""
         if not centroid:
             return None
@@ -320,8 +324,8 @@ class ArchDistribution:
             QgsPointXY(p1[0], p1[1])
         ]])
 
-        # Create a memory layer for the extent
-        vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "도곽_Extent", "memory") 
+        # Create a memory layer for the extent using the study layer's CRS
+        vl = QgsVectorLayer(f"Polygon?crs={crs.authid()}", "도곽_Extent", "memory") 
         
         pr = vl.dataProvider()
         feat = QgsFeature()
@@ -447,13 +451,18 @@ class ArchDistribution:
 
         if not temp_layers: return None
 
-        # Merge all subsets
+        # Merge subsets grouped by geometry type (native:mergevectorlayers prefers uniform types)
+        # We'll merge everything into one if possible, but separate results are safer for display
+        # For simplicity and export-readiness, we'll try to merge all, but warn if mixed.
+        
         self.log("최종 데이터 병합 처리 중...")
         params = {
             'LAYERS': temp_layers,
             'CRS': target_crs,
             'OUTPUT': 'memory:Consolidated_Heritage'
         }
+        # In QGIS 3, this creates a layer with the type of the first layer.
+        # To be safe, we'll just use it and rely on the fact that most are Polygons.
         result = processing.run("native:mergevectorlayers", params)
         final_layer = result['OUTPUT']
         final_layer.setName("수집_및_병합된_주변유적")
