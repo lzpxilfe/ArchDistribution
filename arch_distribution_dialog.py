@@ -113,6 +113,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinHeight.setValue(h)
         self.log(f"판형 규격이 설정되었습니다: {w} x {h} mm")
 
+    def remove_buffer_from_list(self, item):
+        self.listBuffers.takeItem(self.listBuffers.row(item))
+
     def populate_layers(self):
         self.comboStudyArea.clear()
         self.listTopoLayers.clear()

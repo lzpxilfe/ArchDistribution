@@ -570,7 +570,14 @@ class ArchDistribution:
         label_settings.enabled = True
         
         text_format = QgsTextFormat()
-        text_format.setFont(QFont("Malgun Gothic", 10, QFont.Bold)) # Korean standard font
+        # Ensure a standard font that works on most systems
+        font = QFont("Malgun Gothic")
+        if not font.exactMatch():
+            font = QFont("Arial")
+        font.setBold(True)
+        font.setPointSize(10)
+        
+        text_format.setFont(font)
         text_format.setColor(QColor(0, 0, 0)) # Black text
         
         # Add a buffer (halo) to labels for readability
