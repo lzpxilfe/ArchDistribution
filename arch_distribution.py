@@ -15,10 +15,14 @@ class ArchDistribution:
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
         self.menu = QCoreApplication.translate('ArchDistribution', '&ArchDistribution')
-        self.toolbar = self.iface.addToolBar('ArchDistribution')
-        self.toolbar.setObjectName('ArchDistribution')
+        self.toolbar = None
 
     def initGui(self):
+        # Create toolbar if it doesn't exist
+        if not self.toolbar:
+            self.toolbar = self.iface.addToolBar('ArchDistribution')
+            self.toolbar.setObjectName('ArchDistribution')
+
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
             icon_path,
@@ -28,10 +32,12 @@ class ArchDistribution:
 
     def unload(self):
         for action in self.actions:
-            self.iface.removePluginMenu(
-                QCoreApplication.translate('ArchDistribution', '&ArchDistribution'),
-                action)
+            self.iface.removePluginMenu(self.menu, action)
             self.iface.removeToolBarIcon(action)
+        
+        # Remove toolbar
+        if self.toolbar:
+            del self.toolbar
 
     def add_action(self, icon_path, text, callback, enabled_flag=True, add_to_menu=True, add_to_toolbar=True, status_tip=None, parent=None):
         icon = QIcon(icon_path)
