@@ -153,7 +153,7 @@ class ArchDistribution:
             if settings['topo_layer_ids']:
                 self.log(f"수치지형도 병합 시작 ({len(settings['topo_layer_ids'])}매)...")
                 try:
-                    self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group)
+                    self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group, settings['topo_style'])
                     self.log("수치지형도 병합 및 스타일 적용 완료.")
                 except Exception as e:
                     self.log(f"경고: 지형도 병합 중 일부 데이터 건립 오류 발생 (계속 진행): {str(e)}")
@@ -247,8 +247,8 @@ class ArchDistribution:
             # Reload to apply
             layer.triggerRepaint()
 
-    def merge_and_style_topo(self, layer_ids, target_group, src_group):
-        """Merge selected topo layers and apply 0.05mm black style."""
+    def merge_and_style_topo(self, layer_ids, target_group, src_group, style):
+        """Merge selected topo layers and apply custom style."""
         layers = []
         for lid in layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
@@ -288,7 +288,11 @@ class ArchDistribution:
             merged_layer.commitChanges()
 
         # Styling
-        symbol = QgsLineSymbol.createSimple({'color': '0,0,0,255', 'width': '0.05', 'width_unit': 'MM'})
+        symbol = QgsLineSymbol.createSimple({
+            'color': style['stroke_color'], 
+            'width': str(style['stroke_width']), 
+            'width_unit': 'MM'
+        })
         renderer = QgsSingleSymbolRenderer(symbol)
         merged_layer.setRenderer(renderer)
         merged_layer.triggerRepaint()
