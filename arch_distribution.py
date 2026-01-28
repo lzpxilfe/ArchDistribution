@@ -91,6 +91,9 @@ class ArchDistribution:
                 QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
                 return
 
+            # Set Encoding for Study Area
+            self.fix_layer_encoding(study_layer)
+
             # Apply Study Area Symbology
             self.apply_study_style(study_layer, settings['study_style'])
             self.move_layer_to_group(study_layer, src_group)
@@ -145,12 +148,21 @@ class ArchDistribution:
             group.addChildNode(clone)
             layer_node.parent().removeChildNode(layer_node)
 
+    def fix_layer_encoding(self, layer, encoding='CP949'):
+        """Force specific encoding to fix broken Korean characters."""
+        if layer and layer.type() == 0: # VectorLayer
+            layer.setProviderEncoding(encoding)
+            layer.dataProvider().setEncoding(encoding)
+            # Reload to apply
+            layer.triggerRepaint()
+
     def merge_and_style_topo(self, layer_ids, target_group, src_group):
         """Merge selected topo layers and apply 0.05mm black style."""
         layers = []
         for lid in layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
             if layer:
+                self.fix_layer_encoding(layer)
                 layers.append(layer)
                 self.move_layer_to_group(layer, src_group)
         
@@ -301,6 +313,9 @@ class ArchDistribution:
             if not layer or layer.type() != 0:
                 continue
             
+            # Fix Encoding
+            self.fix_layer_encoding(layer)
+
             # Move to source group (we might use a copy instead if user wants, but request says "group old ones")
             # Let's clone for the result group and move original to source group
             # Actually, per user request "묶어두면 좋겠어" for old ones.
