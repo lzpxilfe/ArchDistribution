@@ -1,9 +1,9 @@
 import os
 
-from qgis.PyQt import uic
+from qgis.PyQt import uic, QtCore
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QFileDialog, QListWidgetItem
-from qgis.core import QgsProject, QgsMapLayerProxyModel
+from qgis.PyQt.QtWidgets import QListWidgetItem
+from qgis.core import QgsProject
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -15,56 +15,59 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         super(ArchDistributionDialog, self).__init__(parent)
         self.setupUi(self)
 
-        # Connect signals
-        self.btnAddTopo.clicked.connect(self.select_topo_files)
-        self.btnRemoveTopo.clicked.connect(self.remove_selected_topo)
-        self.btnAddHeritage.clicked.connect(self.select_heritage_files)
-        self.btnRemoveHeritage.clicked.connect(self.remove_selected_heritage)
-
         # Initialize Study Area combo with vector layers
         self.populate_layers()
 
     def populate_layers(self):
         self.comboStudyArea.clear()
+        self.listTopoLayers.clear()
+        self.listHeritageLayers.clear()
+
         layers = QgsProject.instance().mapLayers().values()
         for layer in layers:
             if layer.type() == 0:  # VectorLayer
+                # Add to Study Area combo
                 self.comboStudyArea.addItem(layer.name(), layer.id())
+                
+                # Add to Topo Map List (Checkable)
+                item_topo = QListWidgetItem(layer.name())
+                item_topo.setData(QtCore.Qt.UserRole, layer.id())
+                item_topo.setFlags(item_topo.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item_topo.setCheckState(QtCore.Qt.Unchecked)
+                self.listTopoLayers.addItem(item_topo)
 
-    def select_topo_files(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "수치지형도 선택", "", "DXF Files (*.dxf);;SHP Files (*.shp);;All Files (*)")
-        if files:
-            for f in files:
-                self.listTopoMaps.addItem(f)
-
-    def remove_selected_topo(self):
-        for item in self.listTopoMaps.selectedItems():
-            self.listTopoMaps.takeItem(self.listTopoMaps.row(item))
-
-    def select_heritage_files(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "문화유산 SHP 선택", "", "SHP Files (*.shp);;All Files (*)")
-        if files:
-            for f in files:
-                self.listHeritageMaps.addItem(f)
-
-    def remove_selected_heritage(self):
-        for item in self.listHeritageMaps.selectedItems():
-            self.listHeritageMaps.takeItem(self.listHeritageMaps.row(item))
+                # Add to Heritage Map List (Checkable)
+                item_heritage = QListWidgetItem(layer.name())
+                item_heritage.setData(QtCore.Qt.UserRole, layer.id())
+                item_heritage.setFlags(item_heritage.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item_heritage.setCheckState(QtCore.Qt.Unchecked)
+                self.listHeritageLayers.addItem(item_heritage)
 
     def get_settings(self):
         """Returns the current settings from the dialog."""
-        topo_files = [self.listTopoMaps.item(i).text() for i in range(self.listTopoMaps.count())]
-        heritage_files = [self.listHeritageMaps.item(i).text() for i in range(self.listHeritageMaps.count())]
+        topo_layer_ids = []
+        for i in range(self.listTopoLayers.count()):
+            item = self.listTopoLayers.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                topo_layer_ids.append(item.data(QtCore.Qt.UserRole))
+
+        heritage_layer_ids = []
+        for i in range(self.listHeritageLayers.count()):
+            item = self.listHeritageLayers.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                heritage_layer_ids.append(item.data(QtCore.Qt.UserRole))
         
         study_area_id = self.comboStudyArea.currentData()
         buffer_str = self.editBuffers.text()
-        buffers = [float(b.strip()) for b in buffer_str.split(',') if b.strip()]
+        buffers = []
+        try:
+            buffers = [float(b.strip()) for b in buffer_str.split(',') if b.strip()]
+        except ValueError:
+            pass
         
         return {
-            "topo_files": topo_files,
-            "heritage_files": heritage_files,
+            "topo_layer_ids": topo_layer_ids,
+            "heritage_layer_ids": heritage_layer_ids,
             "study_area_id": study_area_id,
             "buffers": buffers,
             "paper_width": self.spinWidth.value(),

@@ -1,8 +1,9 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtGui import QIcon, QColor
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
-                       QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY)
+                       QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
+                       QgsLineSymbol, QgsSingleSymbolRenderer)
 
 import os.path
 import processing
@@ -66,7 +67,7 @@ class ArchDistribution:
 
     def process_distribution_map(self, settings):
         """Core logic to process layers, buffers, and numbering."""
-        self.iface.messageBar().pushMessage("ArchDistribution", "작업을 시작합니다...", level=0)
+        self.iface.messageBar().pushMessage("ArchDistribution", "지표 작업 및 도면 생성을 시작합니다...", level=0)
         
         try:
             # 1. Load Study Area
@@ -75,11 +76,9 @@ class ArchDistribution:
                 QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
                 return
 
-            # 2. Load Topo Maps
-            for topo_path in settings['topo_files']:
-                layer = QgsVectorLayer(topo_path, os.path.basename(topo_path), "ogr")
-                if layer.isValid():
-                    QgsProject.instance().addMapLayer(layer)
+            # 2. Merge & Style Topo Maps
+            if settings['topo_layer_ids']:
+                self.merge_and_style_topo(settings['topo_layer_ids'])
 
             # 3. Generate Buffers
             for distance in settings['buffers']:
@@ -93,10 +92,10 @@ class ArchDistribution:
             
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'])
 
-            # 5. Load & Number Heritage Sites
-            if settings['heritage_files']:
+            # 5. Number Heritage Sites
+            if settings['heritage_layer_ids']:
                 self.process_heritage_numbering(
-                    settings['heritage_files'], 
+                    settings['heritage_layer_ids'], 
                     extent_geom, 
                     centroid, 
                     settings['sort_order']
@@ -113,6 +112,30 @@ class ArchDistribution:
             QMessageBox.critical(None, "오류", f"작업 중 오류 발생: {str(e)}")
             import traceback
             print(traceback.format_exc())
+
+    def merge_and_style_topo(self, layer_ids):
+        """Merge selected topo layers and apply 0.05mm black style."""
+        layers = [QgsProject.instance().mapLayer(lid) for lid in layer_ids if QgsProject.instance().mapLayer(lid)]
+        if not layers:
+            return
+
+        # Merge
+        params = {
+            'LAYERS': layers,
+            'CRS': layers[0].crs(),
+            'OUTPUT': 'memory:Merged_Topo'
+        }
+        result = processing.run("native:mergevectorlayers", params)
+        merged_layer = result['OUTPUT']
+        merged_layer.setName("수치지형도_병합")
+
+        # Styling
+        symbol = QgsLineSymbol.createSimple({'color': '0,0,0,255', 'width': '0.05', 'width_unit': 'MM'})
+        renderer = QgsSingleSymbolRenderer(symbol)
+        merged_layer.setRenderer(renderer)
+        merged_layer.triggerRepaint()
+
+        QgsProject.instance().addMapLayer(merged_layer)
 
     def create_buffer(self, layer, distance):
         params = {
@@ -173,8 +196,7 @@ class ArchDistribution:
         ]])
 
         # Create a memory layer for the extent
-        vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "Map_Extent", "memory") # Using common Korean CRS as default, should ideally match project
-        # In a real tool, we would detect CRS from study area
+        vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "Map_Extent", "memory") 
         
         pr = vl.dataProvider()
         feat = QgsFeature()
@@ -185,16 +207,18 @@ class ArchDistribution:
         QgsProject.instance().addMapLayer(vl)
         return rect_geom
 
-    def process_heritage_numbering(self, heritage_layer_paths, extent_geom, centroid, sort_order):
+    def process_heritage_numbering(self, heritage_layer_ids, extent_geom, centroid, sort_order):
         """Load heritage layers and number sites within extent."""
-        for path in heritage_layer_paths:
-            layer = QgsVectorLayer(path, os.path.basename(path), "ogr")
-            if not layer.isValid():
+        for lid in heritage_layer_ids:
+            layer = QgsProject.instance().mapLayer(lid)
+            if not layer or layer.type() != 0:
                 continue
             
             # Add a field for numbering if it doesn't exist
-            res = layer.dataProvider().addAttributes([QgsField("Dist_No", QVariant.Int)])
-            layer.updateFields()
+            if layer.fields().indexFromName("Dist_No") == -1:
+                layer.startEditing()
+                layer.addAttribute(QgsField("Dist_No", QVariant.Int))
+                layer.commitChanges()
             
             idx = layer.fields().indexFromName("Dist_No")
             

@@ -17,29 +17,15 @@
    <item>
     <widget class="QGroupBox" name="groupBox">
      <property name="title">
-      <string>수치지형도 (Digital Topo Maps)</string>
+      <string>수치지형도 레이어 선택 (Digital Topo Maps)</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_2">
       <item>
-       <widget class="QListWidget" name="listTopoMaps"/>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout">
-        <item>
-         <widget class="QPushButton" name="btnAddTopo">
-          <property name="text">
-           <string>파일 추가</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="btnRemoveTopo">
-          <property name="text">
-           <string>삭제</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
+       <widget class="QListWidget" name="listTopoLayers">
+        <property name="selectionMode">
+         <enum>QAbstractItemView::NoSelection</enum>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>
@@ -47,29 +33,15 @@
    <item>
     <widget class="QGroupBox" name="groupBox_2">
      <property name="title">
-      <string>문화유산 SHP (Heritage Sites)</string>
+      <string>문화유산 SHP 레이어 선택 (Heritage Sites)</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_3">
       <item>
-       <widget class="QListWidget" name="listHeritageMaps"/>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_2">
-        <item>
-         <widget class="QPushButton" name="btnAddHeritage">
-          <property name="text">
-           <string>파일 추가</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="btnRemoveHeritage">
-          <property name="text">
-           <string>삭제</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
+       <widget class="QListWidget" name="listHeritageLayers">
+        <property name="selectionMode">
+         <enum>QAbstractItemView::NoSelection</enum>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>
