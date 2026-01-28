@@ -4,7 +4,7 @@ from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
                        QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
-                       QgsFillSymbol)
+                       QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer)
 
 import os.path
 import processing
@@ -71,7 +71,20 @@ class ArchDistribution:
         self.iface.messageBar().pushMessage("ArchDistribution", "지표 작업 및 도면 생성을 시작합니다...", level=0)
         
         try:
-            # 1. Load Study Area
+            # 0. Setup Groups
+            root = QgsProject.instance().layerTreeRoot()
+            
+            # Output Group (Top)
+            out_group = root.insertGroup(0, "ArchDistribution_결과물")
+            ext_group = out_group.addGroup("01_도곽_및_영역")
+            her_group = out_group.addGroup("02_유적_현황")
+            buf_group = out_group.addGroup("03_조사구역_버퍼")
+            topo_merged_group = out_group.addGroup("04_수치지형도_병합")
+            
+            # Source Group (Bottom)
+            src_group = root.addGroup("ArchDistribution_원본_데이터")
+            
+            # 1. Load & Move Study Area
             study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
             if not study_layer:
                 QMessageBox.critical(None, "오류", "조사지역 레이어를 찾을 수 없습니다.")
@@ -79,14 +92,15 @@ class ArchDistribution:
 
             # Apply Study Area Symbology
             self.apply_study_style(study_layer, settings['study_style'])
+            self.move_layer_to_group(study_layer, src_group)
 
             # 2. Merge & Style Topo Maps
             if settings['topo_layer_ids']:
-                self.merge_and_style_topo(settings['topo_layer_ids'])
+                self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group)
 
             # 3. Generate Buffers
             for distance in settings['buffers']:
-                self.create_buffer(study_layer, distance)
+                self.create_buffer(study_layer, distance, buf_group)
 
             # 4. Calculate Extent (Centered on Study Area)
             centroid = self.get_study_area_centroid(study_layer)
@@ -94,20 +108,22 @@ class ArchDistribution:
                 QMessageBox.warning(None, "경고", "조사지역의 중심점을 계산할 수 없습니다.")
                 return
             
-            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'])
+            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group)
 
             # 5. Style & Number Heritage Sites
             if settings['heritage_layer_ids']:
-                self.process_heritage_numbering_v2(
+                self.process_heritage_numbering_v3(
                     settings['heritage_layer_ids'], 
                     extent_geom, 
                     centroid, 
                     settings['sort_order'],
                     study_layer,
-                    settings['heritage_style']
+                    settings['heritage_style'],
+                    her_group,
+                    src_group
                 )
             
-            self.iface.messageBar().pushMessage("ArchDistribution", "작업이 완료되었습니다.", level=0)
+            self.iface.messageBar().pushMessage("ArchDistribution", "작업이 완료되었습니다. 레이어 그룹을 확인해 주세요.", level=0)
             
             # Zoom to extent
             if extent_geom:
@@ -119,9 +135,24 @@ class ArchDistribution:
             import traceback
             print(traceback.format_exc())
 
-    def merge_and_style_topo(self, layer_ids):
+    def move_layer_to_group(self, layer, group):
+        """Move an existing layer to a specific group."""
+        root = QgsProject.instance().layerTreeRoot()
+        layer_node = root.findLayer(layer.id())
+        if layer_node:
+            clone = layer_node.clone()
+            group.addChildNode(clone)
+            layer_node.parent().removeChildNode(layer_node)
+
+    def merge_and_style_topo(self, layer_ids, target_group, src_group):
         """Merge selected topo layers and apply 0.05mm black style."""
-        layers = [QgsProject.instance().mapLayer(lid) for lid in layer_ids if QgsProject.instance().mapLayer(lid)]
+        layers = []
+        for lid in layer_ids:
+            layer = QgsProject.instance().mapLayer(lid)
+            if layer:
+                layers.append(layer)
+                self.move_layer_to_group(layer, src_group)
+        
         if not layers:
             return
 
@@ -158,9 +189,10 @@ class ArchDistribution:
         merged_layer.setRenderer(renderer)
         merged_layer.triggerRepaint()
 
-        QgsProject.instance().addMapLayer(merged_layer)
+        QgsProject.instance().addMapLayer(merged_layer, False)
+        target_group.addLayer(merged_layer)
 
-    def create_buffer(self, layer, distance):
+    def create_buffer(self, layer, distance, group):
         params = {
             'INPUT': layer,
             'DISTANCE': distance,
@@ -174,7 +206,8 @@ class ArchDistribution:
         result = processing.run("native:buffer", params)
         buffer_layer = result['OUTPUT']
         buffer_layer.setName(f"Buffer_{distance}m")
-        QgsProject.instance().addMapLayer(buffer_layer)
+        QgsProject.instance().addMapLayer(buffer_layer, False)
+        group.addLayer(buffer_layer)
 
     def get_study_area_centroid(self, layer):
         """Calculate the unified centroid of the study area layer."""
@@ -192,7 +225,7 @@ class ArchDistribution:
         
         return combined_geom.centroid().asPoint()
 
-    def create_extent_polygon(self, centroid, width_mm, height_mm, scale):
+    def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group):
         """Create a rectangle polygon based on paper size and scale."""
         if not centroid:
             return None
@@ -219,7 +252,7 @@ class ArchDistribution:
         ]])
 
         # Create a memory layer for the extent
-        vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "Map_Extent", "memory") 
+        vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "도곽_Extent", "memory") 
         
         pr = vl.dataProvider()
         feat = QgsFeature()
@@ -227,7 +260,8 @@ class ArchDistribution:
         pr.addFeatures([feat])
         vl.updateExtents()
         
-        QgsProject.instance().addMapLayer(vl)
+        QgsProject.instance().addMapLayer(vl, False)
+        group.addLayer(vl)
         return rect_geom
 
     def apply_study_style(self, layer, style):
@@ -252,7 +286,7 @@ class ArchDistribution:
             layer.setRenderer(renderer)
             layer.triggerRepaint()
 
-    def process_heritage_numbering_v2(self, heritage_layer_ids, extent_geom, centroid, sort_order, study_layer, style):
+    def process_heritage_numbering_v3(self, heritage_layer_ids, extent_geom, centroid, sort_order, study_layer, style, target_group, src_group):
         """Number sites outside study area and apply symbology."""
         
         # Merge study area geometries for fast intersection check
@@ -266,6 +300,11 @@ class ArchDistribution:
             if not layer or layer.type() != 0:
                 continue
             
+            # Move to source group (we might use a copy instead if user wants, but request says "group old ones")
+            # Let's clone for the result group and move original to source group
+            # Actually, per user request "묶어두면 좋겠어" for old ones.
+            self.move_layer_to_group(layer, target_group) # Move to top results for now as it's modified
+
             # Apply Symbology
             self.apply_heritage_style(layer, style)
 
