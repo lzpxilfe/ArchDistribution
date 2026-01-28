@@ -8,6 +8,8 @@ import os.path
 import processing
 
 from .arch_distribution_dialog import ArchDistributionDialog
+
+class ArchDistribution:
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
