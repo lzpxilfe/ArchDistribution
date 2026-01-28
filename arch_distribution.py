@@ -94,17 +94,24 @@ class ArchDistribution:
             # Step 1: Groups
             self.log("레이어 그룹 설정 중...")
             root = QgsProject.instance().layerTreeRoot()
+            
+            # 1-1. Output Group: Clear and recreate
             existing_out = root.findGroup("ArchDistribution_결과물")
             if existing_out: root.removeChildNode(existing_out)
-            existing_src = root.findGroup("ArchDistribution_원본_데이터")
-            if existing_src: root.removeChildNode(existing_src)
-
             out_group = root.insertGroup(0, "ArchDistribution_결과물")
+            
             ext_group = out_group.addGroup("01_도곽_및_영역")
             her_group = out_group.addGroup("02_유적_현황")
             buf_group = out_group.addGroup("03_조사구역_버퍼")
             topo_merged_group = out_group.addGroup("04_수치지형도_병합")
-            src_group = root.addGroup("ArchDistribution_원본_데이터")
+            
+            # 1-2. Source Group: Persist (don't delete original layers!)
+            src_group = root.findGroup("ArchDistribution_원본_데이터")
+            if not src_group:
+                src_group = root.addGroup("ArchDistribution_원본_데이터")
+            
+            # Hide source group by default to focus on outputs
+            src_group.setItemVisibilityChecked(False)
             current_step += 1
             progress.setValue(current_step)
 
@@ -140,9 +147,10 @@ class ArchDistribution:
             self.log("중심점 및 도곽 영역 계산 중...")
             centroid = self.get_study_area_centroid(study_layer)
             if not centroid:
-                self.log("오류: 조사지역의 중심점을 계산할 수 없습니다.")
+                self.log("오류: 조사지역의 데이터가 비어있거나 중심점을 계산할 수 없습니다.")
                 return
             
+            self.log(f"중심점 계산 완료: {centroid.x()}, {centroid.y()}. 도곽 생성 중...")
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, study_layer.crs())
             self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
             current_step += 1
@@ -200,11 +208,17 @@ class ArchDistribution:
                 progress.close()
 
     def move_layer_to_group(self, layer, group):
-        """Move an existing layer to a specific group."""
+        """Move an existing layer to a specific group and hide it."""
         root = QgsProject.instance().layerTreeRoot()
         layer_node = root.findLayer(layer.id())
         if layer_node:
+            # Check if it's already in the target group
+            if layer_node.parent() == group:
+                layer_node.setItemVisibilityChecked(False)
+                return
+                
             clone = layer_node.clone()
+            clone.setItemVisibilityChecked(False) # Hide the original layer
             group.addChildNode(clone)
             layer_node.parent().removeChildNode(layer_node)
 
@@ -274,7 +288,7 @@ class ArchDistribution:
             'JOIN_STYLE': 0,
             'MITER_LIMIT': 2,
             'DISSOLVE': False,
-            'OUTPUT': 'TEMPORARY_OUTPUT'
+            'OUTPUT': 'memory:Buffer_' + str(distance)
         }
         result = processing.run("native:buffer", params)
         buffer_layer = result['OUTPUT']
@@ -283,20 +297,22 @@ class ArchDistribution:
         group.addLayer(buffer_layer)
 
     def get_study_area_centroid(self, layer):
-        """Calculate the unified centroid of the study area layer."""
-        features = list(layer.getFeatures())
-        if not features:
-            return None
-        
-        # Merge all geometries to find the center of the whole study area
-        combined_geom = QgsGeometry()
-        for feat in features:
-            if combined_geom.isNull():
-                combined_geom = feat.geometry()
-            else:
-                combined_geom = combined_geom.combine(feat.geometry())
-        
-        return combined_geom.centroid().asPoint()
+        """Calculate the center of the study area layer extent (Fast and Robust)."""
+        extent = layer.extent()
+        if extent.isEmpty() or not extent.isFinite():
+            # Try getting feature count
+            if layer.featureCount() == 0:
+                return None
+            # Fallback to manual combine if extent is weird
+            combined_geom = QgsGeometry()
+            for feat in layer.getFeatures():
+                if feat.hasGeometry():
+                    if combined_geom.isNull(): combined_geom = feat.geometry()
+                    else: combined_geom = combined_geom.combine(feat.geometry())
+            if combined_geom.isNull(): return None
+            return combined_geom.centroid().asPoint()
+            
+        return extent.center()
 
     def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group, crs):
         """Create a rectangle polygon based on paper size and scale."""
@@ -324,8 +340,11 @@ class ArchDistribution:
             QgsPointXY(p1[0], p1[1])
         ]])
 
-        # Create a memory layer for the extent using the study layer's CRS
-        vl = QgsVectorLayer(f"Polygon?crs={crs.authid()}", "도곽_Extent", "memory") 
+        # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
+        vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory") 
+        if not vl.isValid():
+            # Fallback to EPSG:5186 if WKT fails
+            vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "도곽_Extent", "memory")
         
         pr = vl.dataProvider()
         feat = QgsFeature()
@@ -399,7 +418,9 @@ class ArchDistribution:
             elif layer.geometryType() == 2: geom_type_str = "Polygon"
             
             # Create a standardized subset layer
-            subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
+            subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.toWkt()}", f"Sub_{layer.name()}", "memory")
+            if not subset_layer.isValid():
+                subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
             subset_pr = subset_layer.dataProvider()
             
             # Define standard fields
