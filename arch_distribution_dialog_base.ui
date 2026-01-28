@@ -11,34 +11,37 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.1)</string>
   </property>
   <styleSheet>
-   <string notr="true">QDialog { background-color: #fafafa; font-family: 'Malgun Gothic', sans-serif; }
-QGroupBox { font-size: 14px; font-weight: bold; border: 1px solid #e0e0e0; border-radius: 10px; margin-top: 20px; padding-top: 15px; background-color: white; }
-QGroupBox::title { subcontrol-origin: margin; left: 20px; padding: 0 10px; color: #1565c0; }
-QLabel { color: #424242; font-size: 12px; }
-QLabel#lTitle { color: #1565c0; font-size: 20px; font-weight: bold; }
+   <string notr="true">QDialog { background-color: #f5f5f5; }
+QGroupBox { font-size: 13px; font-weight: bold; border: 1px solid #c0c0c0; border-radius: 6px; margin-top: 20px; padding-top: 15px; background-color: #ffffff; }
+QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; color: #333333; }
+QLabel { color: #333333; font-size: 11px; }
+QLabel#ld1, QLabel#ld2, QLabel#ld3 { font-weight: bold; color: #000000; font-size: 12px; }
+QLabel#lTitle { color: #2c3e50; font-size: 18px; font-weight: bold; }
 QPushButton#btnRun { 
-  background-color: #1565c0; 
+  background-color: #2980b9; 
   color: white; 
-  border-radius: 20px; 
+  border-radius: 4px; 
   font-weight: bold; 
   font-size: 14px; 
-  border: none;
-  padding: 10px 30px;
+  border: 1px solid #2980b9;
+  padding: 8px;
 }
-QPushButton#btnRun:hover { background-color: #1976d2; }
-QPushButton#btnRun:pressed { background-color: #0d47a1; }
-QPushButton#btnRun:disabled { background-color: #bdbdbd; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { 
-  border: 1px solid #cfd8dc; 
-  border-radius: 4px; 
+QPushButton#btnRun:hover { background-color: #3498db; }
+QPushButton#btnRun:pressed { background-color: #1f618d; }
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QListWidget { 
+  border: 1px solid #bdc3c7; 
+  border-radius: 3px; 
   padding: 4px; 
-  background-color: #ffffff;
+  background-color: #ffffff; 
+  color: #000000; /* Enforce black text */
+  selection-background-color: #3498db;
+  selection-color: #ffffff;
 }
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #1a73e8; }
-QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family: 'Consolas'; font-size: 10px; border-radius: 5px; }
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QListWidget:focus { border: 1px solid #3498db; }
+QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family: 'Consolas', monospace; font-size: 10px; border-radius: 3px; }
 </string>
   </styleSheet>
   <layout class="QVBoxLayout" name="vMain">
@@ -47,7 +50,7 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.0</string>
+        <string>🏛 ArchDistribution Pro v1.0.1</string>
        </property>
       </widget>
      </item>
@@ -93,11 +96,11 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
          </property>
          <layout class="QGridLayout" name="gData">
           <property name="horizontalSpacing">
-           <number(15)>
+           <number>15</number>
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ld1">
-            <string>분석 중심이 될 조사지역:</string>
+            <string>📌 분석 대상(조사지역) 선택 [필수]</string>
            </widget>
           </item>
           <item row="0" column="1">
@@ -115,8 +118,8 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
           </item>
           <item row="1" column="1">
            <widget class="QListWidget" name="listTopoLayers">
-            <property name="maximumHeight">
-             <number>80</number>
+            <property name="minimumHeight">
+             <number>120</number>
             </property>
            </widget>
           </item>
@@ -145,8 +148,8 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
           </item>
           <item row="2" column="1">
            <widget class="QListWidget" name="listHeritageLayers">
-            <property name="maximumHeight">
-             <number>80</number>
+            <property name="minimumHeight">
+             <number>120</number>
             </property>
            </widget>
           </item>
@@ -178,7 +181,7 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
          </property>
          <layout class="QGridLayout" name="gSpecs">
           <property name="horizontalSpacing">
-           <number(15)>
+           <number>15</number>
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="lp0">
@@ -284,7 +287,7 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
          </property>
          <layout class="QGridLayout" name="gSym">
           <property name="horizontalSpacing">
-           <number(10)>
+           <number>10</number>
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ls1">
@@ -397,8 +400,11 @@ QPlainTextEdit#txtLogs { background-color: #1c1c1c; color: #64ffda; font-family:
           </item>
           <item row="0" column="3" rowspan="2">
            <widget class="QListWidget" name="listBuffers">
+            <property name="minimumHeight">
+             <number>80</number>
+            </property>
             <property name="maximumHeight">
-             <number>70</number>
+             <number>100</number>
             </property>
            </widget>
           </item>
