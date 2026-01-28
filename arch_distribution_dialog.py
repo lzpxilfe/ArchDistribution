@@ -36,8 +36,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnCheckHeritage.clicked.connect(lambda: self.set_batch_check(self.listHeritageLayers, True))
         self.btnUncheckHeritage.clicked.connect(lambda: self.set_batch_check(self.listHeritageLayers, False))
 
+        # Run signal
+        self.btnRun.clicked.connect(self.emit_run_requested)
+        self.buttonBox.rejected.connect(self.reject) # Close button
+
         # Initialize layers
         self.populate_layers()
+
+    # Custom signal for execution
+    run_requested = QtCore.pyqtSignal(dict)
+
+    def emit_run_requested(self):
+        """Validates settings and emits the run signal."""
+        settings = self.get_settings()
+        if not settings['study_area_id']:
+            QtWidgets.QMessageBox.warning(self, "입력 오류", "조사지역 레이어를 선택해 주세요.")
+            return
+        self.run_requested.emit(settings)
 
     def log(self, message):
         """Append a message to the log window."""

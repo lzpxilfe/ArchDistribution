@@ -63,9 +63,9 @@ class ArchDistribution:
     def run(self):
         """Run the plugin main dialog."""
         self.dlg = ArchDistributionDialog()
-        if self.dlg.exec_():
-            settings = self.dlg.get_settings()
-            self.process_distribution_map(settings)
+        # Connect the run signal to the processing method
+        self.dlg.run_requested.connect(self.process_distribution_map)
+        self.dlg.exec_()
 
     def log(self, message):
         """Log a message to the dialog log window and QGIS message bar."""
@@ -75,10 +75,12 @@ class ArchDistribution:
 
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
+        # Disable button to prevent double execution
+        self.dlg.btnRun.setEnabled(False)
         self.log("작업을 시작합니다...")
         
         # 0. Setup Progress Dialog
-        total_steps = 10 # Simplified step count for logging
+        total_steps = 10 
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
         progress.setWindowModality(Qt.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
@@ -186,9 +188,11 @@ class ArchDistribution:
             self.log(f"치명적 오류 발생: {str(e)}")
             import traceback
             self.log(traceback.format_exc())
-            QMessageBox.critical(None, "오류", f"작업 중 오류 발생: {str(e)}")
+            QMessageBox.critical(self.dlg, "오류", f"작업 중 오류 발생: {str(e)}")
         finally:
-            progress.close()
+            self.dlg.btnRun.setEnabled(True)
+            if 'progress' in locals():
+                progress.close()
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group."""
@@ -350,6 +354,15 @@ class ArchDistribution:
             layer.setRenderer(renderer)
             layer.triggerRepaint()
 
+    def find_field(self, layer, keywords):
+        """Find a field name by looking for keywords (case-insensitive fuzzy match)."""
+        fields = [f.name() for f in layer.fields()]
+        for k in keywords:
+            for f in fields:
+                if k.upper() in f.upper():
+                    return f
+        return None
+
     def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group):
         """Merge selected heritage layers and filter by extent and study area."""
         temp_layers = []
@@ -366,27 +379,38 @@ class ArchDistribution:
             layer = QgsProject.instance().mapLayer(lid)
             if not layer or layer.type() != 0: continue
             
-            self.log(f"데이터 수집 중: {layer.name()}")
+            self.log(f"데이터 수취 및 필드 맵핑 중: {layer.name()}")
             self.fix_layer_encoding(layer)
             
+            # Identify fields (Fuzzy matching)
+            name_field = self.find_field(layer, ['유적명', '명칭', 'NAME', 'SITE', 'TITLE'])
+            addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
+            area_field = self.find_field(layer, ['면적', 'AREA', 'SHAPE_AREA'])
+
             # Detect geometry type
             geom_type_str = ""
             if layer.geometryType() == 0: geom_type_str = "Point"
             elif layer.geometryType() == 1: geom_type_str = "LineString"
             elif layer.geometryType() == 2: geom_type_str = "Polygon"
             
-            # Create a subset of features within extent and NOT in study area
+            # Create a standardized subset layer
             subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
             subset_pr = subset_layer.dataProvider()
             
-            # Copy fields
-            subset_pr.addAttributes(layer.fields())
+            # Define standard fields
+            standard_fields = [
+                QgsField("유적명", QVariant.String),
+                QgsField("주소", QVariant.String),
+                QgsField("면적_m2", QVariant.Double),
+                QgsField("원본레이어", QVariant.String) # Source layer name
+            ]
+            subset_pr.addAttributes(standard_fields)
             subset_layer.updateFields()
             
             # Reproject if necessary
             do_reproject = layer.crs() != target_crs
             if do_reproject:
-                from qgis.core import QgsCoordinateTransformContext, QgsCoordinateTransform
+                from qgis.core import QgsCoordinateTransform
                 transform = QgsCoordinateTransform(layer.crs(), target_crs, QgsProject.instance())
 
             new_features = []
@@ -398,8 +422,20 @@ class ArchDistribution:
                 if geom.intersects(extent_geom):
                     is_inside_study = geom.within(study_geom) if not study_geom.isNull() else False
                     if not is_inside_study:
-                        new_feat = QgsFeature(feat)
+                        new_feat = QgsFeature(subset_layer.fields())
                         new_feat.setGeometry(geom)
+                        
+                        # Map attributes
+                        new_feat["유적명"] = feat[name_field] if name_field else "N/A"
+                        new_feat["주소"] = feat[addr_field] if addr_field else "N/A"
+                        
+                        # Area logic: if source has area use it, otherwise calculate from geometry
+                        if area_field and feat[area_field]:
+                            new_feat["면적_m2"] = float(feat[area_field])
+                        else:
+                            new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
+                        
+                        new_feat["원본레이어"] = layer.name()
                         new_features.append(new_feat)
             
             if new_features:
@@ -411,7 +447,7 @@ class ArchDistribution:
         if not temp_layers: return None
 
         # Merge all subsets
-        self.log("레이어 병합 처리 중...")
+        self.log("최종 데이터 병합 처리 중...")
         params = {
             'LAYERS': temp_layers,
             'CRS': target_crs,
@@ -421,17 +457,17 @@ class ArchDistribution:
         final_layer = result['OUTPUT']
         final_layer.setName("수집_및_병합된_주변유적")
 
-        # Add No field if missing
-        if final_layer.fields().indexFromName("Dist_No") == -1:
+        # Add No field for numbering
+        if final_layer.fields().indexFromName("번호") == -1:
             final_layer.startEditing()
-            final_layer.addAttribute(QgsField("Dist_No", QVariant.Int))
+            final_layer.addAttribute(QgsField("번호", QVariant.Int))
             final_layer.commitChanges()
 
         return final_layer
 
     def number_heritage_v4(self, layer, centroid, sort_order):
-        """Sort features and assign numbers to Dist_No field."""
-        idx = layer.fields().indexFromName("Dist_No")
+        """Sort features and assign numbers to '번호' field."""
+        idx = layer.fields().indexFromName("번호")
         features_to_sort = []
         for feat in layer.getFeatures():
             geom = feat.geometry()
@@ -471,10 +507,11 @@ class ArchDistribution:
         if symbol:
             renderer = QgsSingleSymbolRenderer(symbol)
             layer.setRenderer(renderer)
+            layer.triggerRepaint()
 
-        # Labeling for Dist_No
+        # Labeling for '번호'
         label_settings = QgsPalLayerSettings()
-        label_settings.fieldName = "Dist_No"
+        label_settings.fieldName = "번호"
         label_settings.enabled = True
         
         text_format = QgsTextFormat()

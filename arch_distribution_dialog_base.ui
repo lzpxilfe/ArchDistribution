@@ -166,10 +166,21 @@
     </widget>
    </item>
    <item>
-    <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="orientation"><enum>Qt::Horizontal</enum></property>
-     <property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property>
-    </widget>
+    <layout class="QHBoxLayout" name="layoutFinalBtns">
+     <item>
+      <widget class="QPushButton" name="btnRun">
+       <property name="minimumHeight"><number>40</number></property>
+       <property name="text"><string>▶ 작업 시작 (Run Distribution Map)</string></property>
+       <property name="styleSheet"><string>font-weight: bold; background-color: #e1f5fe;</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDialogButtonBox" name="buttonBox">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="standardButtons"><set>QDialogButtonBox::Close</set></property>
+      </widget>
+     </item>
+    </layout>
    </item>
   </layout>
  </widget>
