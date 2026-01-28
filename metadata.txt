@@ -1,0 +1,10 @@
+name=ArchDistribution
+qgisMinimumVersion=3.0
+description=Cultural Heritage Distribution Map Plugin
+version=0.1
+author=lzpxilfe
+email=
+repository=https://github.com/lzpxilfe/ArchDistribution.git
+category=Plugins
+experimental=True
+icon=icon.png
