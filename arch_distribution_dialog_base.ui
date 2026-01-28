@@ -7,19 +7,19 @@
     <x>0</x>
     <y>0</y>
     <width>780</width>
-    <height>1000</height>
+    <height>850</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.1)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.2)</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #f5f5f5; }
 QGroupBox { font-size: 13px; font-weight: bold; border: 1px solid #c0c0c0; border-radius: 6px; margin-top: 20px; padding-top: 15px; background-color: #ffffff; }
 QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; color: #333333; }
 QLabel { color: #333333; font-size: 11px; }
-QLabel#ld1, QLabel#ld2, QLabel#ld3 { font-weight: bold; color: #000000; font-size: 12px; }
-QLabel#lTitle { color: #2c3e50; font-size: 18px; font-weight: bold; }
+QLabel#ld1, QLabel#ld2, QLabel#ld3, QLabel#ls1, QLabel#ls2, QLabel#ls3, QLabel#lb1, QLabel#lb2 { font-weight: bold; color: #000000; font-size: 12px; }
+QLabel#lTitle { color: #2c3e50; font-size: 16px; font-weight: bold; }
 QPushButton#btnRun { 
   background-color: #2980b9; 
   color: white; 
@@ -31,15 +31,10 @@ QPushButton#btnRun {
 }
 QPushButton#btnRun:hover { background-color: #3498db; }
 QPushButton#btnRun:pressed { background-color: #1f618d; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QListWidget { 
-  border: 1px solid #bdc3c7; 
-  border-radius: 3px; 
-  padding: 4px; 
-  background-color: #ffffff; 
-  color: #000000; /* Enforce black text */
-  selection-background-color: #3498db;
-  selection-color: #ffffff;
-}
+QLineEdit, QSpinBox, QDoubleSpinBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; }
+QComboBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; }
+QComboBox QAbstractItemView { background-color: #ffffff; color: #000000; selection-background-color: #3498db; selection-color: #ffffff; }
+QListWidget { border: 1px solid #bdc3c7; border-radius: 3px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; selection-color: #ffffff; }
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QListWidget:focus { border: 1px solid #3498db; }
 QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family: 'Consolas', monospace; font-size: 10px; border-radius: 3px; }
 </string>
@@ -50,7 +45,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.0.1</string>
+        <string>🏛 ArchDistribution Pro v1.0.2</string>
        </property>
       </widget>
      </item>
@@ -70,7 +65,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lSub">
        <property name="text">
-        <string>보고서용 최상의 분포지도 솔루션</string>
+        <string>고고학 분포지도 제작 최적화 솔루션</string>
        </property>
        <property name="styleSheet">
         <string notr="true">color: #757575; font-size: 11px;</string>
@@ -96,78 +91,141 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
          </property>
          <layout class="QGridLayout" name="gData">
           <property name="horizontalSpacing">
-           <number>15</number>
+           <number>10</number>
+          </property>
+          <property name="verticalSpacing">
+           <number>6</number>
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ld1">
-            <string>📌 분석 대상(조사지역) 선택 [필수]</string>
+            <string>① 조사지역 선택 (기준):</string>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QComboBox" name="comboStudyArea"/>
+           <widget class="QComboBox" name="comboStudyArea">
+            <property name="toolTip">
+             <string>분석의 기준이 되는 조사범위 폴리곤 레이어를 선택하세요.</string>
+            </property>
+           </widget>
           </item>
           <item row="0" column="2">
            <widget class="QLabel" name="ld1u">
-            <string>[Polygon/Line]</string>
+            <string>◀ 지도 중심 및 도곽 설정의 기준이 됩니다.</string>
            </widget>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="ld2">
-            <string>병합할 수치지형도 목록:</string>
+            <string>② 수치지형도 (배경):</string>
            </widget>
           </item>
           <item row="1" column="1">
            <widget class="QListWidget" name="listTopoLayers">
             <property name="minimumHeight">
-             <number>120</number>
+             <number>100</number>
+            </property>
+            <property name="selectionMode">
+             <enum>QAbstractItemView::ExtendedSelection</enum>
+            </property>
+            <property name="toolTip">
+             <string>배경으로 깔릴 수치지형도를 모두 선택하세요 (Shift/Ctrl 드래그 가능).</string>
             </property>
            </widget>
           </item>
           <item row="1" column="2">
            <layout class="QVBoxLayout" name="vTopoButtons">
+            <property name="spacing">
+             <number>2</number>
+            </property>
+            <property name="margin">
+             <number>0</number>
+            </property>
             <item>
              <widget class="QPushButton" name="btnCheckTopo">
               <property name="text">
-               <string>전체체크</string>
+               <string>선택 설정(V)</string>
+              </property>
+              <property name="toolTip">
+               <string>목록에서 선택(음영표시)된 항목의 체크박스를 활성화합니다.</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="btnUncheckTopo">
               <property name="text">
-               <string>해제</string>
+               <string>선택 해제</string>
               </property>
              </widget>
+            </item>
+            <item>
+             <spacer name="topoSpacer">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
             </item>
            </layout>
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="ld3">
-            <string>수집할 주변 유적 목록:</string>
+            <string>③ 주변 유적 (분석):</string>
            </widget>
           </item>
           <item row="2" column="1">
            <widget class="QListWidget" name="listHeritageLayers">
             <property name="minimumHeight">
-             <number>120</number>
+             <number>100</number>
+            </property>
+            <property name="selectionMode">
+             <enum>QAbstractItemView::ExtendedSelection</enum>
+            </property>
+            <property name="toolTip">
+             <string>분포지도에 표시할 유적 레이어를 모두 선택하세요.</string>
             </property>
            </widget>
           </item>
           <item row="2" column="2">
            <layout class="QVBoxLayout" name="vHeritageButtons">
+            <property name="spacing">
+             <number>2</number>
+            </property>
+            <property name="margin">
+             <number>0</number>
+            </property>
             <item>
              <widget class="QPushButton" name="btnCheckHeritage">
               <property name="text">
-               <string>전체체크</string>
+               <string>선택 설정(V)</string>
+              </property>
+              <property name="toolTip">
+               <string>목록에서 선택(음영표시)된 항목의 체크박스를 활성화합니다.</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="btnUncheckHeritage">
               <property name="text">
-               <string>해제</string>
+               <string>선택 해제</string>
               </property>
              </widget>
+            </item>
+            <item>
+             <spacer name="heritageSpacer">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
             </item>
            </layout>
           </item>
@@ -195,12 +253,18 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
               <property name="text">
                <string>보고서 (160x240)</string>
               </property>
+              <property name="toolTip">
+               <string>표준 보고서 사이즈로 가로/세로 길이를 자동 설정합니다.</string>
+              </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="btnPresetA4">
               <property name="text">
                <string>A4 (210x297)</string>
+              </property>
+              <property name="toolTip">
+               <string>A4 사이즈로 가로/세로 길이를 자동 설정합니다.</string>
               </property>
              </widget>
             </item>
@@ -289,44 +353,55 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           <property name="horizontalSpacing">
            <number>10</number>
           </property>
+          <property name="verticalSpacing">
+           <number>8</number>
+          </property>
           <item row="0" column="0">
            <widget class="QLabel" name="ls1">
-            <string>주변유적 선 두께:</string>
+            <string>① 주변 유적 스타일:</string>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QDoubleSpinBox" name="spinHeritageStrokeWidth"/>
+           <widget class="QDoubleSpinBox" name="spinHeritageStrokeWidth">
+            <property name="toolTip">
+             <string>유적 폴리곤의 외곽선 두께(mm)를 설정합니다.</string>
+            </property>
+           </widget>
           </item>
           <item row="0" column="2">
            <widget class="QLabel" name="ls1u">
-            <string>mm</string>
+            <string>mm (두께)</string>
            </widget>
           </item>
           <item row="0" column="3">
            <widget class="QPushButton" name="btnHeritageStrokeColor">
             <property name="text">
-             <string>선색상</string>
+             <string>테두리 색상</string>
             </property>
            </widget>
           </item>
           <item row="0" column="4">
            <widget class="QPushButton" name="btnHeritageFillColor">
             <property name="text">
-             <string>면색상</string>
+             <string>채움(면) 색상</string>
             </property>
            </widget>
           </item>
           <item row="0" column="5">
-           <widget class="QSpinBox" name="spinHeritageOpacity"/>
+           <widget class="QSpinBox" name="spinHeritageOpacity">
+            <property name="toolTip">
+             <string>유적 내부 채움 색상의 투명도입니다 (0% = 투명, 100% = 불투명).</string>
+            </property>
+           </widget>
           </item>
           <item row="0" column="6">
            <widget class="QLabel" name="ls1op">
-            <string>% (투명도)</string>
+            <string>% (불투명도)</string>
            </widget>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="ls2">
-            <string>조사지역 선 두께:</string>
+            <string>② 조사지역 스타일:</string>
            </widget>
           </item>
           <item row="1" column="1">
@@ -334,29 +409,29 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="2">
            <widget class="QLabel" name="ls2u">
-            <string>mm</string>
+            <string>mm (두께)</string>
            </widget>
           </item>
           <item row="1" column="3">
            <widget class="QPushButton" name="btnStudyStrokeColor">
             <property name="text">
-             <string>선색상</string>
+             <string>테두리 색상</string>
             </property>
            </widget>
           </item>
           <item row="1" column="4" colspan="3">
            <widget class="QLabel" name="lStudyInfo">
             <property name="text">
-             <string>(도안은 외곽선만 표현됩니다)</string>
+             <string>※ 조사지역은 내부를 비우고 외곽선만 표시합니다.</string>
             </property>
             <property name="styleSheet">
-             <string notr="true">color: #999; font-size: 10px;</string>
+             <string notr="true">color: #555; font-size: 11px;</string>
             </property>
            </widget>
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="ls3">
-            <string>수치지형도 선 두께:</string>
+            <string>③ 수치지형도 스타일:</string>
            </widget>
           </item>
           <item row="2" column="1">
@@ -364,13 +439,23 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="2">
            <widget class="QLabel" name="ls3u">
-            <string>mm</string>
+            <string>mm (두께)</string>
            </widget>
           </item>
           <item row="2" column="3">
            <widget class="QPushButton" name="btnTopoStrokeColor">
             <property name="text">
-             <string>선색상</string>
+             <string>등고선 색상</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="4" colspan="3">
+           <widget class="QLabel" name="lTopoInfo">
+            <property name="text">
+             <string>※ 수치지형도의 모든 라인을 병합하여 단일 색상으로 표현합니다.</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #555; font-size: 11px;</string>
             </property>
            </widget>
           </item>
@@ -385,16 +470,23 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
          <layout class="QGridLayout" name="gBuffer">
           <item row="0" column="0">
            <widget class="QLabel" name="lb1">
-            <string>반경 추가(m):</string>
+            <string>① 조사구역 버퍼 거리(m):</string>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QLineEdit" name="editBufferDistance"/>
+           <widget class="QLineEdit" name="editBufferDistance">
+            <property name="toolTip">
+             <string>조사구역 주변으로 그릴 반경(미터)을 입력하세요 (예: 500).</string>
+            </property>
+            <property name="placeholderText">
+             <string>숫자 입력 (예: 500)</string>
+            </property>
+           </widget>
           </item>
           <item row="0" column="2">
            <widget class="QPushButton" name="btnAddBuffer">
             <property name="text">
-             <string>목록추가</string>
+             <string>추가 (+)</string>
             </property>
            </widget>
           </item>
@@ -406,15 +498,21 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
             <property name="maximumHeight">
              <number>100</number>
             </property>
+            <property name="toolTip">
+             <string>추가된 버퍼 목록입니다. 더블클릭하면 삭제할 수 있습니다.</string>
+            </property>
            </widget>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="lb2">
-            <string>버퍼 선 스타일:</string>
+            <string>② 버퍼 라인 스타일:</string>
            </widget>
           </item>
           <item row="1" column="1" colspan="2">
            <layout class="QHBoxLayout" name="hBufferControls">
+            <property name="margin">
+             <number>0</number>
+            </property>
             <item>
              <widget class="QComboBox" name="comboBufferStyle">
               <item>
@@ -431,7 +529,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
             <item>
              <widget class="QPushButton" name="btnBufferColor">
               <property name="text">
-               <string>버퍼색</string>
+               <string>라인 색상 설정</string>
               </property>
              </widget>
             </item>
