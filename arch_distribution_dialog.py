@@ -35,9 +35,36 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.comboSortOrder.setCurrentIndex(0)
         self.tabWidget.setCurrentIndex(0)
         
+        
         self.update_button_colors()
 
-        # Connect signals
+        # [CRITICAL FIX] Explicitly populate dropdowns in Python to guarantee items exist
+        self.comboBufferStyle.clear()
+        self.comboBufferStyle.addItems(["실선 (Solid)", "점선 (Dot)", "쇄선 (Dash)"])
+        
+        self.comboSortOrder.clear()
+        self.comboSortOrder.addItems(["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)"])
+
+        # [CRITICAL FIX] Force Style to ensure visibility
+        STYLE_FORCE_VISIBLE = """
+            QComboBox { 
+                background-color: #ffffff; 
+                color: #000000; 
+                selection-background-color: #3498db;
+                border: 1px solid #bdc3c7;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #000000;
+                selection-background-color: #3498db;
+                selection-color: #ffffff;
+            }
+        """
+        self.comboBufferStyle.setStyleSheet(STYLE_FORCE_VISIBLE)
+        self.comboSortOrder.setStyleSheet(STYLE_FORCE_VISIBLE)
+        
+        self.comboBufferStyle.setCurrentIndex(0)
+        self.comboSortOrder.setCurrentIndex(0)
         self.btnHeritageStrokeColor.clicked.connect(lambda: self.pick_color('heritage_stroke'))
         self.btnHeritageFillColor.clicked.connect(lambda: self.pick_color('heritage_fill'))
         self.btnStudyStrokeColor.clicked.connect(lambda: self.pick_color('study_stroke'))
