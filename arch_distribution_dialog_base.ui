@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.4)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.0.5)</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #f5f5f5; }
@@ -44,7 +44,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.0.4</string>
+        <string>🏛 ArchDistribution Pro v1.0.5</string>
        </property>
       </widget>
      </item>
@@ -627,7 +627,10 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
             <item>
              <widget class="QComboBox" name="comboBufferStyle">
               <property name="styleSheet">
-               <string notr="true">color: black; background-color: white;</string>
+               <string notr="true">
+               QComboBox { color: black; background-color: white; }
+               QComboBox QAbstractItemView { color: black; background-color: white; }
+               </string>
               </property>
               <property name="currentIndex">
                <number>0</number>
@@ -636,11 +639,25 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
                <string>실선 (Solid)</string>
               </item>
               <item>
-               <string>파선 (Dash)</string>
-              </item>
-              <item>
                <string>점선 (Dot)</string>
               </item>
+              <item>
+               <string>쇄선 (Dash)</string>
+              </item>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="spinBufferWidth">
+              <property name="toolTip">
+               <string>버퍼 라인의 두께(mm)를 설정합니다.</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="lbWidthUnit">
+              <property name="text">
+               <string>mm (두께)</string>
+              </property>
              </widget>
             </item>
             <item>
@@ -683,19 +700,22 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           <item row="0" column="1">
            <widget class="QComboBox" name="comboSortOrder">
             <property name="styleSheet">
-             <string notr="true">color: black; background-color: white;</string>
+             <string notr="true">
+             QComboBox { color: black; background-color: white; }
+             QComboBox QAbstractItemView { color: black; background-color: white; }
+             </string>
             </property>
             <property name="currentIndex">
              <number>0</number>
             </property>
             <item>
-             <string>가까운 순 (1번: 최단거리 유적)</string>
+             <string>위에서 아래로 (북→남)</string>
             </item>
             <item>
-             <string>지리적 순 (1번: 가장 북쪽 유적)</string>
+             <string>조사지역에서 가까운 순 (거리순)</string>
             </item>
             <item>
-             <string>가나다 순 (1번: 유적명 기준)</string>
+             <string>가나다 순 (유적명)</string>
             </item>
            </widget>
           </item>

@@ -315,13 +315,14 @@ class ArchDistribution:
         buffer_layer.setName(f"Buffer_{distance}m")
         
         # Apply outline-only style with custom color and dash pattern
-        pen_styles = ['solid', 'dash', 'dot']
+        # User requested: Solid, Dot, Dash (indices 0, 1, 2)
+        pen_styles = ['solid', 'dot', 'dash']
         target_style = pen_styles[style['style']] if style['style'] < len(pen_styles) else 'solid'
         
         symbol = QgsFillSymbol.createSimple({
             'color': '0,0,0,0', # Transparent fill
             'outline_color': style['color'],
-            'outline_width': '0.3', # Standard buffer line weight
+            'outline_width': str(style['width']), # User defined width
             'outline_style': target_style
         })
         buffer_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
@@ -549,10 +550,10 @@ class ArchDistribution:
         features_to_sort = []
         for feat in layer.getFeatures():
             geom = feat.geometry()
-            if sort_order == 0: # Proximity
-                val = geom.centroid().asPoint().sqrDist(centroid)
-            elif sort_order == 1: # Geo-Top (North to South)
+            if sort_order == 0: # Top-to-Bottom (North to South)
                 val = -geom.centroid().asPoint().y()
+            elif sort_order == 1: # Closest to Study Area
+                 val = geom.centroid().asPoint().sqrDist(centroid)
             else: # Alphabetical
                 val = feat["유적명"] if "유적명" in feat.fields().names() else ""
             features_to_sort.append({'feat': feat, 'sort_val': val})

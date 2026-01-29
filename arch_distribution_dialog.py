@@ -26,7 +26,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinHeritageStrokeWidth.setValue(0.3)
         self.spinHeritageOpacity.setValue(40)
         self.spinStudyStrokeWidth.setValue(0.5)
+        self.spinStudyStrokeWidth.setValue(0.5)
         self.spinTopoStrokeWidth.setValue(0.05) # Traditional topo line weight
+        self.spinBufferWidth.setValue(0.3) # Default buffer width
         self.spinWidth.setValue(210) # A4 width
         self.spinHeight.setValue(297) # A4 height
         self.spinScale.setValue(5000)
@@ -166,7 +168,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "buffers": buffers,
             "buffer_style": {
                 "color": self.buffer_color.name(),
-                "style": self.comboBufferStyle.currentIndex() # 0: Solid, 1: Dash, 2: Dot
+                "style": self.comboBufferStyle.currentIndex(), # 0: Solid, 1: Dot, 2: Dash
+                "width": self.spinBufferWidth.value()
             },
             "heritage_style": {
                 "stroke_color": self.heritage_stroke_color.name(),
