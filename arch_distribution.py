@@ -68,6 +68,7 @@ class ArchDistribution:
         self.dlg = ArchDistributionDialog()
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
+        self.dlg.renumber_requested.connect(self.process_renumbering)
         self.dlg.exec_()
 
     def log(self, message):
@@ -225,6 +226,42 @@ class ArchDistribution:
             self.dlg.btnRun.setEnabled(True)
             if 'progress' in locals():
                 progress.close()
+
+            if 'progress' in locals():
+                progress.close()
+
+    def process_renumbering(self, layer):
+        """Renumber the specific layer based on current UI settings."""
+        self.log(f"레이어 '{layer.name()}' 번호 새로고침 중...")
+        
+        try:
+            # 1. Get Settings (Sort Order & Study Area)
+            settings = self.dlg.get_settings()
+            sort_order = settings['sort_order']
+            
+            # 2. Get Centroid (if needed)
+            centroid = None
+            if settings['study_area_id']:
+                study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
+                if study_layer:
+                    centroid = self.get_study_area_centroid(study_layer)
+            
+            if sort_order == 1 and not centroid:
+                 QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
+                 return
+
+            # 3. Call Numbering Logic
+            self.number_heritage_v4(layer, centroid, sort_order)
+            
+            # 4. Refresh
+            layer.triggerRepaint()
+            self.iface.mapCanvas().refresh()
+            self.log(f"레이어 '{layer.name()}' 번호가 {layer.featureCount()}개로 재정렬되었습니다.")
+            QMessageBox.information(self.dlg, "완료", "번호 새로고침이 완료되었습니다.")
+            
+        except Exception as e:
+            self.log(f"오류 발생: {str(e)}")
+            QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group and hide it."""

@@ -74,6 +74,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnAddBuffer.clicked.connect(self.add_buffer_to_list)
         self.listBuffers.itemDoubleClicked.connect(self.remove_buffer_from_list)
 
+        # Renumber signal
+        self.btnRenumber.clicked.connect(self.renumber_current_layer)
+
+        # Batch selection signals
+
         # Batch selection signals
         self.btnCheckTopo.clicked.connect(lambda: self.set_batch_check(self.listTopoLayers, True))
         self.btnUncheckTopo.clicked.connect(lambda: self.set_batch_check(self.listTopoLayers, False))
@@ -93,6 +98,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     # Custom signal for execution
     run_requested = QtCore.pyqtSignal(dict)
+    renumber_requested = QtCore.pyqtSignal(object) # Passing QgsVectorLayer
 
     def emit_run_requested(self):
         """Validates settings and emits the run signal."""
@@ -153,6 +159,38 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def remove_buffer_from_list(self, item):
         self.listBuffers.takeItem(self.listBuffers.row(item))
+
+    def renumber_current_layer(self):
+        """Renumber the features of the currently selected layer."""
+        layer = self.iface.activeLayer()
+        if not layer or layer.type() != 0: # Check if vector layer
+             QtWidgets.QMessageBox.warning(self, "선택 오류", "유적 레이어를 선택(활성화)한 후 실행해주세요.")
+             return
+             
+        # Check for '번호' field
+        if layer.fields().indexFromName("번호") == -1:
+             QtWidgets.QMessageBox.warning(self, "호환 오류", "선택한 레이어에 '번호' 필드가 없습니다.\nArchDistribution으로 생성된 결과물인지 확인해주세요.")
+             return
+
+        # Get Study Area Centroid for Sorting
+        study_layer_id = self.comboStudyArea.currentData()
+        study_layer = QgsProject.instance().mapLayer(study_layer_id)
+        
+        centroid = None
+        if study_layer:
+             # Hacky way to access the helper method in the main logic class?
+             # Actually, logic code is in 'ArchDistribution' class instance which holds 'dlg'.
+             # 'dlg' doesn't hold 'ArchDistribution'.
+             # So we should emit a signal to request renumbering, or move the logic here?
+             # Cleanest: Emit a signal 'renumber_requested' with the layer.
+             pass
+        else:
+             # If study layer is missing, we can't do distance sort, but others work.
+             pass
+
+        # Wait, the Dialog shouldn't do the heavy lifting.
+        # Let's emit a signal sending the layer to the main plugin logic.
+        self.renumber_requested.emit(layer)
 
     def populate_layers(self):
         self.comboStudyArea.clear()
