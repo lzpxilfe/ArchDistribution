@@ -486,6 +486,8 @@ class ArchDistribution:
             
             # Identify fields (Fuzzy matching)
             name_field = self.find_field(layer, ['유적명', '명칭', 'NAME', 'SITE', 'TITLE'])
+            heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # [NEW]
+            project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT']) # [NEW]
             addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
             area_field = self.find_field(layer, ['면적', 'AREA', 'SHAPE_AREA'])
 
@@ -507,7 +509,9 @@ class ArchDistribution:
                 QgsField("유적명", QVariant.String),
                 QgsField("주소", QVariant.String),
                 QgsField("면적_m2", QVariant.Double),
-                QgsField("원본레이어", QVariant.String) # Source layer name
+                QgsField("국가유산명", QVariant.String), # [NEW]
+                QgsField("사업명", QVariant.String),     # [NEW]
+                QgsField("원본레이어", QVariant.String)
             ]
             subset_pr.addAttributes(standard_fields)
             subset_layer.updateFields()
@@ -536,9 +540,27 @@ class ArchDistribution:
                         new_feat = QgsFeature(subset_layer.fields())
                         new_feat.setGeometry(geom)
                         
+                        # [NEW] Attribute Extraction
+                        val_name = feat[name_field] if name_field else ""
+                        val_heritage = feat[heritage_name_field] if heritage_name_field else ""
+                        val_project = feat[project_name_field] if project_name_field else ""
+                        
+                        # [NEW] Smart Naming Logic
+                        display_name = val_name
+                        if val_heritage: # National Heritage takes precedence
+                            display_name = val_heritage
+                            if val_name and val_name not in display_name:
+                                 display_name += f" ({val_name})"
+                        elif val_project: # Project name context
+                             display_name = val_project
+                             if val_name and val_name not in display_name:
+                                  display_name += f" {val_name}"
+
                         # Map attributes
-                        new_feat["유적명"] = feat[name_field] if name_field else "N/A"
+                        new_feat["유적명"] = display_name if display_name else "N/A"
                         new_feat["주소"] = feat[addr_field] if addr_field else "N/A"
+                        new_feat["국가유산명"] = val_heritage
+                        new_feat["사업명"] = val_project
                         
                         # Area logic
                         if area_field and feat[area_field]:

@@ -4,6 +4,7 @@ from qgis.PyQt import uic, QtCore, QtGui
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QListWidgetItem, QColorDialog
 from qgis.core import QgsProject
+from qgis.utils import iface # [CRITICAL FIX] Import global iface
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -162,7 +163,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def renumber_current_layer(self):
         """Renumber the features of the currently selected layer."""
-        layer = self.iface.activeLayer()
+        layer = iface.activeLayer() # [CRITICAL FIX] Use global iface
         if not layer or layer.type() != 0: # Check if vector layer
              QtWidgets.QMessageBox.warning(self, "선택 오류", "유적 레이어를 선택(활성화)한 후 실행해주세요.")
              return
