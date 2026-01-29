@@ -31,8 +31,19 @@ QPushButton#btnRun {
 QPushButton#btnRun:hover { background-color: #3498db; }
 QPushButton#btnRun:pressed { background-color: #1f618d; }
 QLineEdit, QSpinBox, QDoubleSpinBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; }
+
+/* IMPACT FIX: Force Combo Box Popup to be White Background with Black Text */
 QComboBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; }
-QComboBox QAbstractItemView { background-color: #ffffff; color: #000000; selection-background-color: #3498db; selection-color: #ffffff; }
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #000000;
+    selection-background-color: #3498db;
+    selection-color: #ffffff;
+    outline: 0;
+}
+QComboBox::item { color: #000000; background-color: #ffffff; }
+QComboBox::item:selected { background-color: #3498db; color: #ffffff; }
+
 QListWidget { border: 1px solid #bdc3c7; border-radius: 3px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; selection-color: #ffffff; }
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QListWidget:focus { border: 1px solid #3498db; }
 QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family: 'Consolas', monospace; font-size: 10px; border-radius: 3px; }
