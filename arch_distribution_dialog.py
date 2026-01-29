@@ -88,7 +88,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Run signal
         self.btnRun.clicked.connect(self.emit_run_requested)
+        # Run signal
+        self.btnRun.clicked.connect(self.emit_run_requested)
         self.buttonBox.rejected.connect(self.reject) # Close button
+        
+        # Help signal
+        self.btnHelp.clicked.connect(self.show_help)
 
         # Presets
         self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
