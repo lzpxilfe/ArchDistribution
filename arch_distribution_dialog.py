@@ -261,3 +261,28 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex()
         }
+
+    def show_help(self):
+        """Display User Guide and Export Tips."""
+        help_text = """
+<h3>📘 사용 가이드 및 유의사항 (User Guide)</h3>
+<hr>
+<b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
+보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
+<ol>
+<li>QGIS 상단 메뉴의 <b>'프로젝트 > 새 인쇄 조판'</b>을 엽니다.</li>
+<li>생성된 분포지도를 추가하고, <b>PDF로 내보내기</b>를 합니다.</li>
+<li><b>Tip:</b> 레이어(지형도, 유적, 버퍼 등)를 <u>하나씩만 켜서 각각 PDF로 저장</u>한 뒤,<br> 
+일러스트레이터에서 합치면 레이어가 섞이지 않아 편집이 훨씬 수월합니다.</li>
+</ol>
+<br>
+<b>[⚠️ 유의사항 (Disclaimer)]</b><br>
+본 플러그인은 좌표계 변환 및 데이터 병합을 자동화하여 사용자의 편의를 돕는 도구입니다.<br>
+<ul>
+<li>사용자마다 QGIS 환경(좌표계 설정 등)이 다르므로, <b>반드시 결과물의 위치와 속성을 육안으로 검수</b>해주시기 바랍니다.</li>
+<li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
+</ul>
+<br>
+<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.1.0</div>
+"""
+        QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
