@@ -69,6 +69,7 @@ class ArchDistribution:
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
         self.dlg.renumber_requested.connect(self.process_renumbering)
+        self.dlg.scan_requested.connect(self.perform_scan) # [NEW]
         self.dlg.exec_()
 
     def log(self, message):
@@ -262,6 +263,19 @@ class ArchDistribution:
         except Exception as e:
             self.log(f"오류 발생: {str(e)}")
             QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
+
+            QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
+
+    def perform_scan(self, settings):
+        """Execute smart scan and update dialog."""
+        self.log("스마트 스캔 시작...")
+        try:
+            categories = self.scan_smart_categories(settings)
+            self.dlg.update_category_list(categories)
+            self.log(f"스캔 완료: {len(categories)}개 분류 발견됨.")
+        except Exception as e:
+            self.log(f"스캔 오류: {str(e)}")
+            QMessageBox.critical(self.dlg, "오류", f"스캔 중 오류: {str(e)}")
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group and hide it."""
@@ -544,7 +558,26 @@ class ArchDistribution:
                         val_name = feat[name_field] if name_field else ""
                         val_heritage = feat[heritage_name_field] if heritage_name_field else ""
                         val_project = feat[project_name_field] if project_name_field else ""
+                        val_type = feat[self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE'])] if self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE']) else ""
+
+                        # [NEW] Filtering Logic
+                        # Determine category for filtering
+                        current_cat = "기타"
+                        is_vip = any(k in layer.name() for k in ["국가지정", "시도지정", "등록", "지정", "문화유산"])
+                        if is_vip or val_heritage:
+                             current_cat = "[필수] 지정문화유산 (VIP)"
+                        elif val_type and len(str(val_type)) > 1:
+                             current_cat = str(val_type)
+                        else:
+                             current_cat = self.keyword_inference(val_name)
                         
+                        # Check filter (if filter list is provided)
+                        if filter_categories is not None:
+                             # If not in allowed list, skip
+                             # Note: We need robust matching. Exact match for now.
+                             if current_cat not in filter_categories:
+                                  continue # Skip this feature
+
                         # [NEW] Smart Naming Logic
                         display_name = val_name
                         if val_heritage: # National Heritage takes precedence

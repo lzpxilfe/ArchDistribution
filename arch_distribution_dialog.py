@@ -94,6 +94,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         # Help signal
         self.btnHelp.clicked.connect(self.show_help)
+        
+        # Smart Scan signal [NEW]
+        self.btnSmartScan.clicked.connect(self.scan_categories)
 
         # Presets
         self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
@@ -105,6 +108,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     # Custom signal for execution
     run_requested = QtCore.pyqtSignal(dict)
     renumber_requested = QtCore.pyqtSignal(object) # Passing QgsVectorLayer
+    scan_requested = QtCore.pyqtSignal(dict) # [NEW]
 
     def emit_run_requested(self):
         """Validates settings and emits the run signal."""
@@ -259,8 +263,67 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "paper_width": self.spinWidth.value(),
             "paper_height": self.spinHeight.value(),
             "scale": self.spinScale.value(),
-            "sort_order": self.comboSortOrder.currentIndex()
+            "scale": self.spinScale.value(),
+            "sort_order": self.comboSortOrder.currentIndex(),
+            "filter_categories": self.get_allowed_categories() # [NEW]
         }
+
+    def scan_categories(self):
+        """Identify categories and populate the list."""
+        settings = self.get_settings()
+        # Hack: Pass logic instance? No, emit signal ideally, but simpler to use direct call or lightweight logic here?
+        # The logic is in the Plugin class, not Dialog.
+        # We need to emit a signal to request scan?
+        # Or... ArchDistribution instance holds Dialog. Dialog can't call Plugin easily unless passed.
+        # Let's emit a signal `scan_requested`.
+        self.scan_requested.emit(settings)
+
+    def update_category_list(self, categories):
+        """Callback to update list widget with scan results."""
+        self.listSmartCategories.clear()
+        
+        # Sort: VIP First, then Counts
+        def sort_key(item):
+            name, count = item
+            if "VIP" in name: return 0
+            if "제외권장" in name: return 2
+            return 1
+            
+        sorted_cats = sorted(categories.items(), key=sort_key)
+        
+        for name, count in sorted_cats:
+            item_text = f"{name} ({count}개)"
+            item = QListWidgetItem(item_text)
+            item.setData(QtCore.Qt.UserRole, name) # Store real category name
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            
+            # Default Check Logic
+            if "VIP" in name:
+                item.setCheckState(QtCore.Qt.Checked)
+                # item.setFlags(QtCore.Qt.NoItemFlags) # Lock it? No, let user uncheck if they really want
+                item.setBackground(QtGui.QColor("#d4efdf")) # Greenish bg
+            elif "제외권장" in name:
+                item.setCheckState(QtCore.Qt.Unchecked)
+                item.setForeground(QtGui.QColor("#7f8c8d")) # Gray text
+            else:
+                item.setCheckState(QtCore.Qt.Checked)
+                
+            self.listSmartCategories.addItem(item)
+            
+        if not categories:
+             self.listSmartCategories.addItem("스캔 결과 없음")
+
+    def get_allowed_categories(self):
+        """Return list of checked categories."""
+        if self.listSmartCategories.count() == 0:
+            return None # No filtering applied if list is empty
+            
+        allowed = []
+        for i in range(self.listSmartCategories.count()):
+            item = self.listSmartCategories.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                allowed.append(item.data(QtCore.Qt.UserRole))
+        return allowed
 
     def show_help(self):
         """Display User Guide and Export Tips."""
