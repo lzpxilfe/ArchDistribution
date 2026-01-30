@@ -200,7 +200,8 @@ class ArchDistribution:
                 
                 if merged_heritage:
                     self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
-                    self.number_heritage_v4(merged_heritage, centroid, settings['sort_order'])
+                    # target_crs is defined earlier in method
+                    self.number_heritage_v4(merged_heritage, centroid, settings['sort_order'], extent_geom, original_study_layer.crs())
                     self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
                     self.apply_heritage_style(merged_heritage, settings['heritage_style'])
                     
@@ -252,8 +253,18 @@ class ArchDistribution:
                  QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
                  return
 
+            # [NEW] Calculate Extent Geometry for Exclusion
+            extent_geom = self.calculate_extent_geometry(
+                centroid, 
+                settings['paper_width'], 
+                settings['paper_height'], 
+                settings['scale']
+            )
+
             # 3. Call Numbering Logic
-            self.number_heritage_v4(layer, centroid, sort_order)
+            # Pass study_layer.crs() if available, else standard logic
+            extent_crs = study_layer.crs() if 'study_layer' in locals() and study_layer else layer.crs()
+            self.number_heritage_v4(layer, centroid, sort_order, extent_geom, extent_crs)
             
             # 4. Refresh
             layer.triggerRepaint()
@@ -400,11 +411,12 @@ class ArchDistribution:
             
         return extent.center()
 
-    def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group, crs):
-        """Create a rectangle polygon based on paper size and scale."""
-        if not centroid:
-            return None
-            
+        return extent.center()
+
+    def calculate_extent_geometry(self, centroid, width_mm, height_mm, scale):
+        """Calculate the extent geometry (rectangle) without creating a layer."""
+        if not centroid: return None
+        
         # Real world dimensions in meters
         width_m = (width_mm / 1000.0) * scale
         height_m = (height_mm / 1000.0) * scale
@@ -413,18 +425,17 @@ class ArchDistribution:
         half_h = height_m / 2.0
         
         # Create corners
-        p1 = (centroid.x() - half_w, centroid.y() + half_h) # Top Left
-        p2 = (centroid.x() + half_w, centroid.y() + half_h) # Top Right
-        p3 = (centroid.x() + half_w, centroid.y() - half_h) # Bottom Right
-        p4 = (centroid.x() - half_w, centroid.y() - half_h) # Bottom Left
+        p1 = QgsPointXY(centroid.x() - half_w, centroid.y() + half_h) # Top Left
+        p2 = QgsPointXY(centroid.x() + half_w, centroid.y() + half_h) # Top Right
+        p3 = QgsPointXY(centroid.x() + half_w, centroid.y() - half_h) # Bottom Right
+        p4 = QgsPointXY(centroid.x() - half_w, centroid.y() - half_h) # Bottom Left
         
-        rect_geom = QgsGeometry.fromPolygonXY([[
-            QgsPointXY(p1[0], p1[1]),
-            QgsPointXY(p2[0], p2[1]),
-            QgsPointXY(p3[0], p3[1]),
-            QgsPointXY(p4[0], p4[1]),
-            QgsPointXY(p1[0], p1[1])
-        ]])
+        return QgsGeometry.fromPolygonXY([[p1, p2, p3, p4, p1]])
+
+    def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group, crs):
+        """Create a rectangle polygon based on paper size and scale."""
+        rect_geom = self.calculate_extent_geometry(centroid, width_mm, height_mm, scale)
+        if not rect_geom: return None
 
         # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
         vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory") 
@@ -723,23 +734,53 @@ class ArchDistribution:
 
         return final_layer
 
-    def number_heritage_v4(self, layer, centroid, sort_order):
-        """Sort features and assign numbers to '번호' field."""
+    def number_heritage_v4(self, layer, centroid, sort_order, extent_geom=None, extent_crs=None):
+        """
+        Sort features and assign numbers to '번호' field.
+        If extent_geom is provided, features NOT intersecting it will get NULL number.
+        Handles CRS transformation if extent_crs is provided and differs from layer CRS.
+        """
         idx = layer.fields().indexFromName("번호")
         features_to_sort = []
+        
+        # Prepare transformation if needed
+        transform = None
+        target_extent = extent_geom
+        
+        if extent_geom and extent_crs and layer.crs() != extent_crs:
+            tr = QgsCoordinateTransform(extent_crs, layer.crs(), QgsProject.instance())
+            # Safely transform the extent geometry
+            try:
+                # boundingBox() returns QgsRectangle, create a geometry from it for transform
+                # But extent_geom is a Polygon geometry.
+                # QgsGeometry.transform modifies in place. We must clone.
+                target_extent = QgsGeometry(extent_geom)
+                target_extent.transform(tr)
+                self.log(f"도곽 좌표 변환 적용됨: {extent_crs.authid()} -> {layer.crs().authid()}")
+            except Exception as e:
+                self.log(f"좌표 변환 오류 (무시됨): {e}")
+
+        layer.startEditing()
+        
         for feat in layer.getFeatures():
             geom = feat.geometry()
+            
+            # [NEW] Extent Intersection Check
+            if target_extent and not geom.intersects(target_extent):
+                # Outside extent -> Set to NULL
+                layer.changeAttributeValue(feat.id(), idx, None) 
+                continue # Skip sorting
+                
             if sort_order == 0: # Top-to-Bottom (North to South)
                 val = -geom.centroid().asPoint().y()
             elif sort_order == 1: # Closest to Study Area
-                 val = geom.centroid().asPoint().sqrDist(centroid)
+                 val = geom.centroid().asPoint().sqrDist(centroid) if centroid else 0
             else: # Alphabetical
                 val = feat["유적명"] if "유적명" in feat.fields().names() else ""
             features_to_sort.append({'feat': feat, 'sort_val': val})
         
         features_to_sort.sort(key=lambda x: x['sort_val'])
         
-        layer.startEditing()
         for i, item in enumerate(features_to_sort):
             layer.changeAttributeValue(item['feat'].id(), idx, i + 1)
         layer.commitChanges()

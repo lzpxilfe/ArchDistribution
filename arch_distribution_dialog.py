@@ -17,21 +17,42 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
 
         # [NEW] Programmatically add missing UI elements for Smart Filter
-        self.groupSmartFilter = QtWidgets.QGroupBox("유적 속성 분류 (Site Classification)")
+        self.groupSmartFilter = QtWidgets.QGroupBox("유적 속성 분류")
         self.vSmartLayout = QtWidgets.QVBoxLayout()
         
         self.lSmartDesc = QtWidgets.QLabel("체크된 유적 레이어의 명칭을 분석하여 시대와 성격을 자동 분류합니다.")
         self.lSmartDesc.setStyleSheet("color: #555; font-size: 10px;")
         
-        self.btnSmartScan = QtWidgets.QPushButton("속성 분류 실행 (Scan Attributes)")
+        self.btnSmartScan = QtWidgets.QPushButton("속성 분류 실행")
         self.btnSmartScan.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
         
-        self.listSmartCategories = QtWidgets.QListWidget()
-        self.listSmartCategories.setMinimumHeight(150)
+        # Split UI into two columns
+        self.hSmartLists = QtWidgets.QHBoxLayout()
+        
+        # Era Column
+        self.vEras = QtWidgets.QVBoxLayout()
+        self.lblEra = QtWidgets.QLabel("시대")
+        self.lblEra.setStyleSheet("font-weight: bold; color: #333;")
+        self.listEras = QtWidgets.QListWidget()
+        self.listEras.setMinimumHeight(200) # Increased height
+        self.vEras.addWidget(self.lblEra)
+        self.vEras.addWidget(self.listEras)
+        
+        # Type Column
+        self.vTypes = QtWidgets.QVBoxLayout()
+        self.lblType = QtWidgets.QLabel("성격")
+        self.lblType.setStyleSheet("font-weight: bold; color: #333;")
+        self.listTypes = QtWidgets.QListWidget()
+        self.listTypes.setMinimumHeight(200) # Increased height
+        self.vTypes.addWidget(self.lblType)
+        self.vTypes.addWidget(self.listTypes)
+        
+        self.hSmartLists.addLayout(self.vEras)
+        self.hSmartLists.addLayout(self.vTypes)
         
         self.vSmartLayout.addWidget(self.lSmartDesc)
         self.vSmartLayout.addWidget(self.btnSmartScan)
-        self.vSmartLayout.addWidget(self.listSmartCategories)
+        self.vSmartLayout.addLayout(self.hSmartLists) # Add the horizontal layout
         self.groupSmartFilter.setLayout(self.vSmartLayout)
         
         # Insert into the first tab layout (vTab1) before the Spec group (item index 1)
@@ -292,7 +313,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "scale": self.spinScale.value(),
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
-            "filter_items": self.get_checked_items(self.listSmartCategories) # [NEW]
+            "filter_items": self.get_checked_items(None) # Updated method uses internal lists
         }
 
     def load_reference_data(self):
@@ -311,7 +332,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def scan_categories(self):
         """Identify categories from selected layers using Reference Data."""
-        self.listSmartCategories.clear()
+        self.listEras.clear()
+        self.listTypes.clear()
         
         heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.UserRole) 
                              for i in range(self.listHeritageLayers.count()) 
@@ -334,23 +356,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.log(f"레이어 스캔 중: {layer.name()}")
 
             # [Auto-Fix] Check for Encoding Issues (Mojibake)
-            # If field names contain '' (Review: or other garbage), try switching to CP949
             fields = [f.name() for f in layer.fields()]
-            
-            # Simple heuristic: if any field name has the replacement character or looks very short/garbage-like
             needs_encoding_fix = any('\ufffd' in f or '' in f for f in fields)
             
             if needs_encoding_fix:
                 self.log("  ⚠️ 인코딩 깨짐 감지됨. CP949(EUC-KR)로 자동 변환을 시도합니다.")
                 layer.setProviderEncoding("CP949")
-                layer.dataProvider().reloadData() # Refresh data provider
-                fields = [f.name() for f in layer.fields()] # Re-read fields
+                layer.dataProvider().reloadData()
+                fields = [f.name() for f in layer.fields()]
                 self.log(f"  - 변환 후 필드 목록: {', '.join(fields)}")
             else:
                 self.log(f"  - 필드 목록: {', '.join(fields)}")
             
             name_field = None
-            # Expanded keyword list and simpler matching
             keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
             
             for f in fields:
@@ -383,46 +401,45 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         self.log(f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.")
         
-        # Populate List
-        # Era Section
+        # Populate List - Era
         if found_eras:
-            header = QListWidgetItem("[시대]")
-            header.setFlags(QtCore.Qt.NoItemFlags)
-            header.setBackground(QtGui.QColor("#eeeeee"))
-            self.listSmartCategories.addItem(header)
-            
+            # Sort Era? Custom sort order would be nice but alphabetical for now
             for era in sorted(list(found_eras)):
-                item = QListWidgetItem(f"  {era}")
+                item = QListWidgetItem(era)
                 item.setData(QtCore.Qt.UserRole, f"ERA:{era}")
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
                 item.setCheckState(QtCore.Qt.Checked)
-                self.listSmartCategories.addItem(item)
+                self.listEras.addItem(item)
+        else:
+            self.listEras.addItem("식별실패")
 
-        # Type Section
+        # Populate List - Type
         if found_types:
-            header = QListWidgetItem("[성격]")
-            header.setFlags(QtCore.Qt.NoItemFlags)
-            header.setBackground(QtGui.QColor("#eeeeee"))
-            self.listSmartCategories.addItem(header)
-            
             for t in sorted(list(found_types)):
-                item = QListWidgetItem(f"  {t}")
+                item = QListWidgetItem(t)
                 item.setData(QtCore.Qt.UserRole, f"TYPE:{t}")
                 item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
                 item.setCheckState(QtCore.Qt.Checked)
-                self.listSmartCategories.addItem(item)
-                
-        if not found_eras and not found_types:
-            self.listSmartCategories.addItem("식별된 정보 없음")
+                self.listTypes.addItem(item)
+        else:
+            self.listTypes.addItem("식별실패")
 
 
-    def get_checked_items(self, list_widget):
-        """Return list of checked items data."""
+    def get_checked_items(self, _ignored):
+        """Return list of checked items data from both Era and Type lists."""
         checked = []
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
+        # Check Eras
+        for i in range(self.listEras.count()):
+            item = self.listEras.item(i)
             if item.checkState() == QtCore.Qt.Checked:
                 checked.append(item.data(QtCore.Qt.UserRole))
+        
+        # Check Types
+        for i in range(self.listTypes.count()):
+            item = self.listTypes.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                checked.append(item.data(QtCore.Qt.UserRole))
+                
         return checked
 
     def show_help(self):
