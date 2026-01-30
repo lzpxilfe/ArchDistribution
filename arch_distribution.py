@@ -194,7 +194,8 @@ class ArchDistribution:
                     settings['heritage_layer_ids'], 
                     extent_geom, 
                     original_study_layer, 
-                    src_group
+                    src_group,
+                    filter_categories=settings.get('filter_items', None) # [FIX] Pass filter list (renamed to items conceptually)
                 )
                 
                 if merged_heritage:
@@ -479,7 +480,93 @@ class ArchDistribution:
                     return f
         return None
 
-    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group):
+    def load_reference_data(self):
+        """Load reference data for filtering."""
+        import json
+        json_path = os.path.join(self.plugin_dir, 'reference_data.json')
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    self.reference_data = json.load(f)
+            except:
+                self.reference_data = {}
+        else:
+            self.reference_data = {}
+
+    def should_exclude(self, name, filter_items):
+        """
+        Check if feature should be excluded based on name look-up.
+        filter_items: List of allowed strings e.g. ["ERA:고려", "TYPE:고분"]
+        If filter_items is None, Allow all.
+        """
+        if filter_items is None: return False # No filtering
+        
+        # Load data if not loaded
+        if not hasattr(self, 'reference_data'):
+            self.load_reference_data()
+            
+        if name not in self.reference_data:
+            return False # Unknown items are allowed by default (or denied? Let's allow for safety)
+            
+        info = self.reference_data[name]
+        era_key = f"ERA:{info['e']}"
+        type_key = f"TYPE:{info['t']}"
+        
+        # Logic: 
+        # If the item has an Era, and that Era is NOT in the allowed list -> Exclude
+        # If the item has a Type, and that Type is NOT in the allowed list -> Exclude
+        # Wait, if I uncheck "Era: Goryeo", then Goryeo items should be gone.
+        # But what if I uncheck "Type: Tomb"? Then Tomb items gone.
+        # Basically, we need to check if the specific Era tag is present in filter_items (if applicable)
+        # AND if the specific Type tag is present in filter_items (if applicable).
+        
+        # However, we only emitted tags that were found.
+        # So we can just check: IS the ERA present in the allowed list?
+        
+        # Complication: filter_items contains only CHECKED items.
+        # So if era_key is valid (not '时代未详') and NOT in filter_items -> Exclude.
+        
+        if info['e'] and info['e'] != "시대미상":
+             # Does the user care about eras? (i.e. are there any ERA tags in the list?)
+             # We can assume if filter_items provided, we enforce it.
+             # We need to know if "ERA:Goryeo" was presented to the user?
+             # Actually, simpler: if filter_items is passed, it represents the ALLOW LIST of properties.
+             # But if "ERA:Goryeo" was never in the list (not found in scan), we shouldn't block it?
+             # The Dialog only adds found items.
+             # So if it was found, it must be in the list?
+             # Correct. 
+             
+             # Optimization: We assume the Dialog passed ONLY the checked items.
+             # But we also need to know if the Era was even *candidate* for filtering. 
+             # If "Goryeo" wasn't in the input layers, it wouldn't be in the list.
+             # But here we are processing features. If this feature is Goryeo, then "ERA:Goryeo" WOULD have been found by scan?
+             # YES, because we scan the same layers.
+             
+             if era_key not in filter_items:
+                 # Check if this era key was actually available to be unchecked?
+                 # If we rely on the list containing ONLY checked items, then missing item = unchecked.
+                 return True
+
+        if info['t'] and info['t'] != "기타":
+             if type_key not in filter_items:
+                 return True
+                 
+        return False
+
+    def keyword_inference(self, name):
+        """Infer category from name."""
+        if not name: return "기타"
+        
+        # Priority mapping
+        if any(k in name for k in ["고분", "분묘", "묘", "총", "릉"]): return "분묘"
+        if any(k in name for k in ["산성", "성", "진", "보", "루"]): return "성곽"
+        if any(k in name for k in ["요지", "가마", "생산"]): return "생산유적"
+        if any(k in name for k in ["주거", "취락", "마을", "생활"]): return "생활유적"
+        if any(k in name for k in ["사지", "불상", "탑", "비", "당간"]): return "불교/장묘"
+        
+        return "기타"
+
+    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None):
         """Merge selected heritage layers and filter by extent and study area."""
         temp_layers = []
         
@@ -561,7 +648,14 @@ class ArchDistribution:
                         val_type = feat[self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE'])] if self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE']) else ""
 
                         # [NEW] Filtering Logic
-                        # Determine category for filtering
+                        # 1. Smart Filter (Era/Type from JSON)
+                        if self.should_exclude(val_name, filter_categories): # filter_categories is actually 'filter_items' list
+                            continue
+
+                        # Determine category for filtering (Old Logic - Deprecated but kept for safety/fallback?)
+                        # Actually we can skip the old logic if we rely on the new one.
+                        # But for 'VIP' status, we might still want to mark it?
+                        
                         current_cat = "기타"
                         is_vip = any(k in layer.name() for k in ["국가지정", "시도지정", "등록", "지정", "문화유산"])
                         if is_vip or val_heritage:
@@ -571,13 +665,6 @@ class ArchDistribution:
                         else:
                              current_cat = self.keyword_inference(val_name)
                         
-                        # Check filter (if filter list is provided)
-                        if filter_categories is not None:
-                             # If not in allowed list, skip
-                             # Note: We need robust matching. Exact match for now.
-                             if current_cat not in filter_categories:
-                                  continue # Skip this feature
-
                         # [NEW] Smart Naming Logic
                         display_name = val_name
                         if val_heritage: # National Heritage takes precedence

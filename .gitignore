@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 .DS_Store
 *.ui.python
+
+# Sensitive Data
+xlsx/
+*.xlsx
+reference_data.json

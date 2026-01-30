@@ -16,6 +16,28 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         super(ArchDistributionDialog, self).__init__(parent)
         self.setupUi(self)
 
+        # [NEW] Programmatically add missing UI elements for Smart Filter
+        self.groupSmartFilter = QtWidgets.QGroupBox("유적 속성 분류 (Site Classification)")
+        self.vSmartLayout = QtWidgets.QVBoxLayout()
+        
+        self.lSmartDesc = QtWidgets.QLabel("체크된 유적 레이어의 명칭을 분석하여 시대와 성격을 자동 분류합니다.")
+        self.lSmartDesc.setStyleSheet("color: #555; font-size: 10px;")
+        
+        self.btnSmartScan = QtWidgets.QPushButton("속성 분류 실행 (Scan Attributes)")
+        self.btnSmartScan.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
+        
+        self.listSmartCategories = QtWidgets.QListWidget()
+        self.listSmartCategories.setMinimumHeight(150)
+        
+        self.vSmartLayout.addWidget(self.lSmartDesc)
+        self.vSmartLayout.addWidget(self.btnSmartScan)
+        self.vSmartLayout.addWidget(self.listSmartCategories)
+        self.groupSmartFilter.setLayout(self.vSmartLayout)
+        
+        # Insert into the first tab layout (vTab1) before the Spec group (item index 1)
+        if hasattr(self, 'vTab1'):
+            self.vTab1.insertWidget(1, self.groupSmartFilter)
+
         # Default colors (Matching professional archaeological standards)
         self.heritage_stroke_color = QtGui.QColor(139, 69, 19) # SaddleBrown
         self.heritage_fill_color = QtGui.QColor(255, 178, 102) # Light Orange/Peach
@@ -96,6 +118,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnHelp.clicked.connect(self.show_help)
         
         # Smart Scan signal [NEW]
+        # [NEW] Smart Scan Signal
         self.btnSmartScan.clicked.connect(self.scan_categories)
 
         # Presets
@@ -104,6 +127,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Initialize layers
         self.populate_layers()
+        
+        # [NEW] Load Reference Data
+        self.reference_data = {}
+        self.load_reference_data()
 
     # Custom signal for execution
     run_requested = QtCore.pyqtSignal(dict)
@@ -265,65 +292,138 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "scale": self.spinScale.value(),
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
-            "filter_categories": self.get_allowed_categories() # [NEW]
+            "filter_items": self.get_checked_items(self.listSmartCategories) # [NEW]
         }
 
-    def scan_categories(self):
-        """Identify categories and populate the list."""
-        settings = self.get_settings()
-        # Hack: Pass logic instance? No, emit signal ideally, but simpler to use direct call or lightweight logic here?
-        # The logic is in the Plugin class, not Dialog.
-        # We need to emit a signal to request scan?
-        # Or... ArchDistribution instance holds Dialog. Dialog can't call Plugin easily unless passed.
-        # Let's emit a signal `scan_requested`.
-        self.scan_requested.emit(settings)
+    def load_reference_data(self):
+        """Load reference data from JSON file."""
+        import json
+        json_path = os.path.join(os.path.dirname(__file__), 'reference_data.json')
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    self.reference_data = json.load(f)
+                self.log(f"참조 데이터 로드 완료: {len(self.reference_data)}개 항목")
+            except Exception as e:
+                self.log(f"참조 데이터 로드 실패: {str(e)}")
+        else:
+            self.log("참조 데이터 파일이 없습니다. (reference_data.json)")
 
-    def update_category_list(self, categories):
-        """Callback to update list widget with scan results."""
+    def scan_categories(self):
+        """Identify categories from selected layers using Reference Data."""
         self.listSmartCategories.clear()
         
-        # Sort: VIP First, then Counts
-        def sort_key(item):
-            name, count = item
-            if "VIP" in name: return 0
-            if "제외권장" in name: return 2
-            return 1
-            
-        sorted_cats = sorted(categories.items(), key=sort_key)
+        heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.UserRole) 
+                             for i in range(self.listHeritageLayers.count()) 
+                             if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.Checked]
         
-        for name, count in sorted_cats:
-            item_text = f"{name} ({count}개)"
-            item = QListWidgetItem(item_text)
-            item.setData(QtCore.Qt.UserRole, name) # Store real category name
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            
-            # Default Check Logic
-            if "VIP" in name:
-                item.setCheckState(QtCore.Qt.Checked)
-                # item.setFlags(QtCore.Qt.NoItemFlags) # Lock it? No, let user uncheck if they really want
-                item.setBackground(QtGui.QColor("#d4efdf")) # Greenish bg
-            elif "제외권장" in name:
-                item.setCheckState(QtCore.Qt.Unchecked)
-                item.setForeground(QtGui.QColor("#7f8c8d")) # Gray text
-            else:
-                item.setCheckState(QtCore.Qt.Checked)
-                
-            self.listSmartCategories.addItem(item)
-            
-        if not categories:
-             self.listSmartCategories.addItem("스캔 결과 없음")
+        if not heritage_layer_ids:
+            QtWidgets.QMessageBox.warning(self, "선택 오류", "먼저 분석할 유적 레이어를 선택체크해주세요.")
+            return
 
-    def get_allowed_categories(self):
-        """Return list of checked categories."""
-        if self.listSmartCategories.count() == 0:
-            return None # No filtering applied if list is empty
+        found_eras = set()
+        found_types = set()
+        
+        total_feats = 0
+        matched_feats = 0
+
+        for lid in heritage_layer_ids:
+            layer = QgsProject.instance().mapLayer(lid)
+            if not layer: continue
             
-        allowed = []
-        for i in range(self.listSmartCategories.count()):
-            item = self.listSmartCategories.item(i)
+            self.log(f"레이어 스캔 중: {layer.name()}")
+
+            # [Auto-Fix] Check for Encoding Issues (Mojibake)
+            # If field names contain '' (Review: or other garbage), try switching to CP949
+            fields = [f.name() for f in layer.fields()]
+            
+            # Simple heuristic: if any field name has the replacement character or looks very short/garbage-like
+            needs_encoding_fix = any('\ufffd' in f or '' in f for f in fields)
+            
+            if needs_encoding_fix:
+                self.log("  ⚠️ 인코딩 깨짐 감지됨. CP949(EUC-KR)로 자동 변환을 시도합니다.")
+                layer.setProviderEncoding("CP949")
+                layer.dataProvider().reloadData() # Refresh data provider
+                fields = [f.name() for f in layer.fields()] # Re-read fields
+                self.log(f"  - 변환 후 필드 목록: {', '.join(fields)}")
+            else:
+                self.log(f"  - 필드 목록: {', '.join(fields)}")
+            
+            name_field = None
+            # Expanded keyword list and simpler matching
+            keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
+            
+            for f in fields:
+                for k in keywords:
+                    if k in f.upper():
+                        name_field = f
+                        break
+                if name_field: break
+            
+            if not name_field: 
+                self.log("  ⚠️ 경고: 유적 명칭 필드를 찾을 수 없어 건너뜁니다.")
+                continue
+                
+            self.log(f"  - 명칭 필드 식별됨: {name_field}")
+            
+            layer_feats = 0
+            for feat in layer.getFeatures():
+                layer_feats += 1
+                total_feats += 1
+                name = feat[name_field]
+                if name in self.reference_data:
+                    matched_feats += 1
+                    info = self.reference_data[name]
+                    if info['e'] and info['e'] != "시대미상":
+                        found_eras.add(info['e'])
+                    if info['t'] and info['t'] != "기타":
+                        found_types.add(info['t'])
+            
+            self.log(f"  - {layer_feats}개 객체 중 {matched_feats}개 매칭 성공")
+        
+        self.log(f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.")
+        
+        # Populate List
+        # Era Section
+        if found_eras:
+            header = QListWidgetItem("[시대]")
+            header.setFlags(QtCore.Qt.NoItemFlags)
+            header.setBackground(QtGui.QColor("#eeeeee"))
+            self.listSmartCategories.addItem(header)
+            
+            for era in sorted(list(found_eras)):
+                item = QListWidgetItem(f"  {era}")
+                item.setData(QtCore.Qt.UserRole, f"ERA:{era}")
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.Checked)
+                self.listSmartCategories.addItem(item)
+
+        # Type Section
+        if found_types:
+            header = QListWidgetItem("[성격]")
+            header.setFlags(QtCore.Qt.NoItemFlags)
+            header.setBackground(QtGui.QColor("#eeeeee"))
+            self.listSmartCategories.addItem(header)
+            
+            for t in sorted(list(found_types)):
+                item = QListWidgetItem(f"  {t}")
+                item.setData(QtCore.Qt.UserRole, f"TYPE:{t}")
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.Checked)
+                self.listSmartCategories.addItem(item)
+                
+        if not found_eras and not found_types:
+            self.listSmartCategories.addItem("식별된 정보 없음")
+
+
+    def get_checked_items(self, list_widget):
+        """Return list of checked items data."""
+        checked = []
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
             if item.checkState() == QtCore.Qt.Checked:
-                allowed.append(item.data(QtCore.Qt.UserRole))
-        return allowed
+                checked.append(item.data(QtCore.Qt.UserRole))
+        return checked
 
     def show_help(self):
         """Display User Guide and Export Tips."""
