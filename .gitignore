@@ -1,9 +1,13 @@
-__pycache__/
+__pycache__
 *.pyc
-.DS_Store
-*.ui.python
-
-# Sensitive Data
+.venv
+.idea
+.vscode
 xlsx/
 *.xlsx
-reference_data.json
+*.log
+classification_terms*.txt
+analyze_artifacts.py
+analyze_artifacts_v2.py
+compile_reference.py
+test_filtering_logic.py
