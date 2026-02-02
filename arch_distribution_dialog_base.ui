@@ -352,7 +352,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="lp1">
-            <string>최종 도면 가로 길이:</string>
+            <string>도면 가로(W):</string>
            </widget>
           </item>
           <item row="1" column="1">
@@ -369,7 +369,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="lp2">
-            <string>최종 도면 세로 길이:</string>
+            <string>도면 세로(H):</string>
            </widget>
           </item>
           <item row="2" column="1">
@@ -386,7 +386,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="3" column="0">
            <widget class="QLabel" name="lp3">
-            <string>지도 인쇄 축척 (분모):</string>
+            <string>축척(Scale):</string>
            </widget>
           </item>
           <item row="3" column="1">
@@ -773,7 +773,23 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
             <string>(자동 번호 부여)</string>
            </widget>
           </item>
-         </layout>
+                    <item row="1" column="0">
+            <widget class="QLabel" name="lnScaleInfo">
+             <property name="styleSheet">
+              <string notr="true">color: #e74c3c; font-weight: bold;</string>
+             </property>
+             <string>⚠ 현재 축척:</string>
+            </widget>
+           </item>
+           <item row="1" column="1" colspan="2">
+            <widget class="QLabel" name="lblCurrentScale">
+             <property name="styleSheet">
+              <string notr="true">color: #2c3e50; font-weight: bold; font-size: 12px;</string>
+             </property>
+             <string>1:5000 (탭1에서 설정)</string>
+            </widget>
+           </item>
+          </layout>
         </widget>
        </item>
        <item>
