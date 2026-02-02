@@ -695,13 +695,19 @@ class ArchDistribution:
                 
                 # Check if heritage site intersects the map extent
                 if geom.intersects(extent_geom):
+                    # [NEW FIX] Clip geometry to extent bounds
+                    # This handles MultiPolygon features where parts are outside the extent
+                    clipped_geom = geom.intersection(extent_geom)
+                    if clipped_geom.isEmpty():
+                        continue  # No part inside extent
+                    
                     # We exclude sites that are entirely within the study area (as they are 'internal')
                     # But we include ones that overlap or are outside
-                    is_entirely_inside = geom.within(study_geom) if not study_geom.isNull() else False
+                    is_entirely_inside = clipped_geom.within(study_geom) if not study_geom.isNull() else False
                     
                     if not is_entirely_inside:
                         new_feat = QgsFeature(subset_layer.fields())
-                        new_feat.setGeometry(geom)
+                        new_feat.setGeometry(clipped_geom)  # Use clipped geometry
                         
                         # [NEW] Attribute Extraction
                         val_name = feat[name_field] if name_field else ""
