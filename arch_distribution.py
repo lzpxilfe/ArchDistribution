@@ -195,7 +195,8 @@ class ArchDistribution:
                     extent_geom, 
                     original_study_layer, 
                     src_group,
-                    filter_categories=settings.get('filter_items', None) # [FIX] Pass filter list (renamed to items conceptually)
+                    filter_categories=settings.get('filter_items', None),
+                    exclusion_list=settings.get('exclusion_list', []) # [NEW] Pass blacklist
                 )
                 
                 if merged_heritage:
@@ -504,6 +505,16 @@ class ArchDistribution:
         else:
             self.reference_data = {}
 
+        # [NEW] Load Smart Patterns for Override
+        json_pattern_path = os.path.join(os.path.dirname(__file__), 'smart_patterns.json')
+        self.smart_patterns = {"noise": [], "artifacts": {}}
+        if os.path.exists(json_pattern_path):
+            try:
+                with open(json_pattern_path, 'r', encoding='utf-8') as f:
+                    self.smart_patterns = json.load(f)
+            except:
+                pass
+
     def should_exclude(self, name, filter_items):
         """
         Check if feature should be excluded based on name look-up.
@@ -522,6 +533,19 @@ class ArchDistribution:
         info = self.reference_data[name]
         era_key = f"ERA:{info['e']}"
         type_key = f"TYPE:{info['t']}"
+        
+        # [NEW] Keyword Override Logic
+        # Prioritize keyword inference over DB value if a match exists.
+        # This solves the "Temple Site containing Stone Buddha" issue.
+        effective_type = info['t']
+        if hasattr(self, 'smart_patterns'):
+            refinements = self.smart_patterns.get('artifacts', {})
+            for key, val in refinements.items():
+                if key in name:
+                    effective_type = val
+                    break # Use the first matching keyword
+        
+        type_key = f"TYPE:{effective_type}"
         
         # Logic: 
         # If the item has an Era, and that Era is NOT in the allowed list -> Exclude
@@ -577,8 +601,8 @@ class ArchDistribution:
         
         return "기타"
 
-    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None):
-        """Merge selected heritage layers and filter by extent and study area."""
+    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None, exclusion_list=[]):
+        """Merge selected heritage layers and filter by extent, study area, and user exclusions."""
         temp_layers = []
         
         # Merge study area geometries for fast intersection check
@@ -641,6 +665,20 @@ class ArchDistribution:
                 geom = feat.geometry()
                 if do_reproject:
                     geom.transform(transform)
+                
+                # Retrieve Attributes for filtering
+                val_name = feat[name_field] if name_field else ""
+
+                # [NEW] Check Exclusion List (Specific Blacklist)
+                # If the name is in the user's exclusion list, skip it.
+                if exclusion_list and val_name in exclusion_list:
+                    # Log removed item occasionally?
+                    # self.log(f"  - 사용자 제외: {val_name}")
+                    continue
+                
+                # Check Category Filters (Legacy Reference Data)
+                if self.should_exclude(val_name, filter_categories):
+                    continue
                 
                 # Check if heritage site intersects the map extent
                 if geom.intersects(extent_geom):

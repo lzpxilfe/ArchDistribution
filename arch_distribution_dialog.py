@@ -34,7 +34,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblEra = QtWidgets.QLabel("시대")
         self.lblEra.setStyleSheet("font-weight: bold; color: #333;")
         self.listEras = QtWidgets.QListWidget()
-        self.listEras.setMinimumHeight(200) # Increased height
+        self.listEras.setMinimumHeight(130) # Reduced from 200
         self.vEras.addWidget(self.lblEra)
         self.vEras.addWidget(self.listEras)
         
@@ -43,7 +43,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblType = QtWidgets.QLabel("성격")
         self.lblType.setStyleSheet("font-weight: bold; color: #333;")
         self.listTypes = QtWidgets.QListWidget()
-        self.listTypes.setMinimumHeight(200) # Increased height
+        self.listTypes.setMinimumHeight(130) # Reduced from 200
         self.vTypes.addWidget(self.lblType)
         self.vTypes.addWidget(self.listTypes)
         
@@ -53,6 +53,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.vSmartLayout.addWidget(self.lSmartDesc)
         self.vSmartLayout.addWidget(self.btnSmartScan)
         self.vSmartLayout.addLayout(self.hSmartLists) # Add the horizontal layout
+        
+        # [NEW] Exclusion Candidates List
+        self.lblExclusion = QtWidgets.QLabel("제외 제안 목록 (체크시 제외됨):")
+        self.lblExclusion.setStyleSheet("font-weight: bold; color: #c0392b; margin-top: 10px;")
+        self.listExclusions = QtWidgets.QListWidget()
+        self.listExclusions.setMinimumHeight(80) # Reduced from 100
+        self.listExclusions.setStyleSheet("color: #c0392b;") # Red text for danger
+        
+        self.vSmartLayout.addWidget(self.lblExclusion)
+        self.vSmartLayout.addWidget(self.listExclusions)
+        
         self.groupSmartFilter.setLayout(self.vSmartLayout)
         
         # Insert into the first tab layout (vTab1) before the Spec group (item index 1)
@@ -313,7 +324,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "scale": self.spinScale.value(),
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
-            "filter_items": self.get_checked_items(None) # Updated method uses internal lists
+            "filter_items": self.get_checked_items(None),
+            # [NEW] Pass Exclusion List
+            # We want to exclude items that are CHECKED in the listExclusions widget.
+            "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.UserRole) 
+                               for i in range(self.listExclusions.count()) 
+                               if self.listExclusions.item(i).checkState() == QtCore.Qt.Checked]
         }
 
     def load_reference_data(self):
@@ -329,11 +345,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.log(f"참조 데이터 로드 실패: {str(e)}")
         else:
             self.log("참조 데이터 파일이 없습니다. (reference_data.json)")
+            
+        # [NEW] Load Smart Patterns
+        json_pattern_path = os.path.join(os.path.dirname(__file__), 'smart_patterns.json')
+        self.smart_patterns = {"noise": [], "artifacts": {}}
+        if os.path.exists(json_pattern_path):
+            try:
+                with open(json_pattern_path, 'r', encoding='utf-8') as f:
+                    self.smart_patterns = json.load(f)
+                self.log(f"스마트 필터 패턴 로드 완료.")
+            except Exception as e:
+                self.log(f"스마트 필터 패턴 로드 실패: {str(e)}")
 
     def scan_categories(self):
-        """Identify categories from selected layers using Reference Data."""
+        """Identify categories and potential exclusions using Smart Patterns."""
         self.listEras.clear()
         self.listTypes.clear()
+        self.listExclusions.clear()
         
         heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.UserRole) 
                              for i in range(self.listHeritageLayers.count()) 
@@ -345,6 +373,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         found_eras = set()
         found_types = set()
+        found_exclusions = set() # Store unique names to exclude
         
         total_feats = 0
         matched_feats = 0
@@ -388,14 +417,37 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             for feat in layer.getFeatures():
                 layer_feats += 1
                 total_feats += 1
-                name = feat[name_field]
+                name = feat[name_field] # [FIX] Ensure variable is defined
+            
+                # [NEW] Exclusion Logic with User Review
+                # Instead of silently skipping, add to exclusion list
+                noise_keywords = self.smart_patterns.get('noise', [])
+                is_suspicious = any(b in name for b in noise_keywords)
+                
+                if is_suspicious:
+                    found_exclusions.add(name)
+                    continue # Do not classify this item yet
+
+                matched = False
+                
+                # 1. Reference Data Lookup
                 if name in self.reference_data:
-                    matched_feats += 1
+                    matched = True
                     info = self.reference_data[name]
                     if info['e'] and info['e'] != "시대미상":
                         found_eras.add(info['e'])
                     if info['t'] and info['t'] != "기타":
                         found_types.add(info['t'])
+                
+                # 2. Keyword Refinement (Overrides/Additions)
+                refinements = self.smart_patterns.get('artifacts', {})
+                for key, val in refinements.items():
+                    if key in name:
+                        found_types.add(val)
+                        matched = True
+                
+                if matched:
+                    matched_feats += 1
             
             self.log(f"  - {layer_feats}개 객체 중 {matched_feats}개 매칭 성공")
         
@@ -423,6 +475,18 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.listTypes.addItem(item)
         else:
             self.listTypes.addItem("식별실패")
+            
+        # [NEW] Populate Exclusion List
+        if found_exclusions:
+            for exc in sorted(list(found_exclusions)):
+                item = QListWidgetItem(exc)
+                item.setData(QtCore.Qt.UserRole, exc) # Store exact name to exclude
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.Checked) # Default to Checked (Exclude)
+                self.listExclusions.addItem(item)
+            self.log(f"⚠️ {len(found_exclusions)}개의 제외 의심 항목이 발견되었습니다. '제외 제안 목록'을 확인하세요.")
+        else:
+            self.listExclusions.addItem("(제외 대상 없음)")
 
 
     def get_checked_items(self, _ignored):
@@ -463,6 +527,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 <li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
 </ul>
 <br>
-<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.1.0</div>
+<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.3.0</div>
 """
         QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
