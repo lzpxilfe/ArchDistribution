@@ -247,10 +247,18 @@ class ArchDistribution:
             
             # 2. Get Centroid (if needed)
             centroid = None
+            study_layer = None
             if settings['study_area_id']:
                 study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
                 if study_layer:
                     centroid = self.get_study_area_centroid(study_layer)
+            
+            # [FIX] If no study layer, use layer's own extent center as centroid for extent calculation
+            if not centroid:
+                layer_extent = layer.extent()
+                if not layer_extent.isEmpty():
+                    centroid = layer_extent.center()
+                    self.log("조사지역 미선택 - 현재 레이어 범위 중심 사용")
             
             if sort_order == 1 and not centroid:
                  QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
@@ -263,10 +271,15 @@ class ArchDistribution:
                 settings['paper_height'], 
                 settings['scale']
             )
+            
+            # [FIX] Warn user if extent is still None
+            if not extent_geom:
+                QMessageBox.warning(self.dlg, "설정 오류", "도곽 범위를 계산할 수 없습니다.\n축척과 도면 크기를 확인하세요.")
+                return
 
             # 3. Call Numbering Logic
-            # Pass study_layer.crs() if available, else standard logic
-            extent_crs = study_layer.crs() if 'study_layer' in locals() and study_layer else layer.crs()
+            # Pass study_layer.crs() if available, else layer.crs()
+            extent_crs = study_layer.crs() if study_layer else layer.crs()
             self.number_heritage_v4(layer, centroid, sort_order, extent_geom, extent_crs)
             
             # 4. Refresh
@@ -277,8 +290,6 @@ class ArchDistribution:
             
         except Exception as e:
             self.log(f"오류 발생: {str(e)}")
-            QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
-
             QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
 
     def perform_scan(self, settings):
