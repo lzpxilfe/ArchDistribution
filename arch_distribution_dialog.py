@@ -14,7 +14,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
         super(ArchDistributionDialog, self).__init__(parent)
-        self.setupUi(self)
+        # [MOVED FROM HERE]
+        # make_tab_scrollable logic moved to end of __init__
+
 
         # [NEW] Programmatically add missing UI elements for Smart Filter
         self.groupSmartFilter = QtWidgets.QGroupBox("유적 속성 분류")
@@ -142,12 +144,40 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Run signal
         self.btnRun.clicked.connect(self.emit_run_requested)
-        # Run signal
-        self.btnRun.clicked.connect(self.emit_run_requested)
         self.buttonBox.rejected.connect(self.reject) # Close button
         
         # Help signal
         self.btnHelp.clicked.connect(self.show_help)
+        
+        # [NEW] Wrap tabs in ScrollArea AFTER all widgets are added
+        self.make_tab_scrollable(self.tabData)
+        self.make_tab_scrollable(self.tabStyle)
+
+    def make_tab_scrollable(self, tab_widget):
+        """Wraps the children of a tab in a ScrollArea."""
+        layout = tab_widget.layout()
+        if layout:
+            scroll = QtWidgets.QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+            
+            content_widget = QtWidgets.QWidget()
+            content_layout = QtWidgets.QVBoxLayout(content_widget)
+            
+            # Move items
+            while layout.count():
+                item = layout.takeAt(0)
+                if item.widget():
+                    content_layout.addWidget(item.widget())
+                elif item.layout():
+                    content_layout.addLayout(item.layout())
+                elif item.spacerItem():
+                    content_layout.addSpacerItem(item.spacerItem())
+                    
+            content_layout.addStretch() # Add stretch at bottom
+            scroll.setWidget(content_widget)
+            
+            layout.addWidget(scroll)
         
         # Smart Scan signal [NEW]
         # [NEW] Smart Scan Signal
