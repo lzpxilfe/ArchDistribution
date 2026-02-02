@@ -55,6 +55,12 @@
 
 ---
 
+## 🐛 문제 발생 시
+오류가 발생하면 플러그인 하단의 **'진행 상태 로그'** 내용을 복사하여 아래 GitHub Issues에 붙여넣어 주세요.
+로그 정보가 있으면 문제를 훨씬 빠르게 해결할 수 있습니다.
+
+---
+
 ## 📞 지원 및 문의
 *   **저자**: lzpxilfe
 *   **Github**: https://github.com/lzpxilfe/ArchDistribution
