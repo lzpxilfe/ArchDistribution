@@ -352,7 +352,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="lp1">
-            <string>도면 가로(W):</string>
+            <property name="text">
+             <string>도면 가로(W):</string>
+            </property>
            </widget>
           </item>
           <item row="1" column="1">
@@ -364,12 +366,16 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="2">
            <widget class="QLabel" name="lp1u">
-            <string>mm (밀리미터)</string>
+            <property name="text">
+             <string>mm (밀리미터)</string>
+            </property>
            </widget>
           </item>
           <item row="2" column="0">
            <widget class="QLabel" name="lp2">
-            <string>도면 세로(H):</string>
+            <property name="text">
+             <string>도면 세로(H):</string>
+            </property>
            </widget>
           </item>
           <item row="2" column="1">
@@ -381,12 +387,16 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="2">
            <widget class="QLabel" name="lp2u">
-            <string>mm (밀리미터)</string>
+            <property name="text">
+             <string>mm (밀리미터)</string>
+            </property>
            </widget>
           </item>
           <item row="3" column="0">
            <widget class="QLabel" name="lp3">
-            <string>축척(Scale):</string>
+            <property name="text">
+             <string>축척(Scale):</string>
+            </property>
            </widget>
           </item>
           <item row="3" column="1">
@@ -398,7 +408,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="3" column="2">
            <widget class="QLabel" name="lp3u">
-            <string>1 : [입력값]</string>
+            <property name="text">
+             <string>1 : [입력값]</string>
+            </property>
            </widget>
           </item>
          </layout>
