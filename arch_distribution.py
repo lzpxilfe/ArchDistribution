@@ -53,9 +53,11 @@ class ArchDistribution:
             action.setStatusTip(status_tip)
 
         if add_to_toolbar:
-            self.iface.addToolBarIcon(action) # Standard Plugins toolbar for visibility
+            # Only add to our custom toolbar (not both)
             if self.toolbar:
-                self.toolbar.addAction(action) # Also add to custom toolbar
+                self.toolbar.addAction(action)
+            else:
+                self.iface.addToolBarIcon(action)  # Fallback to standard toolbar
 
         if add_to_menu:
             self.iface.addPluginToMenu(self.menu, action)
