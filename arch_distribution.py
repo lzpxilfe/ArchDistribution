@@ -766,6 +766,7 @@ class ArchDistribution:
             geom = feat.geometry()
             
             # [NEW] Extent Intersection Check
+            # Reverted to 'intersects' to ensure no features are missed.
             if target_extent and not geom.intersects(target_extent):
                 # Outside extent -> Set to NULL
                 layer.changeAttributeValue(feat.id(), idx, None) 
