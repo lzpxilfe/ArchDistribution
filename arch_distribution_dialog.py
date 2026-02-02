@@ -14,6 +14,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
         super(ArchDistributionDialog, self).__init__(parent)
+        self.setupUi(self) # [CRITICAL FIX] Restore UI initialization
+
         # [MOVED FROM HERE]
         # make_tab_scrollable logic moved to end of __init__
 
