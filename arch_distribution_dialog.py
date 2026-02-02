@@ -151,35 +151,61 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Help signal
         self.btnHelp.clicked.connect(self.show_help)
         
-        # [NEW] Wrap tabs in ScrollArea AFTER all widgets are added
-        self.make_tab_scrollable(self.tabData)
-        self.make_tab_scrollable(self.tabStyle)
+        # [NEW] Global Scroll Implementation
+        # User requested: Title bar fixed, but Tabs + Logs + Run Button all scrollable together.
+        self.make_global_scrollable()
+        
+    def make_global_scrollable(self):
+        """ Wraps the main content (Tabs, Logs, Buttons) in a single QScrollArea. """
+        
+        # 1. Create a ScrollArea and Container
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff) # Only vertical scroll
+        
+        container = QtWidgets.QWidget()
+        container_layout = QtWidgets.QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0) # Tight fit
+        
+        # 2. Identify widgets to move (Tabs, Log, Buttons)
+        # Note: 'vMain' layout contains: Header, TabWidget, GroupLog, hFinal (Layout)
+        # We want to keep Header in vMain, but move the rest to container.
+        
+        # We need to access the layout items directly. 
+        # vMain has: item0(Header), item1(TabWidget), item2(GroupLog), item3(hFinal)
+        
+        # CAUTION: 'hFinal' is a sub-layout, not a widget. 
+        # We cannot 'move' a layout object easily to another widget using standard removal.
+        # But we can re-add the widgets/layouts.
+        
+        # Strategy: 
+        # Remove items from vMain starting from index 1 (Tabs).
+        # Add them to container_layout.
+        
+        # Move TabWidget
+        self.vMain.removeWidget(self.tabWidget)
+        container_layout.addWidget(self.tabWidget)
+        
+        # Move GroupLog
+        self.vMain.removeWidget(self.groupLog)
+        container_layout.addWidget(self.groupLog)
+        
+        # Move hFinal Layout (Run Button Box)
+        # We have to reparent the items inside hFinal or just add the layout?
+        # Layouts can be nested.
+        self.vMain.removeItem(self.hFinal)
+        container_layout.addLayout(self.hFinal)
+        
+        # 3. Add Container to ScrollArea
+        scroll.setWidget(container)
+        
+        # 4. Add ScrollArea to vMain (which now only has Header)
+        self.vMain.addWidget(scroll)
+        
+        # [Adjust] Ensure ScrollArea expands
+        # self.vMain is a VBoxLayout, it handles expansion.
 
-    def make_tab_scrollable(self, tab_widget):
-        """Wraps the children of a tab in a ScrollArea."""
-        layout = tab_widget.layout()
-        if layout:
-            scroll = QtWidgets.QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-            
-            content_widget = QtWidgets.QWidget()
-            content_layout = QtWidgets.QVBoxLayout(content_widget)
-            
-            # Move items
-            while layout.count():
-                item = layout.takeAt(0)
-                if item.widget():
-                    content_layout.addWidget(item.widget())
-                elif item.layout():
-                    content_layout.addLayout(item.layout())
-                elif item.spacerItem():
-                    content_layout.addSpacerItem(item.spacerItem())
-                    
-            content_layout.addStretch() # Add stretch at bottom
-            scroll.setWidget(content_widget)
-            
-            layout.addWidget(scroll)
         
         # Smart Scan signal [NEW]
         # [NEW] Smart Scan Signal
