@@ -151,6 +151,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Help signal
         self.btnHelp.clicked.connect(self.show_help)
         
+        # [NEW] Dynamic scale indicator update
+        self.spinScale.valueChanged.connect(self.update_scale_indicator)
+        self.update_scale_indicator()  # Initial update
+        
         # [NEW] Global Scroll Implementation
         # User requested: Title bar fixed, but Tabs + Logs + Run Button all scrollable together.
         self.make_global_scrollable()
@@ -258,6 +262,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnStudyStrokeColor.setStyleSheet(f"background-color: {self.study_stroke_color.name()}; color: {'white' if self.study_stroke_color.lightness() < 128 else 'black'};")
         self.btnTopoStrokeColor.setStyleSheet(f"background-color: {self.topo_stroke_color.name()}; color: {'white' if self.topo_stroke_color.lightness() < 128 else 'black'};")
         self.btnBufferColor.setStyleSheet(f"background-color: {self.buffer_color.name()}; color: {'white' if self.buffer_color.lightness() < 128 else 'black'};")
+
+    def update_scale_indicator(self):
+        """Update the scale indicator in the renumber section."""
+        scale = self.spinScale.value()
+        if hasattr(self, 'lblCurrentScale'):
+            self.lblCurrentScale.setText(f"1:{scale} (유적 삭제 후 확인!)")
 
     def pick_color(self, target):
         color = QColorDialog.getColor()
@@ -569,6 +579,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         help_text = """
 <h3>📘 사용 가이드 및 유의사항 (User Guide)</h3>
 <hr>
+<b>[📋 작업 순서 (Workflow)]</b><br>
+<ol>
+<li><b>레이어 준비:</b> 조사지역(Polygon), 수치지형도, 주변유적 레이어를 불러옵니다.</li>
+<li><b>플러그인 실행:</b> 툴바의 🏛 아이콘을 클릭합니다.</li>
+<li><b>레이어 선택:</b> [데이터 탭]에서 조사지역, 지형도, 유적 레이어를 선택합니다.</li>
+<li><b>도곽/축척 설정:</b> 도면 가로/세로(mm)와 축척을 입력합니다. (프리셋 활용 추천)</li>
+<li><b>스마트 분류:</b> [속성 분류 실행] 버튼으로 유적을 시대/유형별로 분류합니다.</li>
+<li><b>분석 실행:</b> [▶ 분석 및 지도 생성 실행] 클릭으로 자동 처리합니다.</li>
+<li><b>번호 새로고침:</b> 유적 삭제/수정 후 [스타일 탭 > 🔄 번호 새로고침]으로 번호 재정렬</li>
+</ol>
+<br>
 <b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
 보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
 <ol>
@@ -583,8 +604,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 <ul>
 <li>사용자마다 QGIS 환경(좌표계 설정 등)이 다르므로, <b>반드시 결과물의 위치와 속성을 육안으로 검수</b>해주시기 바랍니다.</li>
 <li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
+<li><b style='color:red'>⚠ 번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요!</b></li>
 </ul>
 <br>
-<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.3.0</div>
+<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.4.0</div>
 """
         QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
