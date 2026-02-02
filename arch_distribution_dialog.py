@@ -10,6 +10,19 @@ from qgis.utils import iface # [CRITICAL FIX] Import global iface
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'arch_distribution_dialog_base.ui'))
 
+def get_plugin_version():
+    """Read version from metadata.txt"""
+    try:
+        metadata_path = os.path.join(os.path.dirname(__file__), 'metadata.txt')
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('version='):
+                    return line.strip().split('=')[1]
+    except:
+        pass
+    return "1.0.0"  # Fallback
+
+
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
@@ -606,6 +619,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 <li><b style='color:red'>⚠ 번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요!</b></li>
 </ul>
 <br>
-<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v1.4.0</div>
+<div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
 """
+        help_text = help_text.format(version=get_plugin_version())
         QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
