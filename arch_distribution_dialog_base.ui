@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진 (Pro v1.3.0)</string>
+   <string>ArchDistribution - 프리미엄 분포지도 엔진</string>
   </property>
   <styleSheet>
    <string notr="true">QDialog { background-color: #f5f5f5; }
@@ -55,7 +55,7 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution Pro v1.3.0</string>
+        <string>🏛 ArchDistribution</string>
        </property>
       </widget>
      </item>

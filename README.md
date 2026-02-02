@@ -1,4 +1,4 @@
-# ArchDistribution (Pro v1.3.3)
+# ArchDistribution (v1.0.0)
 
 **문화유적분포지도 자동 생성 & 스마트 분류 엔진**
 
