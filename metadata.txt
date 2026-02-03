@@ -1,8 +1,8 @@
 [general]
 name=ArchDistribution
 qgisMinimumVersion=3.28
-description=Automated QGIS plugin for archaeological distribution maps. / 보고서용 문화유적분포지도 자동 생성 도구입니다. 지형도 병합, 버퍼 분석, 데이터 반출을 자동화합니다.
-version=1.0.0
+description=Automated QGIS plugin for archaeological distribution maps. / 보고서용 문화유적분포지도 자동 생성 도구입니다.
+version=1.0.1
 author=lzpxilfe(balguljang2)
 email=lzpxilfe@gmail.com
 repository=https://github.com/lzpxilfe/ArchDistribution.git

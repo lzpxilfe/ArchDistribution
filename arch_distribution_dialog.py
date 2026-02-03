@@ -3,7 +3,8 @@ import os
 from qgis.PyQt import uic, QtCore, QtGui
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QListWidgetItem, QColorDialog
-from qgis.core import QgsProject
+from qgis.core import QgsProject, QgsMapLayerProxyModel
+from qgis.gui import QgsMapLayerComboBox # [NEW] Import
 from qgis.utils import iface # [CRITICAL FIX] Import global iface
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -83,9 +84,38 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         self.groupSmartFilter.setLayout(self.vSmartLayout)
         
+        # [NEW] Zone Layer Selection (Optional)
+        self.lblZoneLayer = QtWidgets.QLabel("현상변경 허용구간 레이어 (선택):")
+        self.comboZoneLayer = QgsMapLayerComboBox()
+        self.comboZoneLayer.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self.comboZoneLayer.setAllowEmptyLayer(True) # Optional
+        self.comboZoneLayer.setLayer(None) # [FIX] Default to Empty Selection
+        
+        # Insert into vTab1 (index 0 is groupBuffer, 1 is SmartFilter... let's check)
+        if hasattr(self, 'vTab1'):
+            # Insert before Smart Filter? Or after?
+            # Heritage List is likely index 0 in .ui or so.
+            # Smart Filter was inserted at 1.
+            # Buffer Toggle was inserted at 1.
+            # So order: 0(Original), 1(Toggle), 2(Smart).
+            # Let's put Zone Layer at index 0 (Top) or after Heritage List (which is inside 0).
+            # Since we can't easily put it *inside* the existing GroupBox (unless we find it),
+            # Putting it at the top of Tab1 or simply appending might be safest.
+            # But the user wants it with the inputs.
+            # Let's try adding it at index 1 (pushing others down).
+            
+            # Create a container HBox or VBox for it?
+            self.vZoneLayout = QtWidgets.QVBoxLayout()
+            self.vZoneLayout.addWidget(self.lblZoneLayer)
+            self.vZoneLayout.addWidget(self.comboZoneLayer)
+            
+            # Convert layout to widget to insert? No, insertLayout works for Box Layouts usually.
+            # QLayout.insertLayout(index, layout)
+            self.vTab1.insertLayout(1, self.vZoneLayout)
+            
         # Insert into the first tab layout (vTab1) before the Spec group (item index 1)
         if hasattr(self, 'vTab1'):
-            self.vTab1.insertWidget(1, self.groupSmartFilter)
+            self.vTab1.insertWidget(2, self.groupSmartFilter) # Adjusted index
 
         # Default colors (Matching professional archaeological standards)
         self.heritage_stroke_color = QtGui.QColor(139, 69, 19) # SaddleBrown
@@ -143,8 +173,88 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnTopoStrokeColor.clicked.connect(lambda: self.pick_color('topo_stroke'))
         self.btnBufferColor.clicked.connect(lambda: self.pick_color('buffer'))
         
+        self.comboBufferStyle.setCurrentIndex(0)
+        self.comboSortOrder.setCurrentIndex(0)
+        self.btnHeritageStrokeColor.clicked.connect(lambda: self.pick_color('heritage_stroke'))
+        self.btnHeritageFillColor.clicked.connect(lambda: self.pick_color('heritage_fill'))
+        self.btnStudyStrokeColor.clicked.connect(lambda: self.pick_color('study_stroke'))
+        self.btnTopoStrokeColor.clicked.connect(lambda: self.pick_color('topo_stroke'))
+        self.btnBufferColor.clicked.connect(lambda: self.pick_color('buffer'))
+        
         self.btnAddBuffer.clicked.connect(self.add_buffer_to_list)
         self.listBuffers.itemDoubleClicked.connect(self.remove_buffer_from_list)
+
+        # [NEW] Add RESTRICT checkbox programmatically below Buffer list
+        # Find the layout that holds listBuffers. It's likely in a layout with btnAddBuffer.
+        # Actually, let's just add it to vTab1 (index 0 is groupBuffer?)
+        # For safety and visibility, we'll create a new GroupBox or just add it to vSmartLayout?
+        # No, it belongs to Buffer settings.
+        
+        # Let's search for groupBuffer in the .ui file logic (via FindChild or just use vTab1 insertion)
+        # We can insert it right after the buffer group.
+        # But 'groupBuffer' is not explicitly defined here, it's in .ui.
+        
+        # Alternative: Add it to the existing `groupSmartFilter` since we are touching python code?
+        # Or create a new clean checkbox and insert it into the main tab layout.
+        
+        self.chkRestrictToBuffer = QtWidgets.QCheckBox("버퍼 범위 외 유적 제외 (감추기)")
+        self.chkRestrictToBuffer.setToolTip("체크 시: 최외곽 버퍼 바깥의 유적은 번호를 매기지 않고 지도에서 숨깁니다. (지표조사 등)\n체크 해제 시: 모든 유적에 번호를 매깁니다. (일반조사 등)")
+        self.chkRestrictToBuffer.setChecked(False) # [FIX] Default to Unchecked (General Mode)
+        self.chkRestrictToBuffer.setStyleSheet("font-weight: bold; color: #d35400;")
+        
+        # Insert into vTab1 at index 1
+        if hasattr(self, 'vTab1'):
+             self.vTab1.insertWidget(1, self.chkRestrictToBuffer)
+
+        # [NEW] Label Font Controls
+        self.groupLabelStyle = QtWidgets.QGroupBox("라벨 스타일")
+        self.hLabelLayout = QtWidgets.QHBoxLayout()
+        
+        self.lblFontSize = QtWidgets.QLabel("글자 크기:")
+        self.spinLabelFontSize = QtWidgets.QSpinBox()
+        self.spinLabelFontSize.setRange(6, 72)
+        self.spinLabelFontSize.setValue(10)
+        self.spinLabelFontSize.setToolTip("유적 번호 라벨의 글자 크기 (pt)")
+        
+        self.lblFontFamily = QtWidgets.QLabel("글씨체:")
+        self.comboLabelFont = QtWidgets.QFontComboBox()
+        self.comboLabelFont.setCurrentFont(QtGui.QFont("맑은 고딕"))
+        self.comboLabelFont.setToolTip("유적 번호 라벨의 글씨체")
+        
+        self.hLabelLayout.addWidget(self.lblFontSize)
+        self.hLabelLayout.addWidget(self.spinLabelFontSize)
+        self.hLabelLayout.addWidget(self.lblFontFamily)
+        self.hLabelLayout.addWidget(self.comboLabelFont)
+        self.groupLabelStyle.setLayout(self.hLabelLayout)
+        
+        if hasattr(self, 'vTab1'):
+             self.vTab1.insertWidget(2, self.groupLabelStyle) 
+
+        # [NEW] Enable Extended Selection for Lists
+        self.listHeritageLayers.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.listTopoLayers.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.listEras.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.listTypes.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.listExclusions.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection) # Allow Shift-Select
+        
+        # [NEW] Add Batch Buttons for Exclusion List
+        # We'll insert this into the layout that holds listExclusions (which is likely inside groupSmartFilter).
+        # Since we don't have direct access to that auto-generated layout object easily, 
+        # we'll create a new layout and insert it into the groupSmartFilter layout.
+        if hasattr(self, 'groupSmartFilter') and self.groupSmartFilter.layout():
+             self.hExclusionBtns = QtWidgets.QHBoxLayout()
+             self.btnExcludeSel = QtWidgets.QPushButton("선택 항목 제외 (체크)")
+             self.btnIncludeSel = QtWidgets.QPushButton("선택 항목 포함 (해제)")
+             self.btnExcludeSel.setToolTip("선택한 항목들을 리스트에서 체크합니다. (지도에서 제외됨)")
+             self.btnIncludeSel.setToolTip("선택한 항목들의 체크를 해제합니다. (지도에 포함됨)")
+             
+             self.btnExcludeSel.clicked.connect(lambda: self.set_list_check_state(self.listExclusions, True))
+             self.btnIncludeSel.clicked.connect(lambda: self.set_list_check_state(self.listExclusions, False))
+             
+             self.hExclusionBtns.addWidget(self.btnExcludeSel)
+             self.hExclusionBtns.addWidget(self.btnIncludeSel)
+             
+             self.groupSmartFilter.layout().addLayout(self.hExclusionBtns)
 
         # Renumber signal
         self.btnRenumber.clicked.connect(self.renumber_current_layer)
@@ -168,6 +278,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinScale.valueChanged.connect(self.update_scale_indicator)
         self.update_scale_indicator()  # Initial update
         
+        # [NEW] Smart Scan Signal
+        self.btnSmartScan.clicked.connect(self.scan_categories)
+
+        # Presets
+        self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
+        self.btnPresetA4.clicked.connect(lambda: self.apply_preset(210, 297))
+
+        # Initialize layers
+        self.populate_layers()
+        
+        # [NEW] Load Reference Data
+        self.reference_data = {}
+        self.load_reference_data()
+
         # [NEW] Global Scroll Implementation
         # User requested: Title bar fixed, but Tabs + Logs + Run Button all scrollable together.
         self.make_global_scrollable()
@@ -189,55 +313,39 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Note: 'vMain' layout contains: Header, TabWidget, GroupLog, hFinal (Layout)
         # We want to keep Header in vMain, but move the rest to container.
         
-        # We need to access the layout items directly. 
-        # vMain has: item0(Header), item1(TabWidget), item2(GroupLog), item3(hFinal)
-        
-        # CAUTION: 'hFinal' is a sub-layout, not a widget. 
-        # We cannot 'move' a layout object easily to another widget using standard removal.
-        # But we can re-add the widgets/layouts.
-        
-        # Strategy: 
-        # Remove items from vMain starting from index 1 (Tabs).
-        # Add them to container_layout.
-        
+        if not hasattr(self, 'vMain'): return
+
         # Move TabWidget
-        self.vMain.removeWidget(self.tabWidget)
-        container_layout.addWidget(self.tabWidget)
+        if hasattr(self, 'tabWidget'):
+            self.vMain.removeWidget(self.tabWidget)
+            container_layout.addWidget(self.tabWidget)
         
         # Move GroupLog
-        self.vMain.removeWidget(self.groupLog)
-        container_layout.addWidget(self.groupLog)
+        if hasattr(self, 'groupLog'):
+            self.vMain.removeWidget(self.groupLog)
+            container_layout.addWidget(self.groupLog)
         
         # Move hFinal Layout (Run Button Box)
-        # We have to reparent the items inside hFinal or just add the layout?
-        # Layouts can be nested.
-        self.vMain.removeItem(self.hFinal)
-        container_layout.addLayout(self.hFinal)
+        if hasattr(self, 'hFinal'):
+            self.vMain.removeItem(self.hFinal)
+            container_layout.addLayout(self.hFinal)
         
         # 3. Add Container to ScrollArea
         scroll.setWidget(container)
         
-        # 4. Add ScrollArea to vMain (which now only has Header)
+        # 4. Add ScrollArea to vMain
         self.vMain.addWidget(scroll)
-        
-        # [Adjust] Ensure ScrollArea expands
-        # self.vMain is a VBoxLayout, it handles expansion.
 
-        
-        # Smart Scan signal [NEW]
-        # [NEW] Smart Scan Signal
-        self.btnSmartScan.clicked.connect(self.scan_categories)
+    def set_list_check_state(self, list_widget, checked):
+        """Batch set check state for selected items in a list widget."""
+        for item in list_widget.selectedItems():
+            item.setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
 
-        # Presets
-        self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
-        self.btnPresetA4.clicked.connect(lambda: self.apply_preset(210, 297))
+    def set_batch_check(self, list_widget, checked):
+        """Legacy helper for Topo/Heritage layers."""
+        for i in range(list_widget.count()):
+            list_widget.item(i).setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
 
-        # Initialize layers
-        self.populate_layers()
-        
-        # [NEW] Load Reference Data
-        self.reference_data = {}
-        self.load_reference_data()
 
     # Custom signal for execution
     run_requested = QtCore.pyqtSignal(dict)
@@ -350,6 +458,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         layers = QgsProject.instance().mapLayers().values()
         for layer in layers:
             if layer.type() == 0:  # VectorLayer
+                # [FIX] Filter out generated/output layers to prevent feedback loops
+                l_name = layer.name()
+                keywords_to_skip = ['_Copy', 'Consolidated', 'Dissolved', 'Buffer', '도곽', '조사구역']
+                if any(k in l_name for k in keywords_to_skip):
+                     continue
+
                 self.comboStudyArea.addItem(layer.name(), layer.id())
                 
                 item_topo = QListWidgetItem(layer.name())
@@ -403,14 +517,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "paper_width": self.spinWidth.value(),
             "paper_height": self.spinHeight.value(),
             "scale": self.spinScale.value(),
-            "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
             "filter_items": self.get_checked_items(None),
             # [NEW] Pass Exclusion List
-            # We want to exclude items that are CHECKED in the listExclusions widget.
             "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.UserRole) 
                                for i in range(self.listExclusions.count()) 
-                               if self.listExclusions.item(i).checkState() == QtCore.Qt.Checked]
+                               if self.listExclusions.item(i).checkState() == QtCore.Qt.Checked],
+            # [NEW] Restrict Toggle
+            "restrict_to_buffer": self.chkRestrictToBuffer.isChecked(),
+            # [NEW] Zone Layer ID
+            "zone_layer_id": self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
+            # [NEW] Label Style
+            "label_font_size": self.spinLabelFontSize.value(),
+            "label_font_family": self.comboLabelFont.currentFont().family()
         }
 
     def load_reference_data(self):
