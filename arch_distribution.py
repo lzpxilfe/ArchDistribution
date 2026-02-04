@@ -263,13 +263,18 @@ class ArchDistribution:
                             # Zone is usually detailed, maybe buf_group is better or its own.
                             # Let's put it in buf_group for now.
                             
-                            # We need to clone it because we might change style
                             z_clone = z_layer.clone()
-                            z_clone.setName(z_layer.name()) # [FIX] Keep original name (remove _Copy)
+                            z_clone.setName(z_layer.name())
                             
-                            # Move to Source Group (Background) instead of Buffer Group
+                            # [FIX] Create Separate Group for Zone Layer (User Request)
+                            # Check if group exists
+                            zone_group_name = "현상변경허용기준"
+                            zone_group = root.findGroup(zone_group_name)
+                            if not zone_group:
+                                zone_group = root.addGroup(zone_group_name)
+                            
                             QgsProject.instance().addMapLayer(z_clone, False)
-                            src_group.addLayer(z_clone)
+                            zone_group.addLayer(z_clone)
                              
                             self.apply_zone_categorical_style(z_clone)
                              
