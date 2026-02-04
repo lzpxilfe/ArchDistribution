@@ -266,11 +266,21 @@ class ArchDistribution:
                     if zone_id:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
-                            self.log("현상변경 허용구간 레이어 복제 및 도곽 클리핑 중...")
+                            self.log("현상변경 허용구간 레이어 복제 및 도곽 클리핑 중... (v1.1.0 Clipping Active)")
                             
-                            # [FIX] Clip Zone Layer to Extent (User Request)
-                            # Create new memory layer with same fields/CRS
-                            z_clone = QgsVectorLayer(f"Polygon?crs={z_layer.crs().toWkt()}", z_layer.name(), "memory")
+                            # [FIX] CRS-Aware Clipping Logic
+                            # 1. Prepare Extent Geometry in Zone Layer's CRS
+                            target_crs = z_layer.crs()
+                            source_crs = original_study_layer.crs() # extent_geom is in this CRS
+                            
+                            clipping_geom = QgsGeometry(extent_geom)
+                            if target_crs != source_crs:
+                                self.log(f"좌표계 변환 적용 (Zone Clipping): {source_crs.authid()} -> {target_crs.authid()}")
+                                transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
+                                clipping_geom.transform(transform)
+
+                            # 2. Create Clone Layer
+                            z_clone = QgsVectorLayer(f"Polygon?crs={target_crs.toWkt()}", z_layer.name(), "memory")
                             z_pr = z_clone.dataProvider()
                             z_pr.addAttributes(z_layer.fields())
                             z_clone.updateFields()
@@ -278,16 +288,30 @@ class ArchDistribution:
                             new_z_feats = []
                             for zf in z_layer.getFeatures():
                                 geom = zf.geometry()
-                                if not geom.intersects(extent_geom):
+                                
+                                # Safety: Fix invalid geometries
+                                if not geom.isGeosValid():
+                                    geom = geom.makeValid()
+
+                                if not geom.intersects(clipping_geom):
                                     continue
                                     
                                 # Clip
-                                clipped_geom = geom.intersection(extent_geom)
-                                if not clipped_geom.isEmpty():
-                                    nf = QgsFeature(zf)
-                                    nf.setGeometry(clipped_geom)
-                                    new_z_feats.append(nf)
-                            
+                                try:
+                                    clipped_geom = geom.intersection(clipping_geom)
+                                    if not clipped_geom.isEmpty():
+                                        # Sanity check: Intersection sometimes returns weird types
+                                        if clipped_geom.type() != QgsWkbTypes.PolygonGeometry:
+                                            # If it became lines or points, skip or buffer? 
+                                            # Force to MultiPolygon if needed, but intersection usually preserves type for Polygons
+                                            pass
+                                            
+                                        nf = QgsFeature(zf)
+                                        nf.setGeometry(clipped_geom)
+                                        new_z_feats.append(nf)
+                                except Exception as e:
+                                    self.log(f"  ⚠️ 클리핑 실패(객체 건너뜀): {e}")
+
                             z_pr.addFeatures(new_z_feats)
                             z_clone.updateExtents()
                             
