@@ -229,7 +229,7 @@ class ArchDistribution:
                              for dist in sorted_buffers:
                                  bg = combined_study.buffer(dist, 20)
                                  buffer_geoms.append({'dist': dist, 'geom': bg})
-                              self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
+                             self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
                         merged_heritage, 
