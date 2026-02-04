@@ -1220,45 +1220,24 @@ class ArchDistribution:
         
         # 1. First Pass: Identify and Number Inside Features
         current_id = 1
-        limit_geom = None
-        if restrict_to_buffer and buffer_geoms:
-             limit_geom = buffer_geoms[-1]['geom']
+        
+        # [FIX] Use correctly transformed limit geometry determined above (lines 1073-1075)
+        # Verify limit_geom validity with restrict_to_buffer flag
+        target_limit_geom = None
+        if restrict_to_buffer and limit_geom:
+            target_limit_geom = limit_geom
 
         for item in sorted_features:
             feat = item['feat']
             
-            # [NEW] Soft Deduplication (Failsafe)
-            # If name has already been processed, mark this as duplicate and delete it.
-            # This fixes the "2, 4, 6..." issue if Dissolve failed.
-
-            # Log Warning once
-            if current_id == 1:
-                 self.log(f"  - 범위 제한 모드(Outside Deletion): {'ON' if restrict_to_buffer else 'OFF'}")
-                 if restrict_to_buffer: self.log(f"  - 제한 지오메트리 존재 여부: {'YES' if limit_geom else 'NO'}")
-
-            if idx_name != -1:
-                name_val = feat.attributes()[idx_name]
-                if isinstance(name_val, str):
-                    name_val = name_val.strip()
-                    # Apply same cleaning logic
-                    for kw in ["지표조사", "발굴조사", "시굴조사", "표본조사", "정밀조사", "입회조사"]:
-                         if kw in name_val:
-                             parts = name_val.split(kw)
-                             if len(parts) > 1:
-                                 candidate = parts[-1].strip()
-                                 if len(candidate) > 1:
-                                     name_val = candidate
-                                     break
-                
-                if name_val in seen_names:
-                    ids_to_delete.append(feat.id())
-                    continue # Skip this duplicate
-                seen_names.add(name_val)
+            # [REMOVED] Aggressive Name-based Deduplication
+            # User reported excessive feature loss (250 -> 150).
+            # We strictly trust the input layer (which may have spatial duplicates if dissolve failed, but safer to keep).
 
             is_inside = True
             
-            if limit_geom:
-                 if not feat.geometry().intersects(limit_geom):
+            if target_limit_geom:
+                 if not feat.geometry().intersects(target_limit_geom):
                      is_inside = False
             
             if is_inside:
