@@ -7,7 +7,8 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
                        QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer,
                        QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling,
-                       QgsCategorizedSymbolRenderer, QgsRendererCategory)
+                       QgsCategorizedSymbolRenderer, QgsRendererCategory,
+                       QgsCoordinateTransform, QgsWkbTypes)
 
 import os.path
 import processing
