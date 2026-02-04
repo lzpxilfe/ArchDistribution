@@ -1346,40 +1346,33 @@ class ArchDistribution:
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
         
-        # Exact Color Map based on User Legend
-        # Zones 1~8: Distinct Fills
-        # Zones 2-x: Common Fill (Light Pink) + Distinct Outlines
-        
-        common_fill_2 = "#FADADD" # Light Pink for 2-subzones if needed, or just specific fills?
-        # Legend implies: 
-        # 1: Orange, 2: Magenta
-        # 2-1: Blue Border, Pink Fill
-        # 2-2: Green Border, Pink Fill 
-        # ...
-        
+        # Refined Color Map (Keys as pure numbers/codes)
         style_map = {
-            "1구역": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # Orange
-            "2구역": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # Magenta
+            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # Orange
+            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # Magenta
             
-            # Sub-zones (Pink Fill + Colored Stroke)
-            "2-1구역": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
-            "2-2구역": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
-            "2-3구역": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
-            "2-4구역": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
-            "2-5구역": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
-            "2-6구역": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
+            # Sub-zones
+            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
+            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
+            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
+            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
+            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
+            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
             
-            "3구역": {"fill": "#4834d4", "stroke": "#30336b", "width": 0.2}, # Blue
-            "4구역": {"fill": "#95a5a6", "stroke": "#7f8c8d", "width": 0.2}, # Gray
-            "5구역": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # Green
-            "6구역": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # Red
-            "7구역": {"fill": "#1abc9c", "stroke": "#16a085", "width": 0.2}, # Cyan
-            "8구역": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # Yellow
+            "3": {"fill": "#4834d4", "stroke": "#30336b", "width": 0.2}, # Blue
+            "4": {"fill": "#95a5a6", "stroke": "#7f8c8d", "width": 0.2}, # Gray
+            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # Green
+            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # Red
+            "7": {"fill": "#1abc9c", "stroke": "#16a085", "width": 0.2}, # Cyan
+            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # Yellow
         }
 
         categories = []
         unique_vals = layer.uniqueValues(layer.fields().indexFromName(field_name))
         
+        # Debug Log for Styles
+        self.log(f"  - 현상변경 구역 값 감지(상위 10개): {list(unique_vals)[:10]}")
+
         try:
             sorted_vals = sorted(unique_vals, key=lambda x: str(x))
         except:
@@ -1387,34 +1380,37 @@ class ArchDistribution:
         
         for val in sorted_vals:
             val_str = str(val).strip()
+            # Normalize: Remove '구역', spaces
+            norm_val = val_str.replace("구역", "").strip()
             
             # Default
             fill_col = "#cccccc"
             stroke_col = "#000000"
             width = 0.2
             
-            # Match
+            # Match against normalized Keys
             matched = False
-            for key, style in style_map.items():
-                if key in val_str: # Allow partial match if needed, but Prefer Exact
-                     if key == val_str:
-                         fill_col = style["fill"]
-                         stroke_col = style["stroke"]
-                         width = style["width"]
-                         matched = True
-                         break
-                     # Candidate
-                     fill_col = style["fill"]
-                     stroke_col = style["stroke"]
-                     width = style["width"]
-                     matched = True
+            
+            # Exact Match First
+            if norm_val in style_map:
+                s = style_map[norm_val]
+                fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
+                matched = True
+            
+            # Basic fallback for partials if not matched
+            if not matched:
+                for k, s in style_map.items():
+                    if k in norm_val:
+                        fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
+                        matched = True
+                        break
             
             # Create Symbol
             symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
             symbol.setColor(QColor(fill_col))
             symbol.symbolLayer(0).setStrokeColor(QColor(stroke_col))
             symbol.symbolLayer(0).setStrokeWidth(width)
-            symbol.setOpacity(0.5) # Global Opacity for Zone Layer
+            symbol.setOpacity(0.5) 
             
             cat = QgsRendererCategory(val, symbol, val_str)
             categories.append(cat)
