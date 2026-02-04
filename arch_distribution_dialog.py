@@ -770,15 +770,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def run_analysis(self):
         """Collect settings and emit run signal."""
         # Validation
-        if self.comboStudyLayer.currentLayer() is None:
+        if self.comboStudyArea.currentIndex() == -1:
              QtWidgets.QMessageBox.warning(self, "경고", "조사지역 레이어를 선택해주세요.")
              return
              
         # Collection
+        # Helper to get IDs from QListWidget
+        def get_checked_ids(list_widget):
+            ids = []
+            for item in list_widget.selectedItems():
+                val = item.data(QtCore.Qt.UserRole)
+                if val: ids.append(val)
+            return ids
+
         settings = {
-            'study_area_id': self.comboStudyLayer.currentLayer().id(),
-            'topo_layer_ids': [l.id() for l in self.listTopoLayers.selectedLayers()],
-            'heritage_layer_ids': [l.id() for l in self.listHeritageLayers.selectedLayers()],
+            'study_area_id': self.comboStudyArea.currentData(),
+            'topo_layer_ids': get_checked_ids(self.listTopoLayers),
+            'heritage_layer_ids': get_checked_ids(self.listHeritageLayers),
             'paper_width': self.spinWidth.value(),
             'paper_height': self.spinHeight.value(),
             'scale': self.spinScale.value(),
@@ -804,7 +812,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 'opacity': self.spinHeritageOpacity.value() / 100.0,
                 # [NEW] Font Settings
                 'font_size': self.spinLabelFontSize.value(),
-                'font_family': self.comboLabelFont.currentFont().family()
+                'font_family': self.comboLabelFont.currentFont().family() # Using QFontComboBox
             },
             # Options
             'sort_order': self.comboSortOrder.currentIndex(),
