@@ -266,14 +266,30 @@ class ArchDistribution:
                     if zone_id:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
-                            self.log("현상변경 허용구간 레이어 복제 및 스타일 적용 중...")
-                            # Clone to Background Group (buf_group or new?)
-                            # Let's put it in buf_group (Analysis Group) or src_group (Background)
-                            # Zone is usually detailed, maybe buf_group is better or its own.
-                            # Let's put it in buf_group for now.
+                            self.log("현상변경 허용구간 레이어 복제 및 도곽 클리핑 중...")
                             
-                            z_clone = z_layer.clone()
-                            z_clone.setName(z_layer.name())
+                            # [FIX] Clip Zone Layer to Extent (User Request)
+                            # Create new memory layer with same fields/CRS
+                            z_clone = QgsVectorLayer(f"Polygon?crs={z_layer.crs().toWkt()}", z_layer.name(), "memory")
+                            z_pr = z_clone.dataProvider()
+                            z_pr.addAttributes(z_layer.fields())
+                            z_clone.updateFields()
+                            
+                            new_z_feats = []
+                            for zf in z_layer.getFeatures():
+                                geom = zf.geometry()
+                                if not geom.intersects(extent_geom):
+                                    continue
+                                    
+                                # Clip
+                                clipped_geom = geom.intersection(extent_geom)
+                                if not clipped_geom.isEmpty():
+                                    nf = QgsFeature(zf)
+                                    nf.setGeometry(clipped_geom)
+                                    new_z_feats.append(nf)
+                            
+                            z_pr.addFeatures(new_z_feats)
+                            z_clone.updateExtents()
                             
                             # [FIX] Create Separate Group for Zone Layer (User Request)
                             # Check if group exists
