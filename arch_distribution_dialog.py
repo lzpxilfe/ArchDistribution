@@ -134,6 +134,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinWidth.setValue(210) # A4 width
         self.spinHeight.setValue(297) # A4 height
         self.spinScale.setValue(5000)
+        self.spinScale.setSingleStep(500) # [FIX] User Request: 500 unit step
         self.comboSortOrder.setCurrentIndex(0)
         self.tabWidget.setCurrentIndex(0)
         
@@ -351,6 +352,22 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     run_requested = QtCore.pyqtSignal(dict)
     renumber_requested = QtCore.pyqtSignal(object) # Passing QgsVectorLayer
     scan_requested = QtCore.pyqtSignal(dict) # [NEW]
+
+    # [FIX] Batch Check Implementation with Selection Support
+    def set_batch_check(self, list_widget, checked):
+        """
+        Check/Uncheck items. 
+        If items are selected (highlighted), only apply to them.
+        If no items selected, apply to all.
+        """
+        items_to_process = list_widget.selectedItems()
+        if not items_to_process:
+            # Fallback: All items
+            items_to_process = [list_widget.item(i) for i in range(list_widget.count())]
+            
+        state = QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked
+        for item in items_to_process:
+            item.setCheckState(state)
 
     def emit_run_requested(self):
         """Validates settings and emits the run signal."""
