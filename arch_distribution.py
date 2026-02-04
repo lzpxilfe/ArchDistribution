@@ -281,7 +281,7 @@ class ArchDistribution:
                                 buffer_limit_geom = buffer_geoms[-1]['geom'] # Use largest buffer
                             
                             # Call Split & Style Function (with optional buffer clip)
-                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom, buffer_limit_geom)
+                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom, buffer_limit_geom, source_crs=original_study_layer.crs())
                             
                             # (Group creation and function call handled above)
                              
@@ -1353,7 +1353,7 @@ class ArchDistribution:
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
         
-    def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None):
+    def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None, source_crs=None):
         """
         Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
         and apply specific single-symbol style.
@@ -1395,6 +1395,9 @@ class ArchDistribution:
         project_crs = QgsProject.instance().crs()
         layer_crs = layer.crs()
         
+        # Use provided source CRS or default to Project CRS
+        if not source_crs: source_crs = project_crs
+
         # Prepare Extent Mask
         local_extent = QgsGeometry(extent_geom)
         
@@ -1404,11 +1407,14 @@ class ArchDistribution:
             local_buffer = QgsGeometry(limit_buffer_geom)
 
         # Transform both masks to Zone Layer CRS if needed
-        if layer_crs != project_crs:
-            tr = QgsCoordinateTransform(project_crs, layer_crs, QgsProject.instance())
-            local_extent.transform(tr)
-            if local_buffer:
-                local_buffer.transform(tr)
+        if layer_crs != source_crs:
+            try:
+                tr = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
+                local_extent.transform(tr)
+                if local_buffer:
+                    local_buffer.transform(tr)
+            except Exception as e:
+                self.log(f"좌표계 변환 오류 (Zone Layer): {e}")
         
         if local_buffer:
              self.log(f"  - 버퍼 범위 클리핑 활성화됨.")
