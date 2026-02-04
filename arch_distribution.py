@@ -419,11 +419,17 @@ class ArchDistribution:
         for lid in layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
             if layer:
+                # [FIX] Filter for Line Layers Only (Topo is usually lines)
+                if layer.geometryType() != 1: # 0:Point, 1:Line, 2:Polygon
+                    self.log(f"  ⚠️ 지형도 병합 제외 (라인 레이어 아님): {layer.name()}")
+                    continue
+                    
                 self.fix_layer_encoding(layer)
                 layers.append(layer)
                 self.move_layer_to_group(layer, src_group)
         
         if not layers:
+            self.log("  ⚠️ 병합할 수치지형도(라인)가 없습니다.")
             return
 
         # Merge
@@ -1052,6 +1058,10 @@ class ArchDistribution:
         all_features = []
         for feat in layer.getFeatures():
             geom = feat.geometry()
+            
+            # [FIX] Robust Geometry Check
+            if not geom.isGeosValid():
+                geom = geom.makeValid()
             
             # [CHECK 1] Extent Intersection
             if target_extent and not geom.intersects(target_extent):
