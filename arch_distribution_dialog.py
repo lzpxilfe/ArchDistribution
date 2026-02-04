@@ -199,7 +199,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         self.chkRestrictToBuffer = QtWidgets.QCheckBox("버퍼 범위 외 유적 제외 (감추기)")
         self.chkRestrictToBuffer.setToolTip("체크 시: 최외곽 버퍼 바깥의 유적은 번호를 매기지 않고 지도에서 숨깁니다. (지표조사 등)\n체크 해제 시: 모든 유적에 번호를 매깁니다. (일반조사 등)")
-        self.chkRestrictToBuffer.setChecked(True) # [FIX] Default to Checked (User Preference)
+        self.chkRestrictToBuffer.setChecked(False) # [FIX] Default to Unchecked (User Request)
         self.chkRestrictToBuffer.setStyleSheet("font-weight: bold; color: #d35400;")
         
         # Insert into vTab1 at index 1
