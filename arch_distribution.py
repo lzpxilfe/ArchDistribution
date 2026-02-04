@@ -729,6 +729,12 @@ class ArchDistribution:
             
             # Identify fields (Fuzzy matching)
             name_field = self.find_field(layer, ['유적명', '명칭', 'NAME', 'SITE', 'TITLE'])
+            
+            # [FIX] Skip invalid layers (e.g. Topo maps selected as Heritage)
+            if not name_field:
+                self.log(f"  ⚠️ 명칭 필드 미확인으로 유적 병합 제외: {layer.name()}")
+                continue
+                
             heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # [NEW]
             project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT']) # [NEW]
             addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
