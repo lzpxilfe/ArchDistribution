@@ -139,7 +139,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinHeritageStrokeWidth.setValue(0.3)
         self.spinHeritageOpacity.setValue(40)
         self.spinStudyStrokeWidth.setValue(0.5)
-        self.spinStudyStrokeWidth.setValue(0.5)
         self.spinTopoStrokeWidth.setValue(0.05) # Traditional topo line weight
         self.spinBufferWidth.setValue(0.3) # Default buffer width
         self.spinWidth.setValue(210) # A4 width
