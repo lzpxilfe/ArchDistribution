@@ -193,6 +193,15 @@ class ArchDistribution:
             # Step 6: Heritage Consolidation & Numbering
             if settings['heritage_layer_ids']:
                 self.log("주변 유적 데이터 수집 및 병합 시작...")
+
+                # [FIX] Pre-fetch Zone Layer and fix encoding (CP949 default)
+                # User reported that this layer often has encoding issues.
+                zone_layer_obj = None
+                if settings.get('zone_layer_id'):
+                    zone_layer_obj = QgsProject.instance().mapLayer(settings.get('zone_layer_id'))
+                    if zone_layer_obj:
+                         self.fix_layer_encoding(zone_layer_obj, 'CP949')
+
                 merged_heritage = self.consolidate_heritage_layers(
                     settings['heritage_layer_ids'], 
                     extent_geom, 
@@ -200,7 +209,7 @@ class ArchDistribution:
                     src_group,
                     filter_categories=settings.get('filter_items', None),
                     exclusion_list=settings.get('exclusion_list', []),
-                    zone_layer=QgsProject.instance().mapLayer(settings.get('zone_layer_id')) if settings.get('zone_layer_id') else None # [NEW] Pass Zone Layer
+                    zone_layer=zone_layer_obj 
                 )
                 
                 if merged_heritage:
