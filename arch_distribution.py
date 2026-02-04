@@ -1355,32 +1355,47 @@ class ArchDistribution:
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
         
-        # Refined Color Map (Keys as pure numbers/codes)
-        style_map = {
-            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # Orange
-            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # Magenta
-            
-            # Sub-zones
-            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
-            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
-            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
-            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
-            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
-            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
-            
-            "3": {"fill": "#4834d4", "stroke": "#30336b", "width": 0.2}, # Blue
-            "4": {"fill": "#95a5a6", "stroke": "#7f8c8d", "width": 0.2}, # Gray
-            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # Green
-            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # Red
-            "7": {"fill": "#1abc9c", "stroke": "#16a085", "width": 0.2}, # Cyan
-            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # Yellow
+    def apply_zone_categorical_style(self, layer):
+        """Apply categorical style to Zone Layer based on '구역' or 'NAME' matching user legend."""
+        # [FIX] Prioritize '구역명' as per user report
+        field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
+        if not field_name: 
+            self.log("⚠️ 현상변경허용기준 레이어에서 구역 필드를 찾지 못했습니다.")
+            return
+        
+        # Ensure encoding on the clone just in case
+        self.fix_layer_encoding(layer, 'CP949')
+
+        # Expanded Color Map (Supports both "1" and "1구역")
+        # Colors: 1(Orange), 2(Magenta), 2-X(Pink Fill + Colored Stroke)
+        base_map = {
+            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, 
+            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2},
+            "3": {"fill": "#4834d4", "stroke": "#30336b", "width": 0.2},
+            "4": {"fill": "#95a5a6", "stroke": "#7f8c8d", "width": 0.2},
+            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2},
+            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2},
+            "7": {"fill": "#1abc9c", "stroke": "#16a085", "width": 0.2},
+            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2},
+            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6},
+            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6},
+            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6},
+            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6},
+            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6},
+            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6},
         }
+        
+        # Populate style_map with variants ("1" and "1구역")
+        style_map = {}
+        for k, v in base_map.items():
+            style_map[k] = v
+            style_map[f"{k}구역"] = v # Explicit "1구역" support
+            style_map[f"제{k}구역"] = v # Just in case "제1구역"
 
         categories = []
         unique_vals = layer.uniqueValues(layer.fields().indexFromName(field_name))
         
-        # Debug Log for Styles
-        self.log(f"  - 현상변경 구역 값 감지(상위 10개): {list(unique_vals)[:10]}")
+        self.log(f"  - 구역 값 분석: {list(unique_vals)[:10]}")
 
         try:
             sorted_vals = sorted(unique_vals, key=lambda x: str(x))
@@ -1389,31 +1404,36 @@ class ArchDistribution:
         
         for val in sorted_vals:
             val_str = str(val).strip()
-            # Normalize: Remove '구역', spaces
-            norm_val = val_str.replace("구역", "").strip()
+            # Normalize: Try to match exactly first, then normalized
             
-            # Default
             fill_col = "#cccccc"
             stroke_col = "#000000"
             width = 0.2
-            
-            # Match against normalized Keys
             matched = False
             
-            # Exact Match First
-            if norm_val in style_map:
-                s = style_map[norm_val]
+            # 1. Exact Match (e.g. "1구역" in style_map)
+            if val_str in style_map:
+                s = style_map[val_str]
                 fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
                 matched = True
             
-            # Basic fallback for partials if not matched
+            # 2. Normalized Match (remove spaces, "구역")
             if not matched:
-                for k, s in style_map.items():
-                    if k in norm_val:
+                norm_val = val_str.replace("구역", "").replace(" ", "").strip()
+                if norm_val in style_map: # Matches "1" key
+                    s = style_map[norm_val]
+                    fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
+                    matched = True
+            
+            # 3. Partial Match Fallback
+            if not matched:
+                for k in style_map.keys():
+                    if k in val_str and len(k) > 1: # Avoid matching "1" inside "11"
+                        s = style_map[k]
                         fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
                         matched = True
                         break
-            
+
             # Create Symbol
             symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
             symbol.setColor(QColor(fill_col))
