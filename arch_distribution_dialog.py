@@ -25,6 +25,11 @@ def get_plugin_version():
 
 
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
+    # Define signals
+    run_requested = QtCore.pyqtSignal(dict)
+    renumber_requested = QtCore.pyqtSignal(dict)
+    scan_requested = QtCore.pyqtSignal(dict)
+
     def __init__(self, parent=None):
         """Constructor."""
         super(ArchDistributionDialog, self).__init__(parent)
@@ -108,6 +113,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.vZoneLayout = QtWidgets.QVBoxLayout()
             self.vZoneLayout.addWidget(self.lblZoneLayer)
             self.vZoneLayout.addWidget(self.comboZoneLayer)
+
+            # [NEW] Clip to Buffer Checkbox
+            self.chkClipZoneToBuffer = QtWidgets.QCheckBox("버퍼 범위 내 자르기 (반경 내만 표시)")
+            self.chkClipZoneToBuffer.setToolTip("체크 시, 도곽 전체가 아닌 조사 반경(가장 큰 버퍼) 내의 현상변경허용기준만 남기고 나머지는 잘라냅니다.")
+            self.chkClipZoneToBuffer.setChecked(False) # Default Off
+            self.vZoneLayout.addWidget(self.chkClipZoneToBuffer)
             
             # Convert layout to widget to insert? No, insertLayout works for Box Layouts usually.
             # QLayout.insertLayout(index, layout)
@@ -206,6 +217,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Insert into vTab1 at index 1
         if hasattr(self, 'vTab1'):
              self.vTab1.insertWidget(1, self.chkRestrictToBuffer)
+
+        self.btnRun.clicked.connect(self.run_analysis) # [FIX] Connect logic
 
         # [NEW] Label Font Controls
         self.groupLabelStyle = QtWidgets.QGroupBox("라벨 스타일")
@@ -754,3 +767,71 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 """
         help_text = help_text.format(version=get_plugin_version())
         QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
+
+    def run_analysis(self):
+        """Collect settings and emit run signal."""
+        # Validation
+        if self.comboStudyLayer.currentLayer() is None:
+             QtWidgets.QMessageBox.warning(self, "경고", "조사지역 레이어를 선택해주세요.")
+             return
+             
+        # Collection
+        settings = {
+            'study_area_id': self.comboStudyLayer.currentLayer().id(),
+            'topo_layer_ids': [l.id() for l in self.listTopoLayers.selectedLayers()],
+            'heritage_layer_ids': [l.id() for l in self.listHeritageLayers.selectedLayers()],
+            'paper_width': self.spinWidth.value(),
+            'paper_height': self.spinHeight.value(),
+            'scale': self.spinScale.value(),
+            'buffers': [],
+            # Styles
+            'study_style': {
+                'stroke_color': self.study_stroke_color.name(),
+                'stroke_width': self.spinStudyStrokeWidth.value()
+            },
+            'topo_style': {
+                'stroke_color': self.topo_stroke_color.name(),
+                 'stroke_width': self.spinTopoStrokeWidth.value()
+            },
+            'buffer_style': {
+                'color': self.buffer_color.name(),
+                'width': self.spinBufferWidth.value(),
+                'style': self.comboBufferStyle.currentIndex()
+            },
+            'heritage_style': {
+                'stroke_color': self.heritage_stroke_color.name(),
+                'fill_color': self.heritage_fill_color.name(),
+                'stroke_width': self.spinHeritageStrokeWidth.value(),
+                'opacity': self.spinHeritageOpacity.value() / 100.0,
+                # [NEW] Font Settings
+                'font_size': self.spinLabelFontSize.value(),
+                'font_family': self.comboLabelFont.currentFont().family()
+            },
+            # Options
+            'sort_order': self.comboSortOrder.currentIndex(),
+            
+            # [NEW] Zone Layer
+            'zone_layer_id': self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
+            
+            # [NEW] Restrictions
+            'restrict_to_buffer': self.chkRestrictToBuffer.isChecked(),
+            'clip_zone_to_buffer': self.chkClipZoneToBuffer.isChecked(), # [NEW CHECKBOX]
+            
+            # Filter Lists
+            'filter_eras': self.get_checked_items(self.listEras),
+            'filter_types': self.get_checked_items(self.listTypes),
+            'exclusion_list': [item.data(QtCore.Qt.UserRole) for item in self.listExclusions.findItems("*", QtCore.Qt.MatchWildcard)]
+        }
+        
+        # Collect Buffers
+        for i in range(self.listBuffers.count()):
+            item = self.listBuffers.item(i)
+            try:
+                val = float(item.text().replace("m", ""))
+                settings['buffers'].append(val)
+            except: pass
+            
+        settings['buffers'].sort(reverse=True) # Largest first
+        
+        self.run_requested.emit(settings)
+        self.accept()

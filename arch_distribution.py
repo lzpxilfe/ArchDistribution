@@ -275,9 +275,13 @@ class ArchDistribution:
                             if not zone_group:
                                 zone_group = root.addGroup(zone_group_name)
 
-                            # Call the new Split & Style Function
-                            # This handles Clipping internally per split layer
-                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom)
+                            # [NEW] Clip to Buffer Logic
+                            buffer_limit_geom = None
+                            if settings.get('clip_zone_to_buffer', False) and buffer_geoms:
+                                buffer_limit_geom = buffer_geoms[-1]['geom'] # Use largest buffer
+                            
+                            # Call Split & Style Function (with optional buffer clip)
+                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom, buffer_limit_geom)
                             
                             # (Group creation and function call handled above)
                              
@@ -1349,9 +1353,9 @@ class ArchDistribution:
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
         
-    def split_and_style_zone_layer(self, layer, parent_group, extent_geom):
+    def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None):
         """
-        Split Zone Layer into separate layers for each category, clip to extent, 
+        Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
         and apply specific single-symbol style.
         """
         # 1. Identify Field
@@ -1387,23 +1391,28 @@ class ArchDistribution:
             style_map[f"{k}구역"] = v 
             style_map[f"제{k}구역"] = v 
 
-        # 3. Prepare Clipping Geometry (Extent)
-        target_crs = layer.crs()
-        # extent_geom is passed in, assumed to be in Project CRS or Study CRS?
-        # In process_distribution_map, extent_geom is in 'target_crs' (Project/Layer?)
-        # Actually extent_geom comes from create_extent_polygon -> in 'target_crs' (user selection).
-        # We need to ensure checks.
+        # 3. Prepare Clipping Geometries
+        project_crs = QgsProject.instance().crs()
+        layer_crs = layer.crs()
         
-        # Let's assume extent_geom matches project CRS. layer might not.
-        clipping_geom = QgsGeometry(extent_geom)
-        # Transform check would be handled inside loop per feature if we really want, 
-        # but better to assume process_distribution_map handles CRS alignment? 
-        # Actually in previous step we did transform. Let's replicate safety here.
-        # But we don't have source_crs easily here. 
-        # Let's trust the Caller passed valid extent_geom for the Project, 
-        # and we transform it to layer.crs() if needed.
-        # However, layer is the Source Zone Layer.
+        # Prepare Extent Mask
+        local_extent = QgsGeometry(extent_geom)
         
+        # Prepare Buffer Mask (Optional)
+        local_buffer = None
+        if limit_buffer_geom:
+            local_buffer = QgsGeometry(limit_buffer_geom)
+
+        # Transform both masks to Zone Layer CRS if needed
+        if layer_crs != project_crs:
+            tr = QgsCoordinateTransform(project_crs, layer_crs, QgsProject.instance())
+            local_extent.transform(tr)
+            if local_buffer:
+                local_buffer.transform(tr)
+        
+        if local_buffer:
+             self.log(f"  - 버퍼 범위 클리핑 활성화됨.")
+
         # 4. Iterate and Split
         unique_vals = layer.uniqueValues(layer.fields().indexFromName(field_name))
         
@@ -1425,41 +1434,29 @@ class ArchDistribution:
             
             if not subset_feats: continue
 
-            # 4.2 Create Layer
-            # Sanitize name
-            layer_name = val_str
-            
-            # 4.3 Clip Logic
-            # We need to clip THESE features to the extent.
-            # Reuse the robust logic.
-            
-            # Prepare transform if needed (Project CRS -> Layer CRS)
-            # We'll assume extent_geom is in Project CRS involved in analysis.
-            # But wait, layer is the SOURCE layer (raw).
-            # We should probably project the SOURCE features to Project CRS first?
-            # Or project Extent to Source CRS.
-            
-            # Simplified: Project Extent to Layer CRS
-            tr_context = QgsProject.instance().transformContext()
-            
-            # We don't have reference to 'original_study_layer' here to know Source CRS of extent.
-            # But usually extent_geom is in Project CRS.
-            project_crs = QgsProject.instance().crs()
-            if layer.crs() != project_crs:
-                tr = QgsCoordinateTransform(project_crs, layer.crs(), QgsProject.instance())
-                local_extent = QgsGeometry(extent_geom)
-                local_extent.transform(tr)
-            else:
-                local_extent = extent_geom
-
+            # 4.2 Clip Logic
             clipped_feats = []
             for f in subset_feats:
                 geom = f.geometry()
                 if not geom.isGeosValid(): geom = geom.makeValid()
                 
+                # Check Intersection with Extent First
                 if geom.intersects(local_extent):
                     try:
                         res = geom.intersection(local_extent)
+                        
+                        # Sequential Clip: Intersect with Buffer if required
+                        if not res.isEmpty() and local_buffer:
+                            if res.intersects(local_buffer):
+                                res = res.intersection(local_buffer)
+                            else:
+                                res = QgsGeometry() # Completely outside buffer
+
+                        if not res.isEmpty():
+                            nf = QgsFeature(f)
+                            nf.setGeometry(res)
+                            clipped_feats.append(nf)
+                    except: pass
                         if not res.isEmpty():
                             nf = QgsFeature(f)
                             nf.setGeometry(res)
