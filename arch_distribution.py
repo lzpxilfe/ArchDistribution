@@ -1061,6 +1061,7 @@ class ArchDistribution:
         layer.startEditing()
         
         # Collect all features
+        ids_to_delete = [] # [FIX] Initialize early to collect outside features
         all_features = []
         for feat in layer.getFeatures():
             geom = feat.geometry()
@@ -1081,6 +1082,7 @@ class ArchDistribution:
                 if not geom.intersects(limit_geom):
                     layer.changeAttributeValue(feat.id(), idx, None)
                     layer.changeAttributeValue(feat.id(), dist_idx, None)
+                    ids_to_delete.append(feat.id()) # [FIX] Mark for deletion
                     continue
             
             # If restriction is OFF, we keep it even if outside buffer.
@@ -1088,6 +1090,9 @@ class ArchDistribution:
             # That's exactly what we want.
 
             all_features.append(feat)
+            
+        if ids_to_delete:
+            self.log(f"  -> 초기 스캔에서 범위 밖 유적 {len(ids_to_delete)}개 식별됨 (삭제 예정).")
 
         # Sorting Logic
         sorted_features = []
@@ -1190,7 +1195,7 @@ class ArchDistribution:
         
         # [FIX] Delete Outside Features instead of hiding
         # Collect IDs to delete
-        ids_to_delete = []
+        # ids_to_delete already initialized above
         seen_names = set()
         
         # Identify Name Field for Soft Deduplication
