@@ -1022,8 +1022,15 @@ class ArchDistribution:
         dist_field_name = "이격거리(m)"
         if layer.fields().indexFromName(dist_field_name) == -1:
             layer.dataProvider().addAttributes([QgsField(dist_field_name, QVariant.String)])
-            layer.updateFields()
+            
+        # [NEW] Check/Add Note Field (For Human Verification)
+        note_field_name = "비고"
+        if layer.fields().indexFromName(note_field_name) == -1:
+            layer.dataProvider().addAttributes([QgsField(note_field_name, QVariant.String)])
+            
+        layer.updateFields()
         dist_idx = layer.fields().indexFromName(dist_field_name)
+        note_idx = layer.fields().indexFromName(note_field_name)
 
         # Prepare base geometry for precise distance calculation
         base_geom = None
@@ -1242,9 +1249,13 @@ class ArchDistribution:
             
             if is_inside:
                 layer.changeAttributeValue(feat.id(), idx, current_id)
+                layer.changeAttributeValue(feat.id(), note_idx, None) # Clear note
                 current_id += 1
             else:
                 ids_to_delete.append(feat.id())
+                # [FIX] Human Verification: Mark details instead of just deleting logic
+                layer.changeAttributeValue(feat.id(), idx, None) # No Number
+                layer.changeAttributeValue(feat.id(), note_idx, "범위_밖") # Mark reason
 
             if item.get('dist_str'):
                 layer.changeAttributeValue(feat.id(), dist_idx, item['dist_str'])
@@ -1253,12 +1264,16 @@ class ArchDistribution:
                  
         layer.commitChanges()
         
-        # 2. Delete Outside & Duplicate Features
+        # 2. Hide Outside Features (Non-Destructive for Human Verification)
         if ids_to_delete:
-            layer.startEditing()
-            layer.deleteFeatures(ids_to_delete)
-            layer.commitChanges()
-            self.log(f"정리된 유적(중복/범위외) {len(ids_to_delete)}개를 삭제했습니다.")
+            # removing 'delete logic'. Instead we apply filter.
+            # layer.deleteFeatures(ids_to_delete)
+            
+            # Apply Filter to show only Numbered items
+            layer.setSubsetString('"번호" IS NOT NULL')
+            
+            self.log(f"범위 밖 유적 {len(ids_to_delete)}개를 숨김 처리했습니다. (삭제 안함)")
+            self.log(" -> 확인 방법: 레이어 우클릭 > 필터 설정 > 지우기")
         else:
              layer.setSubsetString("") # Clear any previous filter
 
