@@ -370,12 +370,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Force UI update
         QtWidgets.QApplication.processEvents()
 
-    def set_batch_check(self, list_widget, check_state):
-        """Set check state for all currently selected items in the list widget."""
-        selected_items = list_widget.selectedItems()
-        target_state = QtCore.Qt.Checked if check_state else QtCore.Qt.Unchecked
-        for item in selected_items:
-            item.setCheckState(target_state)
+
 
     def update_button_colors(self):
         self.btnHeritageStrokeColor.setStyleSheet(f"background-color: {self.heritage_stroke_color.name()}; color: {'white' if self.heritage_stroke_color.lightness() < 128 else 'black'};")

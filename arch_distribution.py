@@ -229,13 +229,7 @@ class ArchDistribution:
                              for dist in sorted_buffers:
                                  bg = combined_study.buffer(dist, 20)
                                  buffer_geoms.append({'dist': dist, 'geom': bg})
-                             self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
-                             
-                    # target_crs is defined earlier in method
-                             buffer_geoms.append({'dist': dist, 'geom': bg})
-                             self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
-                             
-                    # target_crs is defined earlier in method
+                              self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
                         merged_heritage, 
@@ -1061,8 +1055,6 @@ class ArchDistribution:
 
             all_features.append(feat)
 
-            all_features.append(feat)
-
         # Sorting Logic
         sorted_features = []
         
@@ -1165,6 +1157,11 @@ class ArchDistribution:
         # [FIX] Delete Outside Features instead of hiding
         # Collect IDs to delete
         ids_to_delete = []
+        seen_names = set()
+        
+        # Identify Name Field for Soft Deduplication
+        idx_name = layer.fields().indexOf("유적명")
+        if idx_name == -1: idx_name = layer.fields().indexOf("명칭") # Fallback
         
         # 1. First Pass: Identify and Number Inside Features
         current_id = 1
@@ -1174,6 +1171,20 @@ class ArchDistribution:
 
         for item in sorted_features:
             feat = item['feat']
+            
+            # [NEW] Soft Deduplication (Failsafe)
+            # If name has already been processed, mark this as duplicate and delete it.
+            # This fixes the "2, 4, 6..." issue if Dissolve failed.
+            if idx_name != -1:
+                name_val = feat.attributes()[idx_name]
+                if isinstance(name_val, str):
+                    name_val = name_val.strip()
+                
+                if name_val in seen_names:
+                    ids_to_delete.append(feat.id())
+                    continue # Skip this duplicate
+                seen_names.add(name_val)
+
             is_inside = True
             
             if limit_geom:
@@ -1193,12 +1204,12 @@ class ArchDistribution:
                  
         layer.commitChanges()
         
-        # 2. Delete Outside Features
+        # 2. Delete Outside & Duplicate Features
         if ids_to_delete:
             layer.startEditing()
             layer.deleteFeatures(ids_to_delete)
             layer.commitChanges()
-            self.log(f"버퍼 범위 외 유적 {len(ids_to_delete)}개를 삭제했습니다.")
+            self.log(f"정리된 유적(중복/범위외) {len(ids_to_delete)}개를 삭제했습니다.")
         else:
              layer.setSubsetString("") # Clear any previous filter
 
