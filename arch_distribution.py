@@ -266,66 +266,19 @@ class ArchDistribution:
                     if zone_id:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
-                            self.log("현상변경 허용구간 레이어 복제 및 도곽 클리핑 중... (v1.1.0 Clipping Active)")
-                            
-                            # [FIX] CRS-Aware Clipping Logic
-                            # 1. Prepare Extent Geometry in Zone Layer's CRS
-                            target_crs = z_layer.crs()
-                            source_crs = original_study_layer.crs() # extent_geom is in this CRS
-                            
-                            clipping_geom = QgsGeometry(extent_geom)
-                            if target_crs != source_crs:
-                                self.log(f"좌표계 변환 적용 (Zone Clipping): {source_crs.authid()} -> {target_crs.authid()}")
-                                transform = QgsCoordinateTransform(source_crs, target_crs, QgsProject.instance())
-                                clipping_geom.transform(transform)
-
-                            # 2. Create Clone Layer
-                            z_clone = QgsVectorLayer(f"Polygon?crs={target_crs.toWkt()}", z_layer.name(), "memory")
-                            z_pr = z_clone.dataProvider()
-                            z_pr.addAttributes(z_layer.fields())
-                            z_clone.updateFields()
-                            
-                            new_z_feats = []
-                            for zf in z_layer.getFeatures():
-                                geom = zf.geometry()
-                                
-                                # Safety: Fix invalid geometries
-                                if not geom.isGeosValid():
-                                    geom = geom.makeValid()
-
-                                if not geom.intersects(clipping_geom):
-                                    continue
-                                    
-                                # Clip
-                                try:
-                                    clipped_geom = geom.intersection(clipping_geom)
-                                    if not clipped_geom.isEmpty():
-                                        # Sanity check: Intersection sometimes returns weird types
-                                        if clipped_geom.type() != QgsWkbTypes.PolygonGeometry:
-                                            # If it became lines or points, skip or buffer? 
-                                            # Force to MultiPolygon if needed, but intersection usually preserves type for Polygons
-                                            pass
-                                            
-                                        nf = QgsFeature(zf)
-                                        nf.setGeometry(clipped_geom)
-                                        new_z_feats.append(nf)
-                                except Exception as e:
-                                    self.log(f"  ⚠️ 클리핑 실패(객체 건너뜀): {e}")
-
-                            z_pr.addFeatures(new_z_feats)
-                            z_clone.updateExtents()
+                            self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중... (v1.2.0 Split Active)")
                             
                             # [FIX] Create Separate Group for Zone Layer (User Request)
-                            # Check if group exists
                             zone_group_name = "현상변경허용기준"
                             zone_group = root.findGroup(zone_group_name)
                             if not zone_group:
                                 zone_group = root.addGroup(zone_group_name)
+
+                            # Call the new Split & Style Function
+                            # This handles Clipping internally per split layer
+                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom)
                             
-                            QgsProject.instance().addMapLayer(z_clone, False)
-                            zone_group.addLayer(z_clone)
-                             
-                            self.apply_zone_categorical_style(z_clone)
+                            # (Group creation and function call handled above)
                              
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
@@ -1395,19 +1348,21 @@ class ArchDistribution:
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
         
-    def apply_zone_categorical_style(self, layer):
-        """Apply categorical style to Zone Layer based on '구역' or 'NAME' matching user legend."""
-        # [FIX] Prioritize '구역명' as per user report
+    def split_and_style_zone_layer(self, layer, parent_group, extent_geom):
+        """
+        Split Zone Layer into separate layers for each category, clip to extent, 
+        and apply specific single-symbol style.
+        """
+        # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name: 
             self.log("⚠️ 현상변경허용기준 레이어에서 구역 필드를 찾지 못했습니다.")
             return
-        
-        # Ensure encoding on the clone just in case
+
+        # Ensure encoding
         self.fix_layer_encoding(layer, 'CP949')
 
-        # Expanded Color Map (Supports both "1" and "1구역")
-        # Colors: 1(Orange), 2(Magenta), 2-X(Pink Fill + Colored Stroke)
+        # 2. Define Style Map
         base_map = {
             "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, 
             "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2},
@@ -1425,65 +1380,129 @@ class ArchDistribution:
             "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6},
         }
         
-        # Populate style_map with variants ("1" and "1구역")
         style_map = {}
         for k, v in base_map.items():
             style_map[k] = v
-            style_map[f"{k}구역"] = v # Explicit "1구역" support
-            style_map[f"제{k}구역"] = v # Just in case "제1구역"
+            style_map[f"{k}구역"] = v 
+            style_map[f"제{k}구역"] = v 
 
-        categories = []
+        # 3. Prepare Clipping Geometry (Extent)
+        target_crs = layer.crs()
+        # extent_geom is passed in, assumed to be in Project CRS or Study CRS?
+        # In process_distribution_map, extent_geom is in 'target_crs' (Project/Layer?)
+        # Actually extent_geom comes from create_extent_polygon -> in 'target_crs' (user selection).
+        # We need to ensure checks.
+        
+        # Let's assume extent_geom matches project CRS. layer might not.
+        clipping_geom = QgsGeometry(extent_geom)
+        # Transform check would be handled inside loop per feature if we really want, 
+        # but better to assume process_distribution_map handles CRS alignment? 
+        # Actually in previous step we did transform. Let's replicate safety here.
+        # But we don't have source_crs easily here. 
+        # Let's trust the Caller passed valid extent_geom for the Project, 
+        # and we transform it to layer.crs() if needed.
+        # However, layer is the Source Zone Layer.
+        
+        # 4. Iterate and Split
         unique_vals = layer.uniqueValues(layer.fields().indexFromName(field_name))
         
-        self.log(f"  - 구역 값 분석: {list(unique_vals)[:10]}")
-
         try:
             sorted_vals = sorted(unique_vals, key=lambda x: str(x))
         except:
             sorted_vals = unique_vals
+            
+        self.log(f"  - 구역 분할 및 생성 시작: {len(sorted_vals)}개 분류")
         
         for val in sorted_vals:
             val_str = str(val).strip()
-            # Normalize: Try to match exactly first, then normalized
             
-            fill_col = "#cccccc"
-            stroke_col = "#000000"
-            width = 0.2
-            matched = False
+            # 4.1 Filter Features
+            subset_feats = []
+            for f in layer.getFeatures():
+                if str(f[field_name]).strip() == val_str:
+                    subset_feats.append(f)
             
-            # 1. Exact Match (e.g. "1구역" in style_map)
-            if val_str in style_map:
-                s = style_map[val_str]
-                fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
-                matched = True
-            
-            # 2. Normalized Match (remove spaces, "구역")
-            if not matched:
-                norm_val = val_str.replace("구역", "").replace(" ", "").strip()
-                if norm_val in style_map: # Matches "1" key
-                    s = style_map[norm_val]
-                    fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
-                    matched = True
-            
-            # 3. Partial Match Fallback
-            if not matched:
-                for k in style_map.keys():
-                    if k in val_str and len(k) > 1: # Avoid matching "1" inside "11"
-                        s = style_map[k]
-                        fill_col = s["fill"]; stroke_col = s["stroke"]; width = s["width"]
-                        matched = True
-                        break
+            if not subset_feats: continue
 
-            # Create Symbol
-            symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
-            symbol.setColor(QColor(fill_col))
-            symbol.symbolLayer(0).setStrokeColor(QColor(stroke_col))
-            symbol.symbolLayer(0).setStrokeWidth(width)
-            symbol.setOpacity(0.5) 
+            # 4.2 Create Layer
+            # Sanitize name
+            layer_name = val_str
             
-            cat = QgsRendererCategory(val, symbol, val_str)
-            categories.append(cat)
+            # 4.3 Clip Logic
+            # We need to clip THESE features to the extent.
+            # Reuse the robust logic.
             
-        renderer = QgsCategorizedSymbolRenderer(field_name, categories)
-        layer.setRenderer(renderer)
-        layer.triggerRepaint()
+            # Prepare transform if needed (Project CRS -> Layer CRS)
+            # We'll assume extent_geom is in Project CRS involved in analysis.
+            # But wait, layer is the SOURCE layer (raw).
+            # We should probably project the SOURCE features to Project CRS first?
+            # Or project Extent to Source CRS.
+            
+            # Simplified: Project Extent to Layer CRS
+            tr_context = QgsProject.instance().transformContext()
+            
+            # We don't have reference to 'original_study_layer' here to know Source CRS of extent.
+            # But usually extent_geom is in Project CRS.
+            project_crs = QgsProject.instance().crs()
+            if layer.crs() != project_crs:
+                tr = QgsCoordinateTransform(project_crs, layer.crs(), QgsProject.instance())
+                local_extent = QgsGeometry(extent_geom)
+                local_extent.transform(tr)
+            else:
+                local_extent = extent_geom
+
+            clipped_feats = []
+            for f in subset_feats:
+                geom = f.geometry()
+                if not geom.isGeosValid(): geom = geom.makeValid()
+                
+                if geom.intersects(local_extent):
+                    try:
+                        res = geom.intersection(local_extent)
+                        if not res.isEmpty():
+                            nf = QgsFeature(f)
+                            nf.setGeometry(res)
+                            clipped_feats.append(nf)
+                    except: pass
+            
+            if not clipped_feats: continue
+            
+            # Create Memory Layer
+            vl = QgsVectorLayer(f"Polygon?crs={layer.crs().toWkt()}", layer_name, "memory")
+            pr = vl.dataProvider()
+            pr.addAttributes(layer.fields())
+            vl.updateFields()
+            pr.addFeatures(clipped_feats)
+            vl.updateExtents()
+            
+            # 4.4 Apply Style
+            # Find matching style
+            norm_val = val_str.replace("구역", "").replace(" ", "").strip()
+            style = None
+            
+            if val_str in style_map: style = style_map[val_str]
+            elif norm_val in style_map: style = style_map[norm_val]
+            else:
+                 # Partial match
+                 for k, v in style_map.items():
+                     if k in val_str and len(k) > 1:
+                         style = v; break
+            
+            if style:
+                symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
+                symbol.setColor(QColor(style['fill']))
+                symbol.setOpacity(0.5)
+                symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
+                symbol.symbolLayer(0).setStrokeWidth(style['width'])
+                vl.setRenderer(QgsSingleSymbolRenderer(symbol))
+            else:
+                # Random/Default fallback
+                pass # Default grey is fine
+            
+            vl.triggerRepaint()
+            
+            # 4.5 Add to Group
+            QgsProject.instance().addMapLayer(vl, False)
+            parent_group.addLayer(vl)
+            
+        self.log("  -> 현상변경 허용구간 레이어 분할 완료.")
