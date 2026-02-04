@@ -1457,11 +1457,6 @@ class ArchDistribution:
                             nf.setGeometry(res)
                             clipped_feats.append(nf)
                     except: pass
-                        if not res.isEmpty():
-                            nf = QgsFeature(f)
-                            nf.setGeometry(res)
-                            clipped_feats.append(nf)
-                    except: pass
             
             if not clipped_feats: continue
             
