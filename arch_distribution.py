@@ -730,15 +730,17 @@ class ArchDistribution:
             self.fix_layer_encoding(layer)
             
             # Identify fields (Fuzzy matching)
-            name_field = self.find_field(layer, ['유적명', '명칭', 'NAME', 'SITE', 'TITLE'])
+            # [FIX] Broaden search to include National/State Heritage naming conventions
+            name_keywords = ['유적명', '명칭', 'NAME', 'SITE', 'TITLE', '문화재명', '지정명칭', '국가유산명', '등록명칭']
+            name_field = self.find_field(layer, name_keywords)
             
             # [FIX] Skip invalid layers (e.g. Topo maps selected as Heritage)
             if not name_field:
-                self.log(f"  ⚠️ 명칭 필드 미확인으로 유적 병합 제외: {layer.name()}")
+                self.log(f"  ⚠️ 명칭 필드({name_keywords}) 미확인으로 병합 제외: {layer.name()}")
                 continue
                 
-            heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # [NEW]
-            project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT']) # [NEW]
+            heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # Keep specific for attribute extraction
+            project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT']) 
             addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
             area_field = self.find_field(layer, ['면적', 'AREA', 'SHAPE_AREA'])
 
