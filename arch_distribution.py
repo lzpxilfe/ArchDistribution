@@ -1364,7 +1364,6 @@ class ArchDistribution:
 
         # 2. Define Style Map
         base_map = {
-        base_map = {
             "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # 1 (Orange)
             "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # 2 (Magenta)
             "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2}, # 3 (Blue-Purple)
@@ -1380,7 +1379,6 @@ class ArchDistribution:
             "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
             "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
             "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
-        }
         }
         
         style_map = {}
