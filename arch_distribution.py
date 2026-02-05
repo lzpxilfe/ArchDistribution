@@ -1352,6 +1352,7 @@ class ArchDistribution:
         Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
         and apply specific single-symbol style.
         """
+        layer_name = layer.name()
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name: 
