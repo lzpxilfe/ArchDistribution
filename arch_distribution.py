@@ -828,6 +828,12 @@ class ArchDistribution:
                     is_entirely_inside = clipped_geom.within(study_geom) if not study_geom.isNull() else False
                     
                     if not is_entirely_inside:
+                        # [FIX] Included internal sites as well (User Request: Prevent aggressive data loss)
+                        # Originally: if not is_entirely_inside:
+                        # Now: Allow all (since we clipped to extent already)
+                        pass
+                    
+                    if True: # Always proceed if it intersects extent
                         new_feat = QgsFeature(subset_layer.fields())
                         new_feat.setGeometry(clipped_geom)  # Use clipped geometry
                         
@@ -956,26 +962,29 @@ class ArchDistribution:
         
         split_keywords = ["지표조사", "발굴조사", "시굴조사", "표본조사", "정밀조사", "입회조사"]
         
-        for f in merged_layer.getFeatures():
-             val = f[name_idx]
-             if isinstance(val, str):
-                 clean_val = val.strip()
-                 
-                 # Logic: Split by keyword, take the LAST part if length > 1
-                 # e.g., "Project A 지표조사 Site B" -> " Site B" -> "Site B"
-                 for kw in split_keywords:
-                     if kw in clean_val:
-                         parts = clean_val.split(kw)
-                         if len(parts) > 1:
-                             candidate = parts[-1].strip()
-                             # Check if candidate is valid (not empty and not just "2" or "1"?)
-                             # Actually usually it is "Site Name 1", so it's fine.
-                             if len(candidate) > 1:
-                                 clean_val = candidate
-                                 break # Stop after first keyword match
-                 
-                 if clean_val != val:
-                     merged_layer.changeAttributeValue(f.id(), name_idx, clean_val)
+        # [FIX] Disabled Aggressive Name Cleaning (User Request)
+        # Reason: "Site A (Survey)" and "Site A (Excavation)" were being merged into "Site A", causing data loss.
+        # for f in merged_layer.getFeatures():
+        #      val = f[name_idx]
+        #      if isinstance(val, str):
+        #          clean_val = val.strip()
+        #          
+        #          # Logic: Split by keyword, take the LAST part if length > 1
+        #          # e.g., "Project A 지표조사 Site B" -> " Site B" -> "Site B"
+        #          for kw in split_keywords:
+        #              if kw in clean_val:
+        #                  parts = clean_val.split(kw)
+        #                  if len(parts) > 1:
+        #                      candidate = parts[-1].strip()
+        #                      # Check if candidate is valid (not empty and not just "2" or "1"?)
+        #                      # Actually usually it is "Site Name 1", so it's fine.
+        #                      if len(candidate) > 1:
+        #                          clean_val = candidate
+        #                          break # Stop after first keyword match
+        #          
+        #          if clean_val != val:
+        #              merged_layer.changeAttributeValue(f.id(), name_idx, clean_val)
+        merged_layer.commitChanges()
         merged_layer.commitChanges()
 
         try:
@@ -1352,6 +1361,7 @@ class ArchDistribution:
         Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
         and apply specific single-symbol style.
         """
+        layer_name = layer.name()
         self.log(f"DEBUG: Zone Layer '{layer_name}' Processing Started.")
         
         # 1. Identify Field
