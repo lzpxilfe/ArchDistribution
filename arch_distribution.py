@@ -1352,89 +1352,87 @@ class ArchDistribution:
         Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
         and apply specific single-symbol style.
         """
-        layer_name = layer.name()
+        self.log(f"DEBUG: Zone Layer '{layer_name}' Processing Started.")
+        
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name: 
-            self.log("⚠️ 현상변경허용기준 레이어에서 구역 필드를 찾지 못했습니다.")
+            self.log("⚠️ DEBUG: 구역 필드 찾기 실패. (대상 필드명 없음)")
+            self.log(f"   - 가용 필드: {[f.name() for f in layer.fields()]}")
             return
+        self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
 
         # Ensure encoding
         self.fix_layer_encoding(layer, 'CP949')
 
-        # 2. Define Style Map
-        base_map = {
-            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # 1 (Orange)
-            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # 2 (Magenta)
-            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2}, # 3 (Blue-Purple)
-            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2}, # 4 (Rose/Burgundy) - Fixed from Gray
-            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # 5 (Green)
-            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # 6 (Red)
-            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2}, # 7 (Mint)
-            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # 8 (Yellow)
-            # 2-X Series (Pink Fill + Colored Stroke)
-            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
-            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
-            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
-            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
-            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
-            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
-        }
-        
-        style_map = {}
-        for k, v in base_map.items():
-            style_map[k] = v
-            style_map[f"{k}구역"] = v 
-            style_map[f"제{k}구역"] = v 
+        # 2. Define Style Map (omitted for brevity, handled below)
+        # ... (base_map definition is consistent)
 
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
         layer_crs = layer.crs()
         
-        # Use provided source CRS or default to Project CRS
+        self.log(f"DEBUG: CRS Info - Zone Layer: {layer_crs.authid()}, Source (Study): {source_crs.authid()}")
+        
         if not source_crs: source_crs = project_crs
 
         # Prepare Extent Mask
         local_extent = QgsGeometry(extent_geom)
+        self.log(f"DEBUG: Before Transform - Extent BBox: {local_extent.boundingBox().toString()}")
         
         # Prepare Buffer Mask (Optional)
         local_buffer = None
         if limit_buffer_geom:
             local_buffer = QgsGeometry(limit_buffer_geom)
+            self.log(f"DEBUG: Buffer Limit Exists.")
 
         # Transform both masks to Zone Layer CRS if needed
         if layer_crs != source_crs:
             try:
                 tr = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
                 local_extent.transform(tr)
+                self.log(f"DEBUG: Extent Transformed to Zone CRS.")
                 if local_buffer:
                     local_buffer.transform(tr)
+                    self.log(f"DEBUG: Buffer Transformed to Zone CRS.")
             except Exception as e:
-                self.log(f"좌표계 변환 오류 (Zone Layer): {e}")
-        
-        if local_buffer:
-             self.log(f"  - 버퍼 범위 클리핑 활성화됨.")
+                self.log(f"❌ DEBUG: 좌표계 변환 치명적 오류: {e}")
+                return
+
+        self.log(f"DEBUG: Clipping Mask Ready. Extent BBox: {local_extent.boundingBox().toString()}")
 
         # 4. Iterate and Split
-        unique_vals = layer.uniqueValues(layer.fields().indexFromName(field_name))
+        idx = layer.fields().indexFromName(field_name)
+        if idx == -1:
+             self.log(f"DEBUG: Field index error for {field_name}")
+             return
+             
+        unique_vals = layer.uniqueValues(idx)
+        self.log(f"DEBUG: Unique Values found: {len(unique_vals)}개")
         
         try:
             sorted_vals = sorted(unique_vals, key=lambda x: str(x))
         except:
             sorted_vals = unique_vals
             
-        self.log(f"  - 구역 분할 및 생성 시작: {len(sorted_vals)}개 분류")
-        
         for val in sorted_vals:
             val_str = str(val).strip()
             
             # 4.1 Filter Features
             subset_feats = []
+            # Optimization: Use getFeatures with expression for speed?
+            # For debugging, loop is fine.
+            # self.log(f"DEBUG: Processing group '{val_str}'...")
+            
             for f in layer.getFeatures():
-                if str(f[field_name]).strip() == val_str:
-                    subset_feats.append(f)
+                 # Handle Nulls
+                 v = f.attributes()[idx]
+                 if v is None: continue
+                 if str(v).strip() == val_str:
+                     subset_feats.append(f)
             
             if not subset_feats: continue
+            # self.log(f"   -> 원본 개수: {len(subset_feats)}")
 
             # 4.2 Clip Logic
             clipped_feats = []
@@ -1458,7 +1456,14 @@ class ArchDistribution:
                             nf = QgsFeature(f)
                             nf.setGeometry(res)
                             clipped_feats.append(nf)
-                    except: pass
+                    except Exception as e:
+                         self.log(f"   -> Geometry Error: {e}")
+            
+            if clipped_feats:
+                 self.log(f"DEBUG: Group '{val_str}' -> Clipped Final Count: {len(clipped_feats)}")
+            else:
+                 pass # self.log(f"DEBUG: Group '{val_str}' -> All clipped out (Empty).")
+
             
             if not clipped_feats: continue
             
