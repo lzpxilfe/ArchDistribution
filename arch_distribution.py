@@ -1375,8 +1375,30 @@ class ArchDistribution:
         # Ensure encoding
         self.fix_layer_encoding(layer, 'CP949')
 
-        # 2. Define Style Map (omitted for brevity, handled below)
-        # ... (base_map definition is consistent)
+        # 2. Define Style Map
+        base_map = {
+            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # 1 (Orange)
+            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # 2 (Magenta)
+            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2}, # 3 (Blue-Purple)
+            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2}, # 4 (Rose/Burgundy)
+            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # 5 (Green)
+            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # 6 (Red)
+            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2}, # 7 (Mint)
+            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # 8 (Yellow)
+            # 2-X Series (Pink Fill + Colored Stroke)
+            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
+            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
+            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
+            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
+            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
+            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
+        }
+        
+        style_map = {}
+        for k, v in base_map.items():
+            style_map[k] = v
+            style_map[f"{k}구역"] = v 
+            style_map[f"제{k}구역"] = v
 
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
