@@ -139,6 +139,7 @@ class ArchDistribution:
             ext_group = out_group.addGroup("02_도곽_및_영역")
             buf_group = out_group.addGroup("03_조사구역_버퍼")
             topo_merged_group = out_group.addGroup("04_수치지형도_병합")
+            zone_merged_group = out_group.addGroup("05_현상변경허용기준")
             
             # 1-2. Source Group: Persist (don't delete original layers!)
             src_group = root.findGroup("ArchDistribution_원본_데이터")
@@ -290,19 +291,17 @@ class ArchDistribution:
                         if z_layer:
                             self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중... (v1.2.0 Split Active)")
                             
-                            # [FIX] Create Separate Group for Zone Layer (User Request)
-                            zone_group_name = "현상변경허용기준"
-                            zone_group = root.findGroup(zone_group_name)
-                            if not zone_group:
-                                zone_group = root.addGroup(zone_group_name)
-
+                            # [FIX] Use the pre-created Group 05
+                            # zone_group_name = "현상변경허용기준" 
+                            # (handled in Step 1)
+                            
                             # [NEW] Clip to Buffer Logic
                             buffer_limit_geom = None
                             if settings.get('clip_zone_to_buffer', False) and buffer_geoms:
                                 buffer_limit_geom = buffer_geoms[-1]['geom'] # Use largest buffer
                             
                             # Call Split & Style Function (with optional buffer clip)
-                            self.split_and_style_zone_layer(z_layer, zone_group, extent_geom, buffer_limit_geom, source_crs=original_study_layer.crs())
+                            self.split_and_style_zone_layer(z_layer, zone_merged_group, extent_geom, buffer_limit_geom, source_crs=original_study_layer.crs())
                             
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
