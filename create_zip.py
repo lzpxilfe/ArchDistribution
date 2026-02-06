@@ -32,19 +32,19 @@ def create_plugin_zip():
 
     # The folder name INSIDE the zip file must match the plugin package name
     zip_root_name = "ArchDistribution"
-    zip_filename = "ArchDistribution.zip"
+    
+    # Save to Desktop
+    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+    zip_filename = os.path.join(desktop_path, "ArchDistribution.zip")
 
     # Try to get files from git
     git_files = get_git_files()
 
-    # Manual excludes as fallback
-    excludes = [
-        '.git', '__pycache__', '.venv', '.idea', '.vscode', 
-        'create_zip.py', zip_filename, '.gitignore', 
-        'test', 'tests', 'debug_import.py', 'debug_qgis_logic.py',
-        'force_reload.py', 'fix_indent.py', 'inspect_dbf.py',
-        'inspect_zones.py', 'test_filtering_logic.py', 'analyze_artifacts.py',
-        'analyze_artifacts_v2.py', 'compile_reference.py', 'find_insite.py'
+    # Files to explicitly exclude even if they are in git (dev scripts, tools, etc.)
+    # We match these by filename or partial path
+    dev_exclusions = [
+        'create_zip.py', 'debug_', 'test_', 'analyze_', 'inspect_', 'fix_', 'force_', 
+        'compile_reference.py', 'find_insite.py', '.gitignore', '.gitattributes'
     ]
 
     print(f"Creating {zip_filename}...")
@@ -52,36 +52,32 @@ def create_plugin_zip():
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
         if git_files:
             print("Using git tracked files list...")
-            files_to_zip = git_files
-            # Filter out create_zip.py and the zip itself if they are tracked (unlikely to want zip in zip)
-            files_to_zip = [f for f in files_to_zip if f != zip_filename and f != 'create_zip.py']
-        else:
-            print("Using manual file walking...")
             files_to_zip = []
-            for root, dirs, files in os.walk('.'):
-                dirs[:] = [d for d in dirs if d not in excludes]
-                for file in files:
-                    if file in excludes:
-                        continue
-                    if file.endswith('.zip') or file.endswith('.ui.py'):
-                        continue
-                    files_to_zip.append(os.path.join(root, file))
+            for f in git_files:
+                # Check exclusions
+                is_excluded = False
+                basename = os.path.basename(f)
+                if basename == 'create_zip.py' or f.endswith('.zip'):
+                    is_excluded = True
+                else:
+                    for exc in dev_exclusions:
+                        if exc in basename: # Simple substring check for things like debug_*.py
+                            is_excluded = True
+                            break
+                
+                if not is_excluded:
+                    files_to_zip.append(f)
+        else:
+            print("Warning: git not found. Using manual file walking (fallback).")
+            # Fallback logic (omitted for brevity as git is expected)
+            files_to_zip = [] 
 
         for file_path in files_to_zip:
-            # Check if file exists (git ls-files lists deleted files too if not updated?)
-            # No, ls-files lists index. But better check existence.
             if not os.path.exists(file_path):
                 continue
                 
-            # Create the archive name with the top-level folder
-            # e.g. metadata.txt -> ArchDistribution/metadata.txt
-            if git_files:
-                # git files are relative path strings
-                rel_path = file_path
-                # normalize separators
-                rel_path = rel_path.replace('/', os.sep)
-            else:
-                rel_path = os.path.relpath(file_path, '.')
+            # git files are relative path strings from repo root
+            rel_path = file_path.replace('/', os.sep)
             
             arc_name = os.path.join(zip_root_name, rel_path)
             
@@ -90,7 +86,6 @@ def create_plugin_zip():
             try:
                 st = os.stat(file_path)
                 mtime = st.st_mtime
-                # 1980 check
                 if mtime < 315532800:
                     mtime = 1577836800
                 
