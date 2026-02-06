@@ -11,4 +11,4 @@ experimental=False
 icon=icon.png
 tags=archaeology, distribution map, report, illustrator, buffer, merge
 
-about=보고서용 분포지도 작성을 돕는 도구입니다.
+about=보고서용 분포지도 작성을 돕는 도구입니다. (Codename: Pallet Town)
