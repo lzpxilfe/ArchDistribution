@@ -1526,26 +1526,47 @@ class ArchDistribution:
                 if not geom.isGeosValid(): geom = geom.makeValid()
                 
                 # [FIX] Use safe extent for clipping (expand slightly to avoid precision loss at edges)
-                safe_extent = local_extent.buffer(0.0001, 5) 
+                # Ensure we handle different units (degrees vs meters). 0.0001 is fine for degrees, small for meters.
+                # Let's use a slightly larger buffer to be safe.
+                safe_extent = local_extent.buffer(0.001, 5) 
                 
                 # Check Intersection with Extent First (Always Clip to Map Frame)
                 if geom.intersects(safe_extent):
                     try:
-                        # [CHANGE] Buffer Logic: DISABLED Filtering based on Buffer
-                        # User Feedback: "Exceptions occurring" -> Data loss.
-                        # Decision: Trust the Map Extent (safe_extent). 
-                        # If it's in the map frame, SHOW IT. Do not filter by buffer.
-                        
                         res = geom.intersection(safe_extent)
                         if not res.isGeosValid(): res = res.makeValid()
                         
-                        if not res.isEmpty():
+                        # [FIX] Handle Mixed Geometry Types (Collection)
+                        # If intersection grazing edge returns LineString/Point, we must discard those 
+                        # but KEEP any Polygon parts.
+                        final_geom = QgsGeometry()
+                        if res.isEmpty():
+                             # If intersection is empty but intersects() was true, it's likely a grazing touch.
+                             pass
+                        else:
+                             if QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                 final_geom = res
+                             elif QgsWkbTypes.isMultiType(res.wkbType()) and QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                 final_geom = res
+                             elif res.isMultipart():
+                                 # Collection or Multi-Type with mixed (unlikely but possible from makeValid)
+                                 parts = []
+                                 for part in res.asGeometryCollection():
+                                      if QgsWkbTypes.geometryType(part.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                           parts.append(part)
+                                 if parts:
+                                     final_geom = QgsGeometry.fromMultiPolygonXY([p.asPolygon() for p in parts])
+                             else:
+                                 # Single non-polygon (Line/Point) -> Discard
+                                 pass
+
+                        if not final_geom.isEmpty():
                             # [FIX] Force MultiPolygon conversion
-                            if not QgsWkbTypes.isMultiType(res.wkbType()):
-                                 res.convertToMultiType()
+                            if not QgsWkbTypes.isMultiType(final_geom.wkbType()):
+                                 final_geom.convertToMultiType()
                             
                             nf = QgsFeature(f)
-                            nf.setGeometry(res)
+                            nf.setGeometry(final_geom)
                             clipped_feats.append(nf)
                     except Exception as e:
                          self.log(f"   -> Geometry Error: {e}")
