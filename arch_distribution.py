@@ -1555,6 +1555,10 @@ class ArchDistribution:
                                 res = QgsGeometry() # Completely outside buffer
 
                         if not res.isEmpty():
+                            # [FIX] Force MultiPolygon conversion to prevent data loss on complex clips
+                            if not QgsWkbTypes.isMultiType(res.wkbType()):
+                                 res.convertToMultiType()
+                            
                             nf = QgsFeature(f)
                             nf.setGeometry(res)
                             clipped_feats.append(nf)
@@ -1564,8 +1568,7 @@ class ArchDistribution:
             if clipped_feats:
                  self.log(f"DEBUG: Group '{val_str}' -> Clipped Final Count: {len(clipped_feats)}")
             else:
-                 pass # self.log(f"DEBUG: Group '{val_str}' -> All clipped out (Empty).")
-
+                 pass 
             
             if not clipped_feats: continue
             
@@ -1574,7 +1577,8 @@ class ArchDistribution:
             crs_def = layer.crs().authid()
             if not crs_def: crs_def = layer.crs().toWkt()
             
-            vl = QgsVectorLayer(f"Polygon?crs={crs_def}", val_str, "memory")
+            # [FIX] Use MultiPolygon to allow fragmented polygons (islands)
+            vl = QgsVectorLayer(f"MultiPolygon?crs={crs_def}", val_str, "memory")
             if not vl.isValid():
                 self.log(f"❌ 메모리 레이어 생성 실패: {val_str}")
                 continue
