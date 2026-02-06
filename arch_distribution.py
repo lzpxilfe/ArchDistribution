@@ -28,7 +28,7 @@ class ArchDistribution:
         # Create toolbar if it doesn't exist
         if not self.toolbar:
             self.toolbar = self.iface.addToolBar('ArchDistribution')
-            self.toolbar.setObjectName('ArchDistribution')
+        self.toolbar.setObjectName('ArchDistribution')
 
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         self.add_action(
@@ -295,9 +295,9 @@ class ArchDistribution:
                             # zone_group_name = "현상변경허용기준" 
                             # (handled in Step 1)
                             
-                            # [NEW] Clip to Buffer Logic
+                            # [NEW] Clip to Buffer Logic (Forced Active if buffers exist, per user request)
                             buffer_limit_geom = None
-                            if settings.get('clip_zone_to_buffer', False) and buffer_geoms:
+                            if buffer_geoms:
                                 buffer_limit_geom = buffer_geoms[-1]['geom'] # Use largest buffer
                             
                             # Call Split & Style Function (with optional buffer clip)
@@ -1422,11 +1422,11 @@ class ArchDistribution:
         
         self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
 
-        # 2. Define Style Map (Updated based on User Legend)
+        # 2. Define Style Map (Updated based on User Legend - Image Analysis)
         # 1구역 (Orange), 2구역 (Magenta) -> Filled
-        # 2-X구역 -> Transparent Fill + Colored Outline
+        # 2-X구역 -> Transparent Fill + Colored Outline (Thick)
         base_map = {
-            # Filled Types
+            # Filled Types (Standard)
             "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2, "style": "solid"}, # 1 (Orange)
             "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2, "style": "solid"}, # 2 (Magenta)
             "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2, "style": "solid"}, # 3 (Blue-Purple)
@@ -1436,13 +1436,14 @@ class ArchDistribution:
             "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2, "style": "solid"}, # 7 (Mint)
             "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2, "style": "solid"}, # 8 (Yellow)
             
-            # Outline Types (2-X)
-            "2-1": {"fill": "transparent", "stroke": "#0000FF", "width": 0.8, "style": "no_brush"}, # Blue
-            "2-2": {"fill": "transparent", "stroke": "#008000", "width": 0.8, "style": "no_brush"}, # Green
-            "2-3": {"fill": "transparent", "stroke": "#C71585", "width": 0.8, "style": "no_brush"}, # Magenta
-            "2-4": {"fill": "transparent", "stroke": "#008080", "width": 0.8, "style": "no_brush"}, # Teal
-            "2-5": {"fill": "transparent", "stroke": "#8B4513", "width": 0.8, "style": "no_brush"}, # Brown
-            "2-6": {"fill": "transparent", "stroke": "#BDB76B", "width": 0.8, "style": "no_brush"}, # Olive
+            # Outline Types (2-X Sub-zones)
+            # Fill: Transparent/Light Pink, Stroke: Specific Colors, Width: 0.8
+            "2-1": {"fill": "#FFDDDD", "stroke": "#0000FF", "width": 0.8, "style": "solid", "opacity": 0.2}, # Blue Stroke, Faint Pink Fill
+            "2-2": {"fill": "#FFDDDD", "stroke": "#008000", "width": 0.8, "style": "solid", "opacity": 0.2}, # Green Stroke
+            "2-3": {"fill": "#FFDDDD", "stroke": "#C71585", "width": 0.8, "style": "solid", "opacity": 0.2}, # Magenta Stroke
+            "2-4": {"fill": "#FFDDDD", "stroke": "#008080", "width": 0.8, "style": "solid", "opacity": 0.2}, # Teal Stroke
+            "2-5": {"fill": "#FFDDDD", "stroke": "#8B4513", "width": 0.8, "style": "solid", "opacity": 0.2}, # Brown Stroke
+            "2-6": {"fill": "#FFDDDD", "stroke": "#808000", "width": 0.8, "style": "solid", "opacity": 0.2}, # Olive Stroke
         }
         
         style_map = {}
@@ -1450,10 +1451,6 @@ class ArchDistribution:
             style_map[k] = v
             style_map[f"{k}구역"] = v 
             style_map[f"제{k}구역"] = v
-            # Handle "2-1" -> "2-1구역"
-            if '-' in k:
-                # Add explicit mappings if needed, though loop covers it
-                pass
 
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
@@ -1466,14 +1463,11 @@ class ArchDistribution:
         # Prepare Extent Mask
         local_extent = QgsGeometry(extent_geom)
         
-        # [FIX] CRS Transformation: Transform Study Area to Zone Layer CRS if needed
-        # Often user says Zone Layer is 5179 but Project is 4326/5186.
+        # [FIX] CRS Transformation
         if layer_crs != source_crs:
              self.log(f"DEBUG: CRS 불일치 감지. 변환 실행: {source_crs.authid()} -> {layer_crs.authid()}")
              xform = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
              local_extent.transform(xform)
-             
-             # Also transform the buffer limit geometry if it exists
              if limit_buffer_geom:
                  limit_buffer_geom.transform(xform)
         else:
@@ -1487,74 +1481,66 @@ class ArchDistribution:
             local_buffer = QgsGeometry(limit_buffer_geom)
             self.log(f"DEBUG: Buffer Limit Exists.")
 
-        # Transform both masks to Zone Layer CRS if needed
-        if layer_crs != source_crs:
-            try:
-                tr = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
-                local_extent.transform(tr)
-                self.log(f"DEBUG: Extent Transformed to Zone CRS.")
-                if local_buffer:
-                    local_buffer.transform(tr)
-                    self.log(f"DEBUG: Buffer Transformed to Zone CRS.")
-            except Exception as e:
-                self.log(f"❌ DEBUG: 좌표계 변환 치명적 오류: {e}")
-                return
-
         self.log(f"DEBUG: Clipping Mask Ready. Extent BBox: {local_extent.boundingBox().toString()}")
 
         # 4. Iterate and Split
         idx = layer.fields().indexFromName(field_name)
-        if idx == -1:
-             self.log(f"DEBUG: Field index error for {field_name}")
-             return
+        if idx == -1: return
              
-        unique_vals = layer.uniqueValues(idx)
-        self.log(f"DEBUG: Unique Values found: {len(unique_vals)}개")
+        # [REFACTOR] Single Pass Feature Collection (O(N))
+        # prevents logic gaps between uniqueValues() and manually determining equality.
+        from collections import defaultdict
+        grouped_feats = defaultdict(list)
         
-        try:
-            sorted_vals = sorted(unique_vals, key=lambda x: str(x))
-        except:
-            sorted_vals = unique_vals
+        all_feats_count = layer.featureCount()
+        self.log(f"DEBUG: 총 피처 개수: {all_feats_count}")
+        
+        for f in layer.getFeatures():
+            v = f.attributes()[idx]
+            if v is None: continue
             
-        for val in sorted_vals:
-            val_str = str(val).strip()
+            # Normalize Key
+            val_str = str(v).strip()
             
-            # 4.1 Filter Features
-            subset_feats = []
-            # Optimization: Use getFeatures with expression for speed?
-            # For debugging, loop is fine.
-            # self.log(f"DEBUG: Processing group '{val_str}'...")
+            # Handle float/int mismatch (e.g. "1.0" vs "1") if necessary, 
+            # usually str() is enough, but to be safe:
+            if isinstance(v, float) and v.is_integer():
+                val_str = str(int(v))
             
-            for f in layer.getFeatures():
-                 # Handle Nulls
-                 v = f.attributes()[idx]
-                 if v is None: continue
-                 if str(v).strip() == val_str:
-                     subset_feats.append(f)
+            grouped_feats[val_str].append(f)
             
-            if not subset_feats: continue
-            # self.log(f"   -> 원본 개수: {len(subset_feats)}")
+        self.log(f"DEBUG: 그룹화 완료. 총 {len(grouped_feats)}개 그룹 생성됨.")
+        
+        # Sort keys for consistent processing order
+        sorted_keys = sorted(grouped_feats.keys())
+        
+        for val_str in sorted_keys:
+            subset_feats = grouped_feats[val_str]
+            # self.log(f"DEBUG: Processing Group '{val_str}' (Count: {len(subset_feats)})")
 
             # 4.2 Clip Logic
             clipped_feats = []
             for f in subset_feats:
                 geom = f.geometry()
+                # [FIX] Robust Geometry Check
                 if not geom.isGeosValid(): geom = geom.makeValid()
                 
-                # Check Intersection with Extent First
-                if geom.intersects(local_extent):
+                # [FIX] Use safe extent for clipping (expand slightly to avoid precision loss at edges)
+                safe_extent = local_extent.buffer(0.0001, 5) 
+                
+                # Check Intersection with Extent First (Always Clip to Map Frame)
+                if geom.intersects(safe_extent):
                     try:
-                        res = geom.intersection(local_extent)
+                        # [CHANGE] Buffer Logic: DISABLED Filtering based on Buffer
+                        # User Feedback: "Exceptions occurring" -> Data loss.
+                        # Decision: Trust the Map Extent (safe_extent). 
+                        # If it's in the map frame, SHOW IT. Do not filter by buffer.
                         
-                        # Sequential Clip: Intersect with Buffer if required
-                        if not res.isEmpty() and local_buffer:
-                            if res.intersects(local_buffer):
-                                res = res.intersection(local_buffer)
-                            else:
-                                res = QgsGeometry() # Completely outside buffer
-
+                        res = geom.intersection(safe_extent)
+                        if not res.isGeosValid(): res = res.makeValid()
+                        
                         if not res.isEmpty():
-                            # [FIX] Force MultiPolygon conversion to prevent data loss on complex clips
+                            # [FIX] Force MultiPolygon conversion
                             if not QgsWkbTypes.isMultiType(res.wkbType()):
                                  res.convertToMultiType()
                             
@@ -1564,23 +1550,14 @@ class ArchDistribution:
                     except Exception as e:
                          self.log(f"   -> Geometry Error: {e}")
             
-            if clipped_feats:
-                 self.log(f"DEBUG: Group '{val_str}' -> Clipped Final Count: {len(clipped_feats)}")
-            else:
-                 pass 
-            
             if not clipped_feats: continue
             
             # Create Memory Layer
-            # [FIX] Use authid() for safer memory layer creation if possible, to avoid WKT string issues
             crs_def = layer.crs().authid()
             if not crs_def: crs_def = layer.crs().toWkt()
             
-            # [FIX] Use MultiPolygon to allow fragmented polygons (islands)
             vl = QgsVectorLayer(f"MultiPolygon?crs={crs_def}", val_str, "memory")
-            if not vl.isValid():
-                self.log(f"❌ 메모리 레이어 생성 실패: {val_str}")
-                continue
+            if not vl.isValid(): continue
                 
             pr = vl.dataProvider()
             pr.addAttributes(layer.fields())
@@ -1593,29 +1570,45 @@ class ArchDistribution:
             norm_val = val_str.replace("구역", "").replace(" ", "").strip()
             style = None
             
-            if val_str in style_map: style = style_map[val_str]
-            elif norm_val in style_map: style = style_map[norm_val]
-            else:
-                 # Partial match
-                 for k, v in style_map.items():
-                     if k in val_str and len(k) > 1:
-                         style = v; break
+            # [FIX: Strict 2-X Matching]
+            # Detect pattern "2-X" (handles -, space, dot, underscore)
+            import re
+            match_2x = re.search(r"2[-\s._]+(\d+)", val_str)
+            if match_2x:
+                sub_code = match_2x.group(1)
+                target_key = f"2-{sub_code}"
+                if target_key in style_map:
+                    style = style_map[target_key]
+                else:
+                    self.log(f"   -> Regex Matched '2-{sub_code}' but not in style map.")
+
+            if not style:
+                if val_str in style_map: style = style_map[val_str]
+                elif norm_val in style_map: style = style_map[norm_val]
+                else:
+                     for k, v in sorted(style_map.items(), key=lambda item: len(item[0]), reverse=True):
+                         if k in val_str and len(k) > 0: 
+                             style = v; break
             
             if style:
-                symbol_type = style.get('style', 'solid')
-                if symbol_type == 'no_brush':
-                    symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'no_brush'})
+                # Apply Style with Opacity
+                opacity = style.get('opacity', 0.4) # Default 0.4 (40%)
+                
+                symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
+                
+                # Check if it's "transparent" fill or actual color
+                fill_col = style['fill']
+                if fill_col == 'transparent':
+                     symbol.setColor(QColor(0,0,0,0)) # Transparent
                 else:
-                    symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
-                    symbol.setColor(QColor(style['fill']))
-                    # [UX] Set Opacity to 40% for better visibility of underlying map
-                    symbol.setOpacity(0.4)
+                     symbol.setColor(QColor(fill_col))
+                
+                symbol.setOpacity(opacity)
                 
                 symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
                 symbol.symbolLayer(0).setStrokeWidth(style['width'])
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
             else:
-                # Random/Default fallback
                 pass 
             
             vl.triggerRepaint()
@@ -1623,15 +1616,28 @@ class ArchDistribution:
             # 4.5 Add to Group
             QgsProject.instance().addMapLayer(vl, False)
             parent_group.addLayer(vl)
-            self.log(f"   -> 레이어 등록: {vl.name()} (ID: {vl.id()})")
             
         parent_group.setExpanded(True)
         parent_group.setItemVisibilityChecked(True)
         
-        # [UX] Move original input layer to Source Group (if not already there)
-        src_group = QgsProject.instance().layerTreeRoot().findGroup("ArchDistribution_원본_데이터")
-        if src_group:
-             self.move_layer_to_group(layer, src_group)
-             self.log("   -> 원본 현상변경허용기준 레이어를 'ArchDistribution_원본_데이터' 그룹으로 이동했습니다.")
+        # [UX] Move original input layer to Source Group
+        try:
+            root = QgsProject.instance().layerTreeRoot()
+            src_group = root.findGroup("ArchDistribution_원본_데이터")
+            if not src_group:
+                src_group = root.addGroup("ArchDistribution_원본_데이터")
+            
+            # Find the layer node
+            my_node = root.findLayer(layer.id())
+            if my_node:
+                my_clone = my_node.clone()
+                src_group.addChildNode(my_clone)
+                # Remove from original position to prevent duplicate (or just leave it? User said "grouped together")
+                # Usually better to move.
+                parent = my_node.parent()
+                parent.removeChildNode(my_node)
+                self.log("   -> 원본 현상변경허용기준 레이어를 'ArchDistribution_원본_데이터' 그룹으로 이동했습니다.")
+        except Exception as e:
+            self.log(f"WARNING: 레이어 이동 실패: {e}")
 
         self.log(f"  -> 현상변경 허용구간 레이어 분할 완료 ({parent_group.name()} 그룹 확인).")
