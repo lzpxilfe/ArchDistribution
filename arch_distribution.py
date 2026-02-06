@@ -69,6 +69,7 @@ class ArchDistribution:
 
     def run(self):
         """Run the plugin main dialog."""
+        print("🚀 ArchDistribution Version 1.0.0 LOADED (Robust Mode with File Reload)")
         self.dlg = ArchDistributionDialog()
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
@@ -425,6 +426,8 @@ class ArchDistribution:
             layer.setProviderEncoding(encoding)
             layer.dataProvider().setEncoding(encoding)
             # Reload to apply
+            layer.dataProvider().reloadData()
+            layer.updateFields()
             layer.triggerRepaint()
 
     def merge_and_style_topo(self, layer_ids, target_group, src_group, style):
@@ -1364,34 +1367,62 @@ class ArchDistribution:
         layer_name = layer.name()
         self.log(f"DEBUG: Zone Layer '{layer_name}' Processing Started.")
         
+        # [FIX] Robust Reload: Ignore UI layer instance, reload effectively from source file
+        source_path = layer.source().split("|")[0]
+        # Clean path (handle generic QGIS oddities)
+        if source_path and not os.path.exists(source_path):
+             # Try decoding? QGIS paths are usually unicode str.
+             pass
+
+        new_layer = None
+        if os.path.exists(source_path):
+             self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
+             # Create new layer instance strictly for processing
+             # Try without encoding formatting first if simple path
+             layer_uri = f"{source_path}|encoding=CP949"
+             new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
+             
+             if new_layer.isValid():
+                 self.log(f"DEBUG: 파일 재로딩 성공 (CP949). 객체 수: {new_layer.featureCount()}")
+                 layer = new_layer # Replace variable
+             else:
+                 self.log(f"⚠️ 경고: CP949 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
+        else:
+             self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
+             self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
+             self.fix_layer_encoding(layer, 'CP949')
+
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name: 
-            self.log("⚠️ DEBUG: 구역 필드 찾기 실패. (대상 필드명 없음)")
-            self.log(f"   - 가용 필드: {[f.name() for f in layer.fields()]}")
+            self.log("❌ 오류: 구역 필드 찾기 실패.")
+            self.log(f"   - 현재 인코딩: {layer.dataProvider().encoding()}")
+            self.log(f"   - 발견된 필드 목록: {[f.name() for f in layer.fields()]}")
             return
+        
         self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
 
-        # Ensure encoding
-        self.fix_layer_encoding(layer, 'CP949')
-
-        # 2. Define Style Map
+        # 2. Define Style Map (Updated based on User Legend)
+        # 1구역 (Orange), 2구역 (Magenta) -> Filled
+        # 2-X구역 -> Transparent Fill + Colored Outline
         base_map = {
-            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2}, # 1 (Orange)
-            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2}, # 2 (Magenta)
-            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2}, # 3 (Blue-Purple)
-            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2}, # 4 (Rose/Burgundy)
-            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2}, # 5 (Green)
-            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2}, # 6 (Red)
-            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2}, # 7 (Mint)
-            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2}, # 8 (Yellow)
-            # 2-X Series (Pink Fill + Colored Stroke)
-            "2-1": {"fill": "#FFC0CB", "stroke": "#0000FF", "width": 0.6}, # Blue Stroke
-            "2-2": {"fill": "#FFC0CB", "stroke": "#008000", "width": 0.6}, # Green Stroke
-            "2-3": {"fill": "#FFC0CB", "stroke": "#C71585", "width": 0.6}, # Magenta Stroke
-            "2-4": {"fill": "#FFC0CB", "stroke": "#008080", "width": 0.6}, # Teal Stroke
-            "2-5": {"fill": "#FFC0CB", "stroke": "#8B4513", "width": 0.6}, # Brown Stroke
-            "2-6": {"fill": "#FFC0CB", "stroke": "#BDB76B", "width": 0.6}, # Olive Stroke
+            # Filled Types
+            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2, "style": "solid"}, # 1 (Orange)
+            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2, "style": "solid"}, # 2 (Magenta)
+            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2, "style": "solid"}, # 3 (Blue-Purple)
+            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2, "style": "solid"}, # 4 (Rose)
+            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2, "style": "solid"}, # 5 (Green)
+            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2, "style": "solid"}, # 6 (Red)
+            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2, "style": "solid"}, # 7 (Mint)
+            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2, "style": "solid"}, # 8 (Yellow)
+            
+            # Outline Types (2-X)
+            "2-1": {"fill": "transparent", "stroke": "#0000FF", "width": 0.8, "style": "no_brush"}, # Blue
+            "2-2": {"fill": "transparent", "stroke": "#008000", "width": 0.8, "style": "no_brush"}, # Green
+            "2-3": {"fill": "transparent", "stroke": "#C71585", "width": 0.8, "style": "no_brush"}, # Magenta
+            "2-4": {"fill": "transparent", "stroke": "#008080", "width": 0.8, "style": "no_brush"}, # Teal
+            "2-5": {"fill": "transparent", "stroke": "#8B4513", "width": 0.8, "style": "no_brush"}, # Brown
+            "2-6": {"fill": "transparent", "stroke": "#BDB76B", "width": 0.8, "style": "no_brush"}, # Olive
         }
         
         style_map = {}
@@ -1399,6 +1430,10 @@ class ArchDistribution:
             style_map[k] = v
             style_map[f"{k}구역"] = v 
             style_map[f"제{k}구역"] = v
+            # Handle "2-1" -> "2-1구역"
+            if '-' in k:
+                # Add explicit mappings if needed, though loop covers it
+                pass
 
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
@@ -1410,6 +1445,20 @@ class ArchDistribution:
 
         # Prepare Extent Mask
         local_extent = QgsGeometry(extent_geom)
+        
+        # [FIX] CRS Transformation: Transform Study Area to Zone Layer CRS if needed
+        # Often user says Zone Layer is 5179 but Project is 4326/5186.
+        if layer_crs != source_crs:
+             self.log(f"DEBUG: CRS 불일치 감지. 변환 실행: {source_crs.authid()} -> {layer_crs.authid()}")
+             xform = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
+             local_extent.transform(xform)
+             
+             # Also transform the buffer limit geometry if it exists
+             if limit_buffer_geom:
+                 limit_buffer_geom.transform(xform)
+        else:
+             self.log(f"DEBUG: CRS 일치 ({layer_crs.authid()}). 변환 건너뜀.")
+
         self.log(f"DEBUG: Before Transform - Extent BBox: {local_extent.boundingBox().toString()}")
         
         # Prepare Buffer Mask (Optional)
@@ -1500,7 +1549,7 @@ class ArchDistribution:
             if not clipped_feats: continue
             
             # Create Memory Layer
-            vl = QgsVectorLayer(f"Polygon?crs={layer.crs().toWkt()}", layer_name, "memory")
+            vl = QgsVectorLayer(f"Polygon?crs={layer.crs().toWkt()}", val_str, "memory")
             pr = vl.dataProvider()
             pr.addAttributes(layer.fields())
             vl.updateFields()
@@ -1521,9 +1570,14 @@ class ArchDistribution:
                          style = v; break
             
             if style:
-                symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
-                symbol.setColor(QColor(style['fill']))
-                symbol.setOpacity(0.5)
+                symbol_type = style.get('style', 'solid')
+                if symbol_type == 'no_brush':
+                    symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'no_brush'})
+                else:
+                    symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
+                    symbol.setColor(QColor(style['fill']))
+                    symbol.setOpacity(0.5)
+                
                 symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
                 symbol.symbolLayer(0).setStrokeWidth(style['width'])
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
