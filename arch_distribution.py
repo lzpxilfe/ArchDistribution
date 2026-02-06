@@ -12,6 +12,7 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
 
 import os.path
 import processing
+import datetime
 
 from .arch_distribution_dialog import ArchDistributionDialog
 
@@ -78,13 +79,36 @@ class ArchDistribution:
         self.dlg.exec_()
 
     def log(self, message):
-        """Log a message to the dialog log window and QGIS message bar."""
+        """Log a message to the dialog log window, QGIS message bar, and file."""
+        import datetime
+        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+        full_msg = f"[{timestamp}] {message}"
+        
+        # 1. Dialog Log
         if hasattr(self, 'dlg') and self.dlg:
-            self.dlg.log(f"[{QtCore.QDateTime.currentDateTime().toString('hh:mm:ss')}] {message}")
+            self.dlg.log(full_msg)
+            
+        # 2. QGIS Console/Message Bar
         print(f"ArchDistribution: {message}")
+        
+        # 3. File Log (New)
+        try:
+            log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(full_msg + "\n")
+        except Exception as e:
+            print(f"Log file error: {e}")
 
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
+        # Initialize Log File
+        try:
+            log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
+        except:
+            pass
+            
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
         self.log("작업을 시작합니다...")
@@ -223,24 +247,20 @@ class ArchDistribution:
                          # [UX Check] Warn if Sort Order is not 'Closest'
                          if settings['sort_order'] != 1:
                              self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여가 적용되지 않습니다.")
-                             QMessageBox.warning(self.dlg, "정렬 기준 확인", 
-                                "버퍼가 설정되었으나 정렬 기준이 '위에서 아래로' 또는 '가나다'입니다.\n"
-                                "버퍼 구간별로 번호를 매기려면 정렬 기준을\n"
-                                "'조사지역에서 가까운 순(거리순)'으로 변경해주세요.")
-
-                         # Combine study layer geometry for buffer generation
-                         combined_study = QgsGeometry()
-                         for f in original_study_layer.getFeatures():
-                             if combined_study.isNull(): combined_study = f.geometry()
-                             else: combined_study = combined_study.combine(f.geometry())
-                         
-                         if not combined_study.isNull():
-                             # Create list of (distance, geometry) tuples, sorted by distance
-                             sorted_buffers = sorted(settings['buffers'])
-                             for dist in sorted_buffers:
-                                 bg = combined_study.buffer(dist, 20)
-                                 buffer_geoms.append({'dist': dist, 'geom': bg})
-                             self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
+                         else:
+                             # Combine study layer geometry for buffer generation
+                             combined_study = QgsGeometry()
+                             for f in original_study_layer.getFeatures():
+                                 if combined_study.isNull(): combined_study = f.geometry()
+                                 else: combined_study = combined_study.combine(f.geometry())
+                             
+                             if not combined_study.isNull():
+                                 # Create list of (distance, geometry) tuples, sorted by distance
+                                 sorted_buffers = sorted(settings['buffers'])
+                                 for dist in sorted_buffers:
+                                     bg = combined_study.buffer(dist, 20)
+                                     buffer_geoms.append({'dist': dist, 'geom': bg})
+                                 self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
                         merged_heritage, 
@@ -284,8 +304,6 @@ class ArchDistribution:
                             # Call Split & Style Function (with optional buffer clip)
                             self.split_and_style_zone_layer(z_layer, zone_group, extent_geom, buffer_limit_geom, source_crs=original_study_layer.crs())
                             
-                            # (Group creation and function call handled above)
-                             
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
             
@@ -296,18 +314,19 @@ class ArchDistribution:
             self.iface.mapCanvas().setExtent(extent_geom.boundingBox())
             self.iface.mapCanvas().refresh()
             self.log("모든 작업이 성공적으로 완료되었습니다.")
+            
+            # Notify Log File
+            self.log(f"로그 파일 저장됨: {os.path.join(self.plugin_dir, 'latest_log.txt')}")
             self.iface.messageBar().pushMessage("ArchDistribution", "작업 완료", level=0)
 
         except Exception as e:
             self.log(f"치명적 오류 발생: {str(e)}")
             import traceback
-            self.log(traceback.format_exc())
+            tb = traceback.format_exc()
+            self.log(tb)
             QMessageBox.critical(self.dlg, "오류", f"작업 중 오류 발생: {str(e)}")
         finally:
             self.dlg.btnRun.setEnabled(True)
-            if 'progress' in locals():
-                progress.close()
-
             if 'progress' in locals():
                 progress.close()
 
@@ -777,6 +796,7 @@ class ArchDistribution:
             subset_pr = subset_layer.dataProvider()
             
             # Define standard fields (번호 comes first for report readiness)
+            # [NOTE] Warnings about QgsField constructor are harmless deprecation warnings in QGIS 3.x
             standard_fields = [
                 QgsField("번호", QVariant.Int),
                 QgsField("유적명", QVariant.String),
@@ -1369,16 +1389,17 @@ class ArchDistribution:
         
         # [FIX] Robust Reload: Ignore UI layer instance, reload effectively from source file
         source_path = layer.source().split("|")[0]
-        # Clean path (handle generic QGIS oddities)
-        if source_path and not os.path.exists(source_path):
-             # Try decoding? QGIS paths are usually unicode str.
-             pass
-
+        
+        # [FIX] Handle QGIS oddities (file.shx|layername=...) or wrong extensions
+        if source_path:
+            base, ext = os.path.splitext(source_path)
+            if ext.lower() in ['.shx', '.dbf']:
+                 source_path = base + '.shp'
+        
         new_layer = None
-        if os.path.exists(source_path):
+        if source_path and os.path.exists(source_path):
              self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
              # Create new layer instance strictly for processing
-             # Try without encoding formatting first if simple path
              layer_uri = f"{source_path}|encoding=CP949"
              new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
              
@@ -1549,7 +1570,15 @@ class ArchDistribution:
             if not clipped_feats: continue
             
             # Create Memory Layer
-            vl = QgsVectorLayer(f"Polygon?crs={layer.crs().toWkt()}", val_str, "memory")
+            # [FIX] Use authid() for safer memory layer creation if possible, to avoid WKT string issues
+            crs_def = layer.crs().authid()
+            if not crs_def: crs_def = layer.crs().toWkt()
+            
+            vl = QgsVectorLayer(f"Polygon?crs={crs_def}", val_str, "memory")
+            if not vl.isValid():
+                self.log(f"❌ 메모리 레이어 생성 실패: {val_str}")
+                continue
+                
             pr = vl.dataProvider()
             pr.addAttributes(layer.fields())
             vl.updateFields()
@@ -1576,19 +1605,30 @@ class ArchDistribution:
                 else:
                     symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
                     symbol.setColor(QColor(style['fill']))
-                    symbol.setOpacity(0.5)
+                    # [UX] Set Opacity to 40% for better visibility of underlying map
+                    symbol.setOpacity(0.4)
                 
                 symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
                 symbol.symbolLayer(0).setStrokeWidth(style['width'])
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
             else:
                 # Random/Default fallback
-                pass # Default grey is fine
+                pass 
             
             vl.triggerRepaint()
             
             # 4.5 Add to Group
             QgsProject.instance().addMapLayer(vl, False)
             parent_group.addLayer(vl)
+            self.log(f"   -> 레이어 등록: {vl.name()} (ID: {vl.id()})")
             
-        self.log("  -> 현상변경 허용구간 레이어 분할 완료.")
+        parent_group.setExpanded(True)
+        parent_group.setItemVisibilityChecked(True)
+        
+        # [UX] Move original input layer to Source Group (if not already there)
+        src_group = QgsProject.instance().layerTreeRoot().findGroup("ArchDistribution_원본_데이터")
+        if src_group:
+             self.move_layer_to_group(layer, src_group)
+             self.log("   -> 원본 현상변경허용기준 레이어를 'ArchDistribution_원본_데이터' 그룹으로 이동했습니다.")
+
+        self.log(f"  -> 현상변경 허용구간 레이어 분할 완료 ({parent_group.name()} 그룹 확인).")
