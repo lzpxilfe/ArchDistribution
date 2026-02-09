@@ -8,7 +8,7 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer,
                        QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling,
                        QgsCategorizedSymbolRenderer, QgsRendererCategory,
-                       QgsCoordinateTransform, QgsWkbTypes)
+                       QgsCoordinateTransform, QgsWkbTypes, QgsRectangle)
 
 import os.path
 import processing
@@ -75,7 +75,6 @@ class ArchDistribution:
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
         self.dlg.renumber_requested.connect(self.process_renumbering)
-        self.dlg.scan_requested.connect(self.perform_scan) # [NEW]
         self.dlg.exec_()
 
     def log(self, message):
@@ -98,6 +97,42 @@ class ArchDistribution:
                 f.write(full_msg + "\n")
         except Exception as e:
             print(f"Log file error: {e}")
+
+    def zoom_canvas_to_extent(self, extent_geom, extent_crs=None, padding_ratio=0.08):
+        """Zoom map canvas to a geometry extent (CRS-aware) with a small padding."""
+        try:
+            if not extent_geom:
+                return
+
+            canvas = self.iface.mapCanvas()
+            project = QgsProject.instance()
+            project_crs = project.crs()
+
+            geom = QgsGeometry(extent_geom)
+            if extent_crs and extent_crs != project_crs:
+                tr = QgsCoordinateTransform(extent_crs, project_crs, project)
+                geom.transform(tr)
+
+            rect = geom.boundingBox()
+            if rect.isEmpty():
+                return
+
+            xmin, xmax = rect.xMinimum(), rect.xMaximum()
+            ymin, ymax = rect.yMinimum(), rect.yMaximum()
+            pad_x = (xmax - xmin) * padding_ratio
+            pad_y = (ymax - ymin) * padding_ratio
+
+            # Fallback padding for degenerate rectangles
+            if pad_x == 0:
+                pad_x = 1 if project_crs.isGeographic() else 10
+            if pad_y == 0:
+                pad_y = 1 if project_crs.isGeographic() else 10
+
+            padded = QgsRectangle(xmin - pad_x, ymin - pad_y, xmax + pad_x, ymax + pad_y)
+            canvas.setExtent(padded)
+            canvas.refresh()
+        except Exception as e:
+            self.log(f"⚠️ 작업 완료 후 화면 확대(Zoom) 실패: {e}")
 
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
@@ -242,26 +277,26 @@ class ArchDistribution:
                 if merged_heritage:
                     self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
                     
-                    # [NEW] Calculate Buffer Geometries for Tiered Numbering
                     buffer_geoms = []
-                    if settings['buffers']:
-                         # [UX Check] Warn if Sort Order is not 'Closest'
-                         if settings['sort_order'] != 1:
-                             self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여가 적용되지 않습니다.")
-                         else:
-                             # Combine study layer geometry for buffer generation
-                             combined_study = QgsGeometry()
-                             for f in original_study_layer.getFeatures():
-                                 if combined_study.isNull(): combined_study = f.geometry()
-                                 else: combined_study = combined_study.combine(f.geometry())
-                             
-                             if not combined_study.isNull():
-                                 # Create list of (distance, geometry) tuples, sorted by distance
-                                 sorted_buffers = sorted(settings['buffers'])
-                                 for dist in sorted_buffers:
-                                     bg = combined_study.buffer(dist, 20)
-                                     buffer_geoms.append({'dist': dist, 'geom': bg})
-                                 self.log(f"버퍼 구간별 번호 부여 준비 완료 ({len(buffer_geoms)}단계).")
+                    if settings.get('buffers'):
+                        combined_study = QgsGeometry()
+                        for f in original_study_layer.getFeatures():
+                            if not f.hasGeometry():
+                                continue
+                            if combined_study.isNull():
+                                combined_study = f.geometry()
+                            else:
+                                combined_study = combined_study.combine(f.geometry())
+
+                        if not combined_study.isNull():
+                            sorted_buffers = sorted(settings['buffers'])
+                            for dist in sorted_buffers:
+                                bg = combined_study.buffer(dist, 20)
+                                buffer_geoms.append({'dist': dist, 'geom': bg})
+                            self.log(f"버퍼 구간 처리 준비 완료 ({len(buffer_geoms)}단계).")
+
+                        if settings.get('sort_order') != 1:
+                            self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
                         merged_heritage, 
@@ -290,18 +325,21 @@ class ArchDistribution:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
                             self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중... (v1.2.0 Split Active)")
-                            
-                            # [FIX] Use the pre-created Group 05
-                            # zone_group_name = "현상변경허용기준" 
-                            # (handled in Step 1)
-                            
-                            # [NEW] Clip to Buffer Logic (Forced Active if buffers exist, per user request)
+
                             buffer_limit_geom = None
-                            if buffer_geoms:
-                                buffer_limit_geom = buffer_geoms[-1]['geom'] # Use largest buffer
-                            
-                            # Call Split & Style Function (with optional buffer clip)
-                            self.split_and_style_zone_layer(z_layer, zone_merged_group, extent_geom, buffer_limit_geom, source_crs=original_study_layer.crs())
+                            if settings.get('clip_zone_to_buffer', False):
+                                if buffer_geoms:
+                                    buffer_limit_geom = buffer_geoms[-1]['geom']
+                                else:
+                                    self.log("⚠️ 경고: '버퍼 범위 내 자르기'가 켜졌지만 버퍼가 설정되지 않았습니다. 도곽(Extent)만으로 진행합니다.")
+
+                            self.split_and_style_zone_layer(
+                                z_layer,
+                                zone_merged_group,
+                                extent_geom,
+                                buffer_limit_geom,
+                                source_crs=original_study_layer.crs()
+                            )
                             
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
@@ -309,9 +347,8 @@ class ArchDistribution:
             current_step = total_steps
             progress.setValue(current_step)
             
-            # Zoom to extent
-            self.iface.mapCanvas().setExtent(extent_geom.boundingBox())
-            self.iface.mapCanvas().refresh()
+            # Zoom to extent (CRS-aware + padded) to avoid showing blank space
+            self.zoom_canvas_to_extent(extent_geom, extent_crs=original_study_layer.crs(), padding_ratio=0.08)
             self.log("모든 작업이 성공적으로 완료되었습니다.")
             
             # Notify Log File
@@ -549,10 +586,9 @@ class ArchDistribution:
                     if combined_geom.isNull(): combined_geom = feat.geometry()
                     else: combined_geom = combined_geom.combine(feat.geometry())
             if combined_geom.isNull(): return None
-            return combined_geom.centroid().asPoint()
+            pt = combined_geom.centroid().asPoint()
+            return QgsPointXY(pt.x(), pt.y())
             
-        return extent.center()
-
         return extent.center()
 
     def calculate_extent_geometry(self, centroid, width_mm, height_mm, scale):
@@ -742,9 +778,11 @@ class ArchDistribution:
         
         return "기타"
 
-    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None, exclusion_list=[], zone_layer=None):
+    def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None, exclusion_list=None, zone_layer=None):
         """Merge selected heritage layers and filter by extent, study area, and user exclusions. Also tags Zone."""
         """Merge selected heritage layers and filter by extent, study area, and user exclusions."""
+        if exclusion_list is None:
+            exclusion_list = []
         temp_layers = []
         
         # Merge study area geometries for fast intersection check
@@ -1007,7 +1045,6 @@ class ArchDistribution:
         #          if clean_val != val:
         #              merged_layer.changeAttributeValue(f.id(), name_idx, clean_val)
         merged_layer.commitChanges()
-        merged_layer.commitChanges()
 
         try:
             dissolve_params = {
@@ -1037,7 +1074,7 @@ class ArchDistribution:
         return final_layer
 
 
-    def number_heritage_v4(self, layer, study_layer_or_centroid, sort_order, extent_geom=None, extent_crs=None, buffer_geoms=[], restrict_to_buffer=True):
+    def number_heritage_v4(self, layer, study_layer_or_centroid, sort_order, extent_geom=None, extent_crs=None, buffer_geoms=None, restrict_to_buffer=True):
         """
         Sort features and assign numbers to '번호' field with Buffer Tiers.
         
@@ -1047,6 +1084,8 @@ class ArchDistribution:
             restrict_to_buffer (bool): If True, exclude features outside max buffer (set Number to NULL).
                                        If False, include them (Number them too), but buffer tiers still prioritize inners.
         """
+        if buffer_geoms is None:
+            buffer_geoms = []
         idx = layer.fields().indexFromName("번호")
         
         # [NEW] Check/Add Distance Field
@@ -1159,7 +1198,10 @@ class ArchDistribution:
                 if base_geom:
                     return feat_geom.distance(base_geom)
                 elif isinstance(study_layer_or_centroid, QgsPointXY):
-                    return feat_geom.centroid().asPoint().sqrDist(study_layer_or_centroid) # Fallback
+                    pt = feat_geom.centroid().asPoint()
+                    dx = pt.x() - study_layer_or_centroid.x()
+                    dy = pt.y() - study_layer_or_centroid.y()
+                    return (dx * dx + dy * dy) ** 0.5
                 return 0
 
             # Calculate distances for ALL valid features first
@@ -1455,33 +1497,47 @@ class ArchDistribution:
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
         layer_crs = layer.crs()
-        
+        if not source_crs:
+            source_crs = project_crs
+
         self.log(f"DEBUG: CRS Info - Zone Layer: {layer_crs.authid()}, Source (Study): {source_crs.authid()}")
-        
-        if not source_crs: source_crs = project_crs
 
-        # Prepare Extent Mask
-        local_extent = QgsGeometry(extent_geom)
-        
-        # [FIX] CRS Transformation
-        if layer_crs != source_crs:
-             self.log(f"DEBUG: CRS 불일치 감지. 변환 실행: {source_crs.authid()} -> {layer_crs.authid()}")
-             xform = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
-             local_extent.transform(xform)
-             if limit_buffer_geom:
-                 limit_buffer_geom.transform(xform)
+        local_extent = QgsGeometry(extent_geom) if extent_geom else None
+        local_limit_buffer = QgsGeometry(limit_buffer_geom) if limit_buffer_geom else None
+
+        if local_extent and (layer_crs != source_crs):
+            self.log(f"DEBUG: CRS 불일치 감지. 변환 실행: {source_crs.authid()} -> {layer_crs.authid()}")
+            xform = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
+            local_extent.transform(xform)
+            if local_limit_buffer:
+                local_limit_buffer.transform(xform)
         else:
-             self.log(f"DEBUG: CRS 일치 ({layer_crs.authid()}). 변환 건너뜀.")
+            self.log(f"DEBUG: CRS 일치 ({layer_crs.authid()}). 변환 건너뜀.")
 
-        self.log(f"DEBUG: Before Transform - Extent BBox: {local_extent.boundingBox().toString()}")
-        
-        # Prepare Buffer Mask (Optional)
-        local_buffer = None
-        if limit_buffer_geom:
-            local_buffer = QgsGeometry(limit_buffer_geom)
-            self.log(f"DEBUG: Buffer Limit Exists.")
+        if not local_extent:
+            self.log("❌ 오류: 도곽(Extent) Geometry가 없습니다.")
+            return
 
-        self.log(f"DEBUG: Clipping Mask Ready. Extent BBox: {local_extent.boundingBox().toString()}")
+        # Expand extent slightly to avoid precision loss on the border
+        safe_buffer_dist = 0.000001 if layer_crs.isGeographic() else 0.01
+        safe_extent = local_extent.buffer(safe_buffer_dist, 5)
+
+        clip_mask = safe_extent
+        if local_limit_buffer:
+            if not local_limit_buffer.isGeosValid():
+                local_limit_buffer = local_limit_buffer.makeValid()
+            if not local_limit_buffer.isEmpty():
+                try:
+                    clip_mask = safe_extent.intersection(local_limit_buffer)
+                    if clip_mask.isEmpty():
+                        self.log("⚠️ 경고: 버퍼와 도곽(Extent)의 교집합이 비어있습니다. 현상변경허용기준 레이어는 생성되지 않습니다.")
+                        return
+                    self.log("DEBUG: 버퍼 범위 내 자르기 적용됨.")
+                except Exception as e:
+                    self.log(f"⚠️ 경고: 버퍼 클립 실패. 도곽(Extent)만으로 진행합니다. ({e})")
+                    clip_mask = safe_extent
+
+        self.log(f"DEBUG: Clipping Mask Ready. BBox: {clip_mask.boundingBox().toString()}")
 
         # 4. Iterate and Split
         idx = layer.fields().indexFromName(field_name)
@@ -1524,16 +1580,11 @@ class ArchDistribution:
                 geom = f.geometry()
                 # [FIX] Robust Geometry Check
                 if not geom.isGeosValid(): geom = geom.makeValid()
-                
-                # [FIX] Use safe extent for clipping (expand slightly to avoid precision loss at edges)
-                # Ensure we handle different units (degrees vs meters). 0.0001 is fine for degrees, small for meters.
-                # Let's use a slightly larger buffer to be safe.
-                safe_extent = local_extent.buffer(0.001, 5) 
-                
-                # Check Intersection with Extent First (Always Clip to Map Frame)
-                if geom.intersects(safe_extent):
+
+                # Check Intersection with Clip Mask (Extent or Extent∩Buffer)
+                if geom.intersects(clip_mask):
                     try:
-                        res = geom.intersection(safe_extent)
+                        res = geom.intersection(clip_mask)
                         if not res.isGeosValid(): res = res.makeValid()
                         
                         # [FIX] Handle Mixed Geometry Types (Collection)

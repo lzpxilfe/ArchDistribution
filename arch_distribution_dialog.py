@@ -514,6 +514,22 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         buffers = [float(self.listBuffers.item(i).text()) for i in range(self.listBuffers.count())]
         
+        filter_items = self.get_checked_items(None)
+        has_filter_tags = False
+        for i in range(self.listEras.count()):
+            data = self.listEras.item(i).data(QtCore.Qt.UserRole)
+            if isinstance(data, str) and data.startswith("ERA:"):
+                has_filter_tags = True
+                break
+        if not has_filter_tags:
+            for i in range(self.listTypes.count()):
+                data = self.listTypes.item(i).data(QtCore.Qt.UserRole)
+                if isinstance(data, str) and data.startswith("TYPE:"):
+                    has_filter_tags = True
+                    break
+        if not has_filter_tags:
+            filter_items = None
+
         return {
             "topo_layer_ids": topo_layer_ids,
             "heritage_layer_ids": heritage_layer_ids,
@@ -542,7 +558,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "paper_height": self.spinHeight.value(),
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
-            "filter_items": self.get_checked_items(None),
+            "filter_items": filter_items,
             # [NEW] Pass Exclusion List
             "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.UserRole) 
                                for i in range(self.listExclusions.count()) 
@@ -551,6 +567,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "restrict_to_buffer": self.chkRestrictToBuffer.isChecked(),
             # [NEW] Zone Layer ID
             "zone_layer_id": self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
+            "clip_zone_to_buffer": self.chkClipZoneToBuffer.isChecked() if hasattr(self, "chkClipZoneToBuffer") else False,
             # [NEW] Label Style
             "label_font_size": self.spinLabelFontSize.value(),
             "label_font_family": self.comboLabelFont.currentFont().family()
@@ -610,7 +627,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             # [Auto-Fix] Check for Encoding Issues (Mojibake)
             fields = [f.name() for f in layer.fields()]
-            needs_encoding_fix = any('\ufffd' in f or '' in f for f in fields)
+            needs_encoding_fix = any('\ufffd' in f for f in fields)
             
             if needs_encoding_fix:
                 self.log("  ⚠️ 인코딩 깨짐 감지됨. CP949(EUC-KR)로 자동 변환을 시도합니다.")
@@ -641,8 +658,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             for feat in layer.getFeatures():
                 layer_feats += 1
                 total_feats += 1
-                name = feat[name_field] # [FIX] Ensure variable is defined
-            
+                name = feat[name_field]
+                if name is None:
+                    continue
+                name = str(name)
+
                 # [NEW] Exclusion Logic with User Review
                 # Instead of silently skipping, add to exclusion list
                 noise_keywords = self.smart_patterns.get('noise', [])
@@ -745,6 +765,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 <li><b>번호 새로고침:</b> 유적 삭제/수정 후 [스타일 탭 > 🔄 번호 새로고침]으로 번호 재정렬</li>
 </ol>
 <br>
+<b>[🗺️ 결과 확인 (View)]</b><br>
+작업이 끝나면 <b>도곽(Extent) 범위로 화면이 자동 확대(여백 포함)</b>되어 결과물을 바로 확인할 수 있습니다.<br>
+만약 화면이 비어 보이면 레이어 패널에서 <b>ArchDistribution_결과물</b> 그룹의 체크(가시성)를 확인하고,<br>
+개별 레이어 우클릭 → <b>레이어로 확대(Zoom to Layer)</b>를 시도해 주세요.
+<br><br>
+<b>[🏗️ 현상변경허용기준(Zone) 옵션]</b><br>
+현상변경허용기준 레이어를 선택하면, 도곽 내에서 자동 분할/스타일링을 수행합니다.<br>
+<ul>
+<li><b>버퍼 범위 내 자르기</b>: 가장 큰 버퍼(최대 반경) 범위 안에 포함되는 구역만 남깁니다. (도곽 ∩ 버퍼)</li>
+</ul>
+<br>
+<b>[🔢 번호 부여 팁]</b><br>
+<ul>
+<li><b>버퍼 구간별 번호 부여</b>는 정렬 기준이 <b>거리순</b>일 때만 적용됩니다.</li>
+<li><b>버퍼 밖 제외</b> 옵션을 켜면, 최대 버퍼 밖 유적은 번호가 비워질 수 있습니다.</li>
+</ul>
+<br>
 <b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
 보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
 <ol>
@@ -761,6 +798,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 <li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
 <li><b style='color:red'>⚠ 번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요!</b></li>
 </ul>
+<br>
+<b>[♻️ 업데이트/캐시]</b><br>
+코드가 갱신되었는데도 동작이 예전과 같다면, <b>플러그인 관리자에서 비활성화→활성화</b> 또는 <b>QGIS 재시작</b>을 해주세요.
 <br>
 <div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
 """
