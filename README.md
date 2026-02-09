@@ -1,4 +1,4 @@
-# ArchDistribution (v1.0.0 'Pallet Town')
+# ArchDistribution (v1.0.1 'Pallet Town')
 
 **문화유적분포지도 자동 생성 & 현상변경허용기준 스마트 분석 도구**
 
@@ -79,14 +79,14 @@ If you find this repository useful, please consider giving it a star ⭐ and cit
   title = {ArchDistribution: Automated QGIS plugin for archaeological distribution maps},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
-  version = {1.0.0}
+  version = {1.0.1}
 }
 ```
 
 ---
 
 ## 📞 정보
-*   **Version**: 1.0.0 (Codename: Pallet Town)
+*   **Version**: 1.0.1 (Codename: Pallet Town)
 *   **Author**: lzpxilfe (balguljang2)
 *   **Repository**: [GitHub Link](https://github.com/lzpxilfe/ArchDistribution)
 *   **License**: GPL v2

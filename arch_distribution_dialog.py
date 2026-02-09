@@ -21,7 +21,7 @@ def get_plugin_version():
                     return line.strip().split('=')[1]
     except:
         pass
-    return "1.0.0"  # Fallback
+    return "1.0.1"  # Fallback
 
 
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):

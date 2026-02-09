@@ -70,7 +70,7 @@ class ArchDistribution:
 
     def run(self):
         """Run the plugin main dialog."""
-        print("🚀 ArchDistribution Version 1.0.0 LOADED (Robust Mode with File Reload)")
+        print("🚀 ArchDistribution Version 1.0.1 LOADED (Robust Mode with File Reload)")
         self.dlg = ArchDistributionDialog()
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
