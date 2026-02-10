@@ -43,8 +43,9 @@ def create_plugin_zip():
     # Files to explicitly exclude even if they are in git (dev scripts, tools, etc.)
     # We match these by filename or partial path
     dev_exclusions = [
-        'create_zip.py', 'debug_', 'test_', 'analyze_', 'inspect_', 'fix_', 'force_', 
-        'compile_reference.py', 'find_insite.py', '.gitignore', '.gitattributes'
+        'create_zip.py', 'debug_', 'test_', 'analyze_', 'inspect_', 'fix_', 'force_',
+        'compile_reference.py', 'find_insite.py', '.gitignore', '.gitattributes',
+        'ArchDistribution.pro'
     ]
 
     print(f"Creating {zip_filename}...")

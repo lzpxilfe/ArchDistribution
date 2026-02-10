@@ -1,5 +1,5 @@
 from qgis.PyQt import QtCore
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant, Qt
+from qgis.PyQt.QtCore import QObject, QSettings, QTranslator, QCoreApplication, QVariant, Qt
 from qgis.PyQt.QtGui import QIcon, QColor, QFont
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QProgressDialog
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
@@ -16,13 +16,34 @@ import datetime
 
 from .arch_distribution_dialog import ArchDistributionDialog
 
-class ArchDistribution:
+# Qt6/QGIS 4 compatibility: fully-qualified QVariant.Type enums
+try:
+    _QVariantInt = QVariant.Type.Int
+    _QVariantString = QVariant.Type.String
+    _QVariantDouble = QVariant.Type.Double
+except AttributeError:
+    _QVariantInt = QVariant.Int
+    _QVariantString = QVariant.String
+    _QVariantDouble = QVariant.Double
+
+class ArchDistribution(QObject):
     def __init__(self, iface):
+        super().__init__()
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
         self.actions = []
-        self.menu = QCoreApplication.translate('ArchDistribution', '&ArchDistribution')
+        self.menu = self.tr('&ArchDistribution')
         self.toolbar = None
+
+        # i18n: load translator for current QGIS locale
+        locale = QSettings().value('locale/userLocale', 'en_US')[0:2]
+        locale_path = os.path.join(
+            self.plugin_dir, 'i18n',
+            'ArchDistribution_{}.qm'.format(locale))
+        if os.path.exists(locale_path):
+            self.translator = QTranslator()
+            self.translator.load(locale_path)
+            QCoreApplication.installTranslator(self.translator)
 
     def initGui(self):
         # Create toolbar if it doesn't exist
@@ -75,7 +96,7 @@ class ArchDistribution:
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
         self.dlg.renumber_requested.connect(self.process_renumbering)
-        self.dlg.exec_()
+        self.dlg.exec()
 
     def log(self, message):
         """Log a message to the dialog log window, QGIS message bar, and file."""
@@ -132,7 +153,7 @@ class ArchDistribution:
             canvas.setExtent(padded)
             canvas.refresh()
         except Exception as e:
-            self.log(f"⚠️ 작업 완료 후 화면 확대(Zoom) 실패: {e}")
+            self.log(self.tr("Warning: Failed to zoom to extent after processing: {e}").format(e=e))
 
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
@@ -140,19 +161,19 @@ class ArchDistribution:
         try:
             log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
             with open(log_path, 'w', encoding='utf-8') as f:
-                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
+                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.DateFormat.ISODate)} ===\n")
         except:
             pass
             
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
-        self.log("작업을 시작합니다...")
-        
+        self.log(self.tr("Starting processing..."))
+
         # 0. Setup Progress Dialog
-        total_steps = 10 
-        progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setWindowTitle("ArchDistribution 진행률")
+        total_steps = 10
+        progress = QProgressDialog(self.tr("Processing data..."), self.tr("Cancel"), 0, total_steps, self.iface.mainWindow())
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setWindowTitle(self.tr("ArchDistribution Progress"))
         progress.setMinimumDuration(0)
         progress.setValue(0)
         
@@ -160,26 +181,26 @@ class ArchDistribution:
             current_step = 0
             
             # Step 1: Groups
-            self.log("레이어 그룹 설정 중...")
+            self.log(self.tr("Setting up layer groups..."))
             root = QgsProject.instance().layerTreeRoot()
-            
+
             # 1-1. Output Group: Clear and recreate
-            existing_out = root.findGroup("ArchDistribution_결과물")
+            existing_out = root.findGroup(self.tr("ArchDistribution_Results"))
             if existing_out: root.removeChildNode(existing_out)
-            out_group = root.insertGroup(0, "ArchDistribution_결과물")
-            
+            out_group = root.insertGroup(0, self.tr("ArchDistribution_Results"))
+
             # Sub-groups in specific order (Top to Bottom)
-            stu_group = out_group.addGroup("00_조사구역_및_표제")
-            her_group = out_group.addGroup("01_유적_현황")
-            ext_group = out_group.addGroup("02_도곽_및_영역")
-            buf_group = out_group.addGroup("03_조사구역_버퍼")
-            topo_merged_group = out_group.addGroup("04_수치지형도_병합")
-            zone_merged_group = out_group.addGroup("05_현상변경허용기준")
-            
+            stu_group = out_group.addGroup(self.tr("00_StudyArea_and_Title"))
+            her_group = out_group.addGroup(self.tr("01_Heritage_Status"))
+            ext_group = out_group.addGroup(self.tr("02_Extent_and_Area"))
+            buf_group = out_group.addGroup(self.tr("03_StudyArea_Buffer"))
+            topo_merged_group = out_group.addGroup(self.tr("04_Topo_Map_Merged"))
+            zone_merged_group = out_group.addGroup(self.tr("05_Zone_Boundaries"))
+
             # 1-2. Source Group: Persist (don't delete original layers!)
-            src_group = root.findGroup("ArchDistribution_원본_데이터")
+            src_group = root.findGroup(self.tr("ArchDistribution_Source_Data"))
             if not src_group:
-                src_group = root.addGroup("ArchDistribution_원본_데이터")
+                src_group = root.addGroup(self.tr("ArchDistribution_Source_Data"))
             
             # Hide source group by default to focus on outputs
             src_group.setItemVisibilityChecked(False)
@@ -187,18 +208,18 @@ class ArchDistribution:
             progress.setValue(current_step)
 
             # Step 2: Study Area (Clone for display)
-            self.log("조사구역 처리 중...")
+            self.log(self.tr("Processing study area..."))
             original_study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
             if not original_study_layer:
-                self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
+                self.log(self.tr("Error: Study area layer not found."))
                 return
 
             # CRS Validation
             if original_study_layer.crs().isGeographic():
-                 self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
+                 self.log(self.tr("Warning: Geographic CRS (degrees) detected. Projected CRS recommended for precise calculations."))
             
             # Create a clone in memory for the results group
-            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType()==2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
+            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType()==2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", self.tr("00_Study_Area"), "memory")
             study_result_pr = study_result_layer.dataProvider()
             
             # Copy all features
@@ -220,41 +241,41 @@ class ArchDistribution:
 
             # Step 3: Topo Merge
             if settings['topo_layer_ids']:
-                self.log(f"수치지형도 병합 시작 ({len(settings['topo_layer_ids'])}매)...")
+                self.log(self.tr("Starting topo map merge ({count} sheets)...").format(count=len(settings['topo_layer_ids'])))
                 try:
                     self.merge_and_style_topo(settings['topo_layer_ids'], topo_merged_group, src_group, settings['topo_style'])
-                    self.log("수치지형도 병합 및 스타일 적용 완료.")
+                    self.log(self.tr("Topo map merge and styling complete."))
                 except Exception as e:
-                    self.log(f"경고: 지형도 병합 중 일부 데이터 건립 오류 발생 (계속 진행): {str(e)}")
+                    self.log(self.tr("Warning: Error during topo merge (continuing): {e}").format(e=str(e)))
             current_step += 1
             progress.setValue(current_step)
 
             # Step 4: Centroid & Extent
-            self.log("도곽(Extent) 영역 계산 중...")
+            self.log(self.tr("Calculating extent area..."))
             centroid = self.get_study_area_centroid(original_study_layer)
             if not centroid:
-                self.log("오류: 조사지역의 데이터가 비어있거나 중심점을 계산할 수 없습니다.")
+                self.log(self.tr("Error: Study area data is empty or centroid cannot be calculated."))
                 return
-            
-            self.log(f"중심점 기반 도곽 생성 중 (Scale 1:{settings['scale']})...")
+
+            self.log(self.tr("Creating extent from centroid (Scale 1:{scale})...").format(scale=settings['scale']))
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, original_study_layer.crs())
-            self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
+            self.log(self.tr("Extent created: {w}x{h} mm (1:{scale})").format(w=settings['paper_width'], h=settings['paper_height'], scale=settings['scale']))
             current_step += 1
             progress.setValue(current_step)
 
             # Step 5: Buffers
             if settings['buffers']:
-                self.log(f"버퍼 생성 시작 ({len(settings['buffers'])}개)...")
+                self.log(self.tr("Starting buffer creation ({count})...").format(count=len(settings['buffers'])))
                 for distance in settings['buffers']:
                     if progress.wasCanceled(): break
                     self.create_buffer(original_study_layer, distance, buf_group, settings['buffer_style'])
-                    self.log(f"{distance}m 버퍼 생성 완료.")
+                    self.log(self.tr("{distance}m buffer created.").format(distance=distance))
                 current_step += 1
                 progress.setValue(current_step)
 
             # Step 6: Heritage Consolidation & Numbering
             if settings['heritage_layer_ids']:
-                self.log("주변 유적 데이터 수집 및 병합 시작...")
+                self.log(self.tr("Starting heritage data collection and merge..."))
 
                 # [FIX] Pre-fetch Zone Layer and fix encoding (CP949 default)
                 # User reported that this layer often has encoding issues.
@@ -275,7 +296,7 @@ class ArchDistribution:
                 )
                 
                 if merged_heritage:
-                    self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
+                    self.log(self.tr("Merge complete ({count} sites).").format(count=merged_heritage.featureCount()))
                     
                     buffer_geoms = []
                     if settings.get('buffers'):
@@ -293,10 +314,10 @@ class ArchDistribution:
                             for dist in sorted_buffers:
                                 bg = combined_study.buffer(dist, 20)
                                 buffer_geoms.append({'dist': dist, 'geom': bg})
-                            self.log(f"버퍼 구간 처리 준비 완료 ({len(buffer_geoms)}단계).")
+                            self.log(self.tr("Buffer tier processing ready ({count} tiers).").format(count=len(buffer_geoms)))
 
                         if settings.get('sort_order') != 1:
-                            self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
+                            self.log(self.tr("Note: Buffers are set but sort order is not 'by distance'. Buffer-tiered numbering only applies with distance sort."))
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
                         merged_heritage, 
@@ -307,7 +328,7 @@ class ArchDistribution:
                         buffer_geoms, 
                         restrict_to_buffer=settings.get('restrict_to_buffer', True)
                     )
-                    self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
+                    self.log(self.tr("Heritage numbering complete. Applying style and labels..."))
                     self.apply_heritage_style(
                         merged_heritage, 
                         settings['heritage_style'],
@@ -317,21 +338,21 @@ class ArchDistribution:
                     
                     QgsProject.instance().addMapLayer(merged_heritage, False)
                     her_group.addLayer(merged_heritage)
-                    self.log("최종 결과 유적 레이어 등록 완료.")
+                    self.log(self.tr("Final heritage result layer registered."))
                     
                     # [NEW] Check Zone Layer and Add/Style it if present
                     zone_id = settings.get('zone_layer_id')
                     if zone_id:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
-                            self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중... (v1.2.0 Split Active)")
+                            self.log(self.tr("Splitting and styling zone boundary layer..."))
 
                             buffer_limit_geom = None
                             if settings.get('clip_zone_to_buffer', False):
                                 if buffer_geoms:
                                     buffer_limit_geom = buffer_geoms[-1]['geom']
                                 else:
-                                    self.log("⚠️ 경고: '버퍼 범위 내 자르기'가 켜졌지만 버퍼가 설정되지 않았습니다. 도곽(Extent)만으로 진행합니다.")
+                                    self.log(self.tr("Warning: 'Clip to buffer' is enabled but no buffers are set. Proceeding with extent only."))
 
                             self.split_and_style_zone_layer(
                                 z_layer,
@@ -342,25 +363,25 @@ class ArchDistribution:
                             )
                             
                 else:
-                    self.log("알림: 영역 내에 수집된 유적이 없습니다.")
+                    self.log(self.tr("Notice: No heritage sites collected within the area."))
             
             current_step = total_steps
             progress.setValue(current_step)
             
             # Zoom to extent (CRS-aware + padded) to avoid showing blank space
             self.zoom_canvas_to_extent(extent_geom, extent_crs=original_study_layer.crs(), padding_ratio=0.08)
-            self.log("모든 작업이 성공적으로 완료되었습니다.")
-            
+            self.log(self.tr("All processing completed successfully."))
+
             # Notify Log File
-            self.log(f"로그 파일 저장됨: {os.path.join(self.plugin_dir, 'latest_log.txt')}")
-            self.iface.messageBar().pushMessage("ArchDistribution", "작업 완료", level=0)
+            self.log(self.tr("Log file saved: {path}").format(path=os.path.join(self.plugin_dir, 'latest_log.txt')))
+            self.iface.messageBar().pushMessage("ArchDistribution", self.tr("Processing complete"), level=0)
 
         except Exception as e:
-            self.log(f"치명적 오류 발생: {str(e)}")
+            self.log(self.tr("Fatal error: {e}").format(e=str(e)))
             import traceback
             tb = traceback.format_exc()
             self.log(tb)
-            QMessageBox.critical(self.dlg, "오류", f"작업 중 오류 발생: {str(e)}")
+            QMessageBox.critical(self.dlg, self.tr("Error"), self.tr("Error during processing: {e}").format(e=str(e)))
         finally:
             self.dlg.btnRun.setEnabled(True)
             if 'progress' in locals():
@@ -368,7 +389,7 @@ class ArchDistribution:
 
     def process_renumbering(self, layer):
         """Renumber the specific layer based on current UI settings."""
-        self.log(f"레이어 '{layer.name()}' 번호 새로고침 중...")
+        self.log(self.tr("Refreshing numbering for layer '{name}'...").format(name=layer.name()))
         
         try:
             # 1. Get Settings (Sort Order & Study Area)
@@ -388,10 +409,10 @@ class ArchDistribution:
                 layer_extent = layer.extent()
                 if not layer_extent.isEmpty():
                     centroid = layer_extent.center()
-                    self.log("조사지역 미선택 - 현재 레이어 범위 중심 사용")
+                    self.log(self.tr("No study area selected - using layer extent center"))
             
             if sort_order == 1 and not centroid:
-                 QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
+                 QMessageBox.warning(self.dlg, self.tr("Settings Error"), self.tr("Study area layer not selected. Cannot sort by distance.\nPlease change sort order or select a study area."))
                  return
 
             # [NEW] Calculate Extent Geometry for Exclusion
@@ -415,7 +436,7 @@ class ArchDistribution:
                     for dist in sorted_buffers:
                         bg = combined_study.buffer(dist, 20)
                         buffer_geoms.append({'dist': dist, 'geom': bg})
-                    self.log(f"버퍼 구간 적용 ({len(buffer_geoms)}단계).")
+                    self.log(self.tr("Buffer tiers applied ({count} tiers).").format(count=len(buffer_geoms)))
 
             # 3. Call Numbering Logic
             # Pass study_layer.crs() if available, else layer.crs()
@@ -432,7 +453,7 @@ class ArchDistribution:
             )
             
             # 4. Refresh & Re-Apply Style (to update font/labels)
-            self.log(f"레이어 '{layer.name()}' 번호 재정렬 완료. 스타일 적용 중...")
+            self.log(self.tr("Layer '{name}' renumbering complete. Applying style...").format(name=layer.name()))
             self.apply_heritage_style(
                 layer,
                 settings['heritage_style'],
@@ -442,23 +463,23 @@ class ArchDistribution:
             
             layer.triggerRepaint()
             self.iface.mapCanvas().refresh()
-            self.log(f"레이어 '{layer.name()}' 번호가 {layer.featureCount()}개로 재정렬되었습니다.")
-            QMessageBox.information(self.dlg, "완료", "번호 새로고침 및 스타일 적용이 완료되었습니다.")
+            self.log(self.tr("Layer '{name}' renumbered to {count} features.").format(name=layer.name(), count=layer.featureCount()))
+            QMessageBox.information(self.dlg, self.tr("Complete"), self.tr("Renumbering and style application complete."))
             
         except Exception as e:
-            self.log(f"오류 발생: {str(e)}")
-            QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
+            self.log(self.tr("Error: {e}").format(e=str(e)))
+            QMessageBox.critical(self.dlg, self.tr("Error"), self.tr("Error during numbering: {e}").format(e=str(e)))
 
     def perform_scan(self, settings):
         """Execute smart scan and update dialog."""
-        self.log("스마트 스캔 시작...")
+        self.log(self.tr("Starting smart scan..."))
         try:
             categories = self.scan_smart_categories(settings)
             self.dlg.update_category_list(categories)
-            self.log(f"스캔 완료: {len(categories)}개 분류 발견됨.")
+            self.log(self.tr("Scan complete: {count} categories found.").format(count=len(categories)))
         except Exception as e:
-            self.log(f"스캔 오류: {str(e)}")
-            QMessageBox.critical(self.dlg, "오류", f"스캔 중 오류: {str(e)}")
+            self.log(self.tr("Scan error: {e}").format(e=str(e)))
+            QMessageBox.critical(self.dlg, self.tr("Error"), self.tr("Error during scan: {e}").format(e=str(e)))
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group and hide it."""
@@ -493,7 +514,7 @@ class ArchDistribution:
             if layer:
                 # [FIX] Filter for Line Layers Only (Topo is usually lines)
                 if layer.geometryType() != 1: # 0:Point, 1:Line, 2:Polygon
-                    self.log(f"  ⚠️ 지형도 병합 제외 (라인 레이어 아님): {layer.name()}")
+                    self.log(self.tr("  Warning: Excluded from topo merge (not line layer): {name}").format(name=layer.name()))
                     continue
                     
                 self.fix_layer_encoding(layer)
@@ -501,7 +522,7 @@ class ArchDistribution:
                 self.move_layer_to_group(layer, src_group)
         
         if not layers:
-            self.log("  ⚠️ 병합할 수치지형도(라인)가 없습니다.")
+            self.log(self.tr("  Warning: No topo maps (lines) to merge."))
             return
 
         # Merge
@@ -797,7 +818,7 @@ class ArchDistribution:
             layer = QgsProject.instance().mapLayer(lid)
             if not layer or layer.type() != 0: continue
             
-            self.log(f"데이터 수취 및 필드 맵핑 중: {layer.name()}")
+            self.log(self.tr("Collecting data and mapping fields: {name}").format(name=layer.name()))
             self.fix_layer_encoding(layer)
             
             # Identify fields (Fuzzy matching)
@@ -807,7 +828,7 @@ class ArchDistribution:
             
             # [FIX] Skip invalid layers (e.g. Topo maps selected as Heritage)
             if not name_field:
-                self.log(f"  ⚠️ 명칭 필드({name_keywords}) 미확인으로 병합 제외: {layer.name()}")
+                self.log(self.tr("  Warning: Name field not found, excluding from merge: {name}").format(name=layer.name()))
                 continue
                 
             heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # Keep specific for attribute extraction
@@ -835,14 +856,14 @@ class ArchDistribution:
             # Define standard fields (번호 comes first for report readiness)
             # [NOTE] Warnings about QgsField constructor are harmless deprecation warnings in QGIS 3.x
             standard_fields = [
-                QgsField("번호", QVariant.Int),
-                QgsField("유적명", QVariant.String),
-                QgsField("주소", QVariant.String),
-                QgsField("면적_m2", QVariant.Double),
-                QgsField("국가유산명", QVariant.String), # [NEW]
-                QgsField("사업명", QVariant.String),     # [NEW]
-                QgsField("허용기준", QVariant.String),   # [NEW] Zone Info
-                QgsField("원본레이어", QVariant.String)
+                QgsField("번호", _QVariantInt),
+                QgsField("유적명", _QVariantString),
+                QgsField("주소", _QVariantString),
+                QgsField("면적_m2", _QVariantDouble),
+                QgsField("국가유산명", _QVariantString), # [NEW]
+                QgsField("사업명", _QVariantString),     # [NEW]
+                QgsField("허용기준", _QVariantString),   # [NEW] Zone Info
+                QgsField("원본레이어", _QVariantString)
             ]
             subset_pr.addAttributes(standard_fields)
             subset_layer.updateFields()
@@ -969,11 +990,11 @@ class ArchDistribution:
                         new_features.append(new_feat)
             
             if new_features:
-                self.log(f"  -> {len(new_features)}개소 수집됨.")
+                self.log(self.tr("  -> {count} sites collected.").format(count=len(new_features)))
                 subset_pr.addFeatures(new_features)
                 temp_layers.append(subset_layer)
             else:
-                self.log("  -> 영역 내 수집된 유적 없음.")
+                self.log(self.tr("  -> No heritage sites collected in area."))
             
             self.move_layer_to_group(layer, src_group)
 
@@ -983,7 +1004,7 @@ class ArchDistribution:
         # We'll merge everything into one if possible, but separate results are safer for display
         # For simplicity and export-readiness, we'll try to merge all, but warn if mixed.
         
-        self.log("최종 데이터 병합 처리 중...")
+        self.log(self.tr("Processing final data merge..."))
         params = {
             'LAYERS': temp_layers,
             'CRS': target_crs,
@@ -995,7 +1016,7 @@ class ArchDistribution:
         merged_layer = result['OUTPUT']
         
         # [NEW] Dissolve by Name to prevent duplicate numbering for same-site polygons
-        self.log("동일 유적 병합 처리 중 (Dissolve by Name)...")
+        self.log(self.tr("Dissolving duplicate heritage sites by name..."))
         
         # 1. Identify Name Field in Merged Layer
         fields = [f.name() for f in merged_layer.fields()]
@@ -1009,10 +1030,10 @@ class ArchDistribution:
             if name_field: break
         
         if not name_field:
-            self.log("  ⚠️ 병합 레이어에서 명칭 필드를 찾을 수 없어 Dissolve를 건너뜁니다.")
+            self.log(self.tr("  Warning: Name field not found in merged layer. Skipping dissolve."))
             return merged_layer
 
-        self.log(f"  - Dissolve 기준 필드: {name_field}")
+        self.log(self.tr("  - Dissolve field: {field}").format(field=name_field))
 
         # [NEW] Normalize Names (Smart Cleaning) to ensure correct dissolving
         # 1. Strip Whitespace
@@ -1054,22 +1075,22 @@ class ArchDistribution:
             }
             dissolve_result = processing.run("native:dissolve", dissolve_params)
             final_layer = dissolve_result['OUTPUT']
-            final_layer.setName("수집_및_병합된_주변유적")
-            
+            final_layer.setName(self.tr("Collected_Heritage_Sites"))
+
             # [CRITICAL] Ensure '유적명' field exists for later usage (numbering/labelling)
             # Rename the dynamic name field to '유적명' if it isn't already
             if name_field != '유적명':
                 # We can't easily rename in memory layer without processing.
-                # But our numbering logic looks for '유적명' or similar? 
+                # But our numbering logic looks for '유적명' or similar?
                 # Actually number_heritage_v4 doesn't read the name, it just writes ID.
                 # But 'arch_distribution_dialog' scan might need it.
                 pass
 
-            self.log(f"Dissolve 완료: {merged_layer.featureCount()} -> {final_layer.featureCount()}개 유적")
+            self.log(self.tr("Dissolve complete: {before} -> {after} sites").format(before=merged_layer.featureCount(), after=final_layer.featureCount()))
         except Exception as e:
-            self.log(f"Dissolve 실패 (원본 사용): {e}")
+            self.log(self.tr("Dissolve failed (using original): {e}").format(e=e))
             final_layer = merged_layer
-            final_layer.setName("수집_및_병합된_주변유적")
+            final_layer.setName(self.tr("Collected_Heritage_Sites"))
 
         return final_layer
 
@@ -1091,12 +1112,12 @@ class ArchDistribution:
         # [NEW] Check/Add Distance Field
         dist_field_name = "이격거리(m)"
         if layer.fields().indexFromName(dist_field_name) == -1:
-            layer.dataProvider().addAttributes([QgsField(dist_field_name, QVariant.String)])
+            layer.dataProvider().addAttributes([QgsField(dist_field_name, _QVariantString)])
             
         # [NEW] Check/Add Note Field (For Human Verification)
         note_field_name = "비고"
         if layer.fields().indexFromName(note_field_name) == -1:
-            layer.dataProvider().addAttributes([QgsField(note_field_name, QVariant.String)])
+            layer.dataProvider().addAttributes([QgsField(note_field_name, _QVariantString)])
             
         layer.updateFields()
         dist_idx = layer.fields().indexFromName(dist_field_name)
@@ -1140,9 +1161,9 @@ class ArchDistribution:
                      # So we need to transform it to layer.crs()
                      base_geom.transform(tr)
 
-                self.log(f"좌표 변환 적용됨: {extent_crs.authid()} -> {layer.crs().authid()}")
+                self.log(self.tr("Coordinate transform applied: {from_crs} -> {to_crs}").format(from_crs=extent_crs.authid(), to_crs=layer.crs().authid()))
             except Exception as e:
-                self.log(f"좌표 변환 오류 (무시됨): {e}")
+                self.log(self.tr("Coordinate transform error (ignored): {e}").format(e=e))
         else:
             transformed_buffers = buffer_geoms # No transform needed
 
@@ -1185,7 +1206,7 @@ class ArchDistribution:
             all_features.append(feat)
             
         if ids_to_delete:
-            self.log(f"  -> 초기 스캔에서 범위 밖 유적 {len(ids_to_delete)}개 식별됨 (삭제 예정).")
+            self.log(self.tr("  -> {count} out-of-range sites identified in initial scan.").format(count=len(ids_to_delete)))
 
         # Sorting Logic
         sorted_features = []
@@ -1345,8 +1366,8 @@ class ArchDistribution:
             # Apply Filter to show only Numbered items
             layer.setSubsetString('"번호" IS NOT NULL')
             
-            self.log(f"범위 밖 유적 {len(ids_to_delete)}개를 숨김 처리했습니다. (삭제 안함)")
-            self.log(" -> 확인 방법: 레이어 우클릭 > 필터 설정 > 지우기")
+            self.log(self.tr("{count} out-of-range sites hidden (not deleted).").format(count=len(ids_to_delete)))
+            self.log(self.tr(" -> To verify: Right-click layer > Set Filter > Clear"))
         else:
              layer.setSubsetString("") # Clear any previous filter
 
@@ -1439,30 +1460,30 @@ class ArchDistribution:
         
         new_layer = None
         if source_path and os.path.exists(source_path):
-             self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
+             self.log(self.tr("DEBUG: Source file path confirmed: {path}").format(path=source_path))
              # Create new layer instance strictly for processing
              layer_uri = f"{source_path}|encoding=CP949"
              new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
              
              if new_layer.isValid():
-                 self.log(f"DEBUG: 파일 재로딩 성공 (CP949). 객체 수: {new_layer.featureCount()}")
+                 self.log(self.tr("DEBUG: File reload success (CP949). Feature count: {count}").format(count=new_layer.featureCount()))
                  layer = new_layer # Replace variable
              else:
-                 self.log(f"⚠️ 경고: CP949 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
+                 self.log(self.tr("Warning: CP949 reload failed. Proceeding with original layer."))
         else:
-             self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
-             self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
+             self.log(self.tr("Warning: Source file path not found (Path: {path}). May be a memory or temporary layer.").format(path=source_path))
+             self.log(self.tr(" -> Attempting to set encoding on existing layer."))
              self.fix_layer_encoding(layer, 'CP949')
 
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name: 
-            self.log("❌ 오류: 구역 필드 찾기 실패.")
-            self.log(f"   - 현재 인코딩: {layer.dataProvider().encoding()}")
-            self.log(f"   - 발견된 필드 목록: {[f.name() for f in layer.fields()]}")
+            self.log(self.tr("Error: Zone field not found."))
+            self.log(self.tr("   - Current encoding: {enc}").format(enc=layer.dataProvider().encoding()))
+            self.log(self.tr("   - Found fields: {fields}").format(fields=[f.name() for f in layer.fields()]))
             return
         
-        self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
+        self.log(f"DEBUG: Target field identified -> '{field_name}'")
 
         # 2. Define Style Map (Updated based on User Legend - Image Analysis)
         # 1구역 (Orange), 2구역 (Magenta) -> Filled
@@ -1506,16 +1527,16 @@ class ArchDistribution:
         local_limit_buffer = QgsGeometry(limit_buffer_geom) if limit_buffer_geom else None
 
         if local_extent and (layer_crs != source_crs):
-            self.log(f"DEBUG: CRS 불일치 감지. 변환 실행: {source_crs.authid()} -> {layer_crs.authid()}")
+            self.log(f"DEBUG: CRS mismatch detected. Transforming: {source_crs.authid()} -> {layer_crs.authid()}")
             xform = QgsCoordinateTransform(source_crs, layer_crs, QgsProject.instance())
             local_extent.transform(xform)
             if local_limit_buffer:
                 local_limit_buffer.transform(xform)
         else:
-            self.log(f"DEBUG: CRS 일치 ({layer_crs.authid()}). 변환 건너뜀.")
+            self.log(f"DEBUG: CRS match ({layer_crs.authid()}). No transform needed.")
 
         if not local_extent:
-            self.log("❌ 오류: 도곽(Extent) Geometry가 없습니다.")
+            self.log(self.tr("Error: Extent geometry is missing."))
             return
 
         # Expand extent slightly to avoid precision loss on the border
@@ -1530,11 +1551,11 @@ class ArchDistribution:
                 try:
                     clip_mask = safe_extent.intersection(local_limit_buffer)
                     if clip_mask.isEmpty():
-                        self.log("⚠️ 경고: 버퍼와 도곽(Extent)의 교집합이 비어있습니다. 현상변경허용기준 레이어는 생성되지 않습니다.")
+                        self.log(self.tr("Warning: Buffer and extent intersection is empty. Zone layer will not be generated."))
                         return
                     self.log("DEBUG: 버퍼 범위 내 자르기 적용됨.")
                 except Exception as e:
-                    self.log(f"⚠️ 경고: 버퍼 클립 실패. 도곽(Extent)만으로 진행합니다. ({e})")
+                    self.log(self.tr("Warning: Buffer clip failed. Proceeding with extent only. ({e})").format(e=e))
                     clip_mask = safe_extent
 
         self.log(f"DEBUG: Clipping Mask Ready. BBox: {clip_mask.boundingBox().toString()}")
@@ -1549,7 +1570,7 @@ class ArchDistribution:
         grouped_feats = defaultdict(list)
         
         all_feats_count = layer.featureCount()
-        self.log(f"DEBUG: 총 피처 개수: {all_feats_count}")
+        self.log(f"DEBUG: Total feature count: {all_feats_count}")
         
         for f in layer.getFeatures():
             v = f.attributes()[idx]
@@ -1565,7 +1586,7 @@ class ArchDistribution:
             
             grouped_feats[val_str].append(f)
             
-        self.log(f"DEBUG: 그룹화 완료. 총 {len(grouped_feats)}개 그룹 생성됨.")
+        self.log(f"DEBUG: Grouping complete. {len(grouped_feats)} groups created.")
         
         # Sort keys for consistent processing order
         sorted_keys = sorted(grouped_feats.keys())
@@ -1695,10 +1716,10 @@ class ArchDistribution:
         # [UX] Move original input layer to Source Group
         try:
             root = QgsProject.instance().layerTreeRoot()
-            src_group = root.findGroup("ArchDistribution_원본_데이터")
+            src_group = root.findGroup(self.tr("ArchDistribution_Source_Data"))
             if not src_group:
-                src_group = root.addGroup("ArchDistribution_원본_데이터")
-            
+                src_group = root.addGroup(self.tr("ArchDistribution_Source_Data"))
+
             # Find the layer node
             my_node = root.findLayer(layer.id())
             if my_node:
@@ -1708,8 +1729,8 @@ class ArchDistribution:
                 # Usually better to move.
                 parent = my_node.parent()
                 parent.removeChildNode(my_node)
-                self.log("   -> 원본 현상변경허용기준 레이어를 'ArchDistribution_원본_데이터' 그룹으로 이동했습니다.")
+                self.log(self.tr("   -> Original zone layer moved to source data group."))
         except Exception as e:
-            self.log(f"WARNING: 레이어 이동 실패: {e}")
+            self.log(self.tr("WARNING: Layer move failed: {e}").format(e=e))
 
-        self.log(f"  -> 현상변경 허용구간 레이어 분할 완료 ({parent_group.name()} 그룹 확인).")
+        self.log(self.tr("  -> Zone layer split complete (check group {group}).").format(group=parent_group.name()))
