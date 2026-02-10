@@ -244,11 +244,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
              self.vTab1.insertWidget(2, self.groupLabelStyle) 
 
         # [NEW] Enable Extended Selection for Lists
-        self.listHeritageLayers.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.listTopoLayers.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.listEras.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.listTypes.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.listExclusions.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection) # Allow Shift-Select
+        self.listHeritageLayers.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.listTopoLayers.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.listEras.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.listTypes.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.listExclusions.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection) # Allow Shift-Select
         
         # [NEW] Add Batch Buttons for Exclusion List
         # We'll insert this into the layout that holds listExclusions (which is likely inside groupSmartFilter).
@@ -315,8 +315,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # 1. Create a ScrollArea and Container
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff) # Only vertical scroll
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff) # Only vertical scroll
         
         container = QtWidgets.QWidget()
         container_layout = QtWidgets.QVBoxLayout(container)
@@ -352,12 +352,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def set_list_check_state(self, list_widget, checked):
         """Batch set check state for selected items in a list widget."""
         for item in list_widget.selectedItems():
-            item.setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
+            item.setCheckState(QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked)
 
     def set_batch_check(self, list_widget, checked):
         """Legacy helper for Topo/Heritage layers."""
         for i in range(list_widget.count()):
-            list_widget.item(i).setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
+            list_widget.item(i).setCheckState(QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked)
 
 
     # Custom signal for execution
@@ -377,7 +377,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             # Fallback: All items
             items_to_process = [list_widget.item(i) for i in range(list_widget.count())]
             
-        state = QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked
+        state = QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked
         for item in items_to_process:
             item.setCheckState(state)
 
@@ -394,7 +394,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.txtLogs.appendPlainText(message)
         # Scroll to bottom
         cursor = self.txtLogs.textCursor()
-        cursor.movePosition(QtGui.QTextCursor.End)
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
         self.txtLogs.setTextCursor(cursor)
         # Force UI update
         QtWidgets.QApplication.processEvents()
@@ -491,39 +491,39 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.comboStudyArea.addItem(layer.name(), layer.id())
                 
                 item_topo = QListWidgetItem(layer.name())
-                item_topo.setData(QtCore.Qt.UserRole, layer.id())
-                item_topo.setFlags(item_topo.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item_topo.setCheckState(QtCore.Qt.Unchecked)
+                item_topo.setData(QtCore.Qt.ItemDataRole.UserRole, layer.id())
+                item_topo.setFlags(item_topo.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item_topo.setCheckState(QtCore.Qt.CheckState.Unchecked)
                 self.listTopoLayers.addItem(item_topo)
 
                 item_heritage = QListWidgetItem(layer.name())
-                item_heritage.setData(QtCore.Qt.UserRole, layer.id())
-                item_heritage.setFlags(item_heritage.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item_heritage.setCheckState(QtCore.Qt.Unchecked)
+                item_heritage.setData(QtCore.Qt.ItemDataRole.UserRole, layer.id())
+                item_heritage.setFlags(item_heritage.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item_heritage.setCheckState(QtCore.Qt.CheckState.Unchecked)
                 self.listHeritageLayers.addItem(item_heritage)
 
     def get_settings(self):
         """Returns the current settings from the dialog."""
-        topo_layer_ids = [self.listTopoLayers.item(i).data(QtCore.Qt.UserRole) 
+        topo_layer_ids = [self.listTopoLayers.item(i).data(QtCore.Qt.ItemDataRole.UserRole) 
                           for i in range(self.listTopoLayers.count()) 
-                          if self.listTopoLayers.item(i).checkState() == QtCore.Qt.Checked]
+                          if self.listTopoLayers.item(i).checkState() == QtCore.Qt.CheckState.Checked]
 
-        heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.UserRole) 
+        heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.ItemDataRole.UserRole) 
                              for i in range(self.listHeritageLayers.count()) 
-                             if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.Checked]
+                             if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.CheckState.Checked]
         
         buffers = [float(self.listBuffers.item(i).text()) for i in range(self.listBuffers.count())]
         
         filter_items = self.get_checked_items(None)
         has_filter_tags = False
         for i in range(self.listEras.count()):
-            data = self.listEras.item(i).data(QtCore.Qt.UserRole)
+            data = self.listEras.item(i).data(QtCore.Qt.ItemDataRole.UserRole)
             if isinstance(data, str) and data.startswith("ERA:"):
                 has_filter_tags = True
                 break
         if not has_filter_tags:
             for i in range(self.listTypes.count()):
-                data = self.listTypes.item(i).data(QtCore.Qt.UserRole)
+                data = self.listTypes.item(i).data(QtCore.Qt.ItemDataRole.UserRole)
                 if isinstance(data, str) and data.startswith("TYPE:"):
                     has_filter_tags = True
                     break
@@ -560,9 +560,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "sort_order": self.comboSortOrder.currentIndex(),
             "filter_items": filter_items,
             # [NEW] Pass Exclusion List
-            "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.UserRole) 
+            "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.ItemDataRole.UserRole) 
                                for i in range(self.listExclusions.count()) 
-                               if self.listExclusions.item(i).checkState() == QtCore.Qt.Checked],
+                               if self.listExclusions.item(i).checkState() == QtCore.Qt.CheckState.Checked],
             # [NEW] Restrict Toggle
             "restrict_to_buffer": self.chkRestrictToBuffer.isChecked(),
             # [NEW] Zone Layer ID
@@ -604,9 +604,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.listTypes.clear()
         self.listExclusions.clear()
         
-        heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.UserRole) 
+        heritage_layer_ids = [self.listHeritageLayers.item(i).data(QtCore.Qt.ItemDataRole.UserRole) 
                              for i in range(self.listHeritageLayers.count()) 
-                             if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.Checked]
+                             if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.CheckState.Checked]
         
         if not heritage_layer_ids:
             QtWidgets.QMessageBox.warning(self, "선택 오류", "먼저 분석할 유적 레이어를 선택체크해주세요.")
@@ -702,9 +702,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             # Sort Era? Custom sort order would be nice but alphabetical for now
             for era in sorted(list(found_eras)):
                 item = QListWidgetItem(era)
-                item.setData(QtCore.Qt.UserRole, f"ERA:{era}")
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item.setCheckState(QtCore.Qt.Checked)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, f"ERA:{era}")
+                item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.CheckState.Checked)
                 self.listEras.addItem(item)
         else:
             self.listEras.addItem("식별실패")
@@ -713,9 +713,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if found_types:
             for t in sorted(list(found_types)):
                 item = QListWidgetItem(t)
-                item.setData(QtCore.Qt.UserRole, f"TYPE:{t}")
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item.setCheckState(QtCore.Qt.Checked)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, f"TYPE:{t}")
+                item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.CheckState.Checked)
                 self.listTypes.addItem(item)
         else:
             self.listTypes.addItem("식별실패")
@@ -724,9 +724,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if found_exclusions:
             for exc in sorted(list(found_exclusions)):
                 item = QListWidgetItem(exc)
-                item.setData(QtCore.Qt.UserRole, exc) # Store exact name to exclude
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item.setCheckState(QtCore.Qt.Checked) # Default to Checked (Exclude)
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, exc) # Store exact name to exclude
+                item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.CheckState.Checked) # Default to Checked (Exclude)
                 self.listExclusions.addItem(item)
             self.log(f"⚠️ {len(found_exclusions)}개의 제외 의심 항목이 발견되었습니다. '제외 제안 목록'을 확인하세요.")
         else:
@@ -739,14 +739,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Check Eras
         for i in range(self.listEras.count()):
             item = self.listEras.item(i)
-            if item.checkState() == QtCore.Qt.Checked:
-                checked.append(item.data(QtCore.Qt.UserRole))
+            if item.checkState() == QtCore.Qt.CheckState.Checked:
+                checked.append(item.data(QtCore.Qt.ItemDataRole.UserRole))
         
         # Check Types
         for i in range(self.listTypes.count()):
             item = self.listTypes.item(i)
-            if item.checkState() == QtCore.Qt.Checked:
-                checked.append(item.data(QtCore.Qt.UserRole))
+            if item.checkState() == QtCore.Qt.CheckState.Checked:
+                checked.append(item.data(QtCore.Qt.ItemDataRole.UserRole))
                 
         return checked
 
@@ -819,7 +819,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         def get_checked_ids(list_widget):
             ids = []
             for item in list_widget.selectedItems():
-                val = item.data(QtCore.Qt.UserRole)
+                val = item.data(QtCore.Qt.ItemDataRole.UserRole)
                 if val: ids.append(val)
             return ids
 
@@ -867,7 +867,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             # Filter Lists
             'filter_eras': self.get_checked_items(self.listEras),
             'filter_types': self.get_checked_items(self.listTypes),
-            'exclusion_list': [item.data(QtCore.Qt.UserRole) for item in self.listExclusions.findItems("*", QtCore.Qt.MatchWildcard)]
+            'exclusion_list': [item.data(QtCore.Qt.ItemDataRole.UserRole) for item in self.listExclusions.findItems("*", QtCore.Qt.MatchFlag.MatchWildcard)]
         }
         
         # Collect Buffers
