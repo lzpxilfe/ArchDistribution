@@ -40,13 +40,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
 
         # [NEW] Programmatically add missing UI elements for Smart Filter
-        self.groupSmartFilter = QtWidgets.QGroupBox("유적 속성 분류")
+        self.groupSmartFilter = QtWidgets.QGroupBox(self.tr("Heritage Attribute Classification"))
         self.vSmartLayout = QtWidgets.QVBoxLayout()
         
-        self.lSmartDesc = QtWidgets.QLabel("체크된 유적 레이어의 명칭을 분석하여 시대와 성격을 자동 분류합니다.")
+        self.lSmartDesc = QtWidgets.QLabel(self.tr("Analyzes names of checked heritage layers to auto-classify era and type."))
         self.lSmartDesc.setStyleSheet("color: #555; font-size: 10px;")
         
-        self.btnSmartScan = QtWidgets.QPushButton("속성 분류 실행")
+        self.btnSmartScan = QtWidgets.QPushButton(self.tr("Run Attribute Classification"))
         self.btnSmartScan.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
         
         # Split UI into two columns
@@ -54,7 +54,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         # Era Column
         self.vEras = QtWidgets.QVBoxLayout()
-        self.lblEra = QtWidgets.QLabel("시대")
+        self.lblEra = QtWidgets.QLabel(self.tr("Era"))
         self.lblEra.setStyleSheet("font-weight: bold; color: #333;")
         self.listEras = QtWidgets.QListWidget()
         self.listEras.setMinimumHeight(130) # Reduced from 200
@@ -63,7 +63,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         
         # Type Column
         self.vTypes = QtWidgets.QVBoxLayout()
-        self.lblType = QtWidgets.QLabel("성격")
+        self.lblType = QtWidgets.QLabel(self.tr("Type"))
         self.lblType.setStyleSheet("font-weight: bold; color: #333;")
         self.listTypes = QtWidgets.QListWidget()
         self.listTypes.setMinimumHeight(130) # Reduced from 200
@@ -78,7 +78,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.vSmartLayout.addLayout(self.hSmartLists) # Add the horizontal layout
         
         # [NEW] Exclusion Candidates List
-        self.lblExclusion = QtWidgets.QLabel("제외 제안 목록 (체크시 제외됨):")
+        self.lblExclusion = QtWidgets.QLabel(self.tr("Exclusion Candidates (checked items excluded):"))
         self.lblExclusion.setStyleSheet("font-weight: bold; color: #c0392b; margin-top: 10px;")
         self.listExclusions = QtWidgets.QListWidget()
         self.listExclusions.setMinimumHeight(80) # Reduced from 100
@@ -90,7 +90,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.groupSmartFilter.setLayout(self.vSmartLayout)
         
         # [NEW] Zone Layer Selection (Optional)
-        self.lblZoneLayer = QtWidgets.QLabel("현상변경 허용구간 레이어 (선택):")
+        self.lblZoneLayer = QtWidgets.QLabel(self.tr("Zone Boundary Layer (Optional):"))
         self.comboZoneLayer = QgsMapLayerComboBox()
         self.comboZoneLayer.setFilters(QgsMapLayerProxyModel.PolygonLayer)
         self.comboZoneLayer.setAllowEmptyLayer(True) # Optional
@@ -115,8 +115,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.vZoneLayout.addWidget(self.comboZoneLayer)
 
             # [NEW] Clip to Buffer Checkbox
-            self.chkClipZoneToBuffer = QtWidgets.QCheckBox("버퍼 범위 내 자르기 (반경 내만 표시)")
-            self.chkClipZoneToBuffer.setToolTip("체크 시, 도곽 전체가 아닌 조사 반경(가장 큰 버퍼) 내의 현상변경허용기준만 남기고 나머지는 잘라냅니다.")
+            self.chkClipZoneToBuffer = QtWidgets.QCheckBox(self.tr("Clip to buffer range (show within radius only)"))
+            self.chkClipZoneToBuffer.setToolTip(self.tr("When checked, only zone boundaries within the largest buffer radius are kept."))
             self.chkClipZoneToBuffer.setChecked(False) # Default Off
             self.vZoneLayout.addWidget(self.chkClipZoneToBuffer)
             
@@ -153,10 +153,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # [CRITICAL FIX] Explicitly populate dropdowns in Python to guarantee items exist
         self.comboBufferStyle.clear()
-        self.comboBufferStyle.addItems(["실선 (Solid)", "점선 (Dot)", "쇄선 (Dash)"])
+        self.comboBufferStyle.addItems([self.tr("Solid"), self.tr("Dot"), self.tr("Dash")])
         
         self.comboSortOrder.clear()
-        self.comboSortOrder.addItems(["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)"])
+        self.comboSortOrder.addItems([self.tr("Top to Bottom (N to S)"), self.tr("Closest to Study Area (Distance)"), self.tr("Alphabetical (Site Name)")])
 
         # [CRITICAL FIX] Force Style to ensure visibility
         STYLE_FORCE_VISIBLE = """
@@ -208,8 +208,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Alternative: Add it to the existing `groupSmartFilter` since we are touching python code?
         # Or create a new clean checkbox and insert it into the main tab layout.
         
-        self.chkRestrictToBuffer = QtWidgets.QCheckBox("버퍼 범위 외 유적 제외 (감추기)")
-        self.chkRestrictToBuffer.setToolTip("체크 시: 최외곽 버퍼 바깥의 유적은 번호를 매기지 않고 지도에서 숨깁니다. (지표조사 등)\n체크 해제 시: 모든 유적에 번호를 매깁니다. (일반조사 등)")
+        self.chkRestrictToBuffer = QtWidgets.QCheckBox(self.tr("Exclude heritage outside buffer (hide)"))
+        self.chkRestrictToBuffer.setToolTip(self.tr("Checked: Heritage sites outside the outermost buffer are hidden.\nUnchecked: All heritage sites are numbered."))
         self.chkRestrictToBuffer.setChecked(False) # [FIX] Default to Unchecked (User Request)
         self.chkRestrictToBuffer.setStyleSheet("font-weight: bold; color: #d35400;")
         
@@ -220,19 +220,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnRun.clicked.connect(self.run_analysis) # [FIX] Connect logic
 
         # [NEW] Label Font Controls
-        self.groupLabelStyle = QtWidgets.QGroupBox("라벨 스타일")
+        self.groupLabelStyle = QtWidgets.QGroupBox(self.tr("Label Style"))
         self.hLabelLayout = QtWidgets.QHBoxLayout()
         
-        self.lblFontSize = QtWidgets.QLabel("글자 크기:")
+        self.lblFontSize = QtWidgets.QLabel(self.tr("Font Size:"))
         self.spinLabelFontSize = QtWidgets.QSpinBox()
         self.spinLabelFontSize.setRange(6, 72)
         self.spinLabelFontSize.setValue(10)
-        self.spinLabelFontSize.setToolTip("유적 번호 라벨의 글자 크기 (pt)")
+        self.spinLabelFontSize.setToolTip(self.tr("Heritage number label font size (pt)"))
         
-        self.lblFontFamily = QtWidgets.QLabel("글씨체:")
+        self.lblFontFamily = QtWidgets.QLabel(self.tr("Font Family:"))
         self.comboLabelFont = QtWidgets.QFontComboBox()
         self.comboLabelFont.setCurrentFont(QtGui.QFont("맑은 고딕"))
-        self.comboLabelFont.setToolTip("유적 번호 라벨의 글씨체")
+        self.comboLabelFont.setToolTip(self.tr("Heritage number label font family"))
         
         self.hLabelLayout.addWidget(self.lblFontSize)
         self.hLabelLayout.addWidget(self.spinLabelFontSize)
@@ -256,10 +256,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # we'll create a new layout and insert it into the groupSmartFilter layout.
         if hasattr(self, 'groupSmartFilter') and self.groupSmartFilter.layout():
              self.hExclusionBtns = QtWidgets.QHBoxLayout()
-             self.btnExcludeSel = QtWidgets.QPushButton("선택 항목 제외 (체크)")
-             self.btnIncludeSel = QtWidgets.QPushButton("선택 항목 포함 (해제)")
-             self.btnExcludeSel.setToolTip("선택한 항목들을 리스트에서 체크합니다. (지도에서 제외됨)")
-             self.btnIncludeSel.setToolTip("선택한 항목들의 체크를 해제합니다. (지도에 포함됨)")
+             self.btnExcludeSel = QtWidgets.QPushButton(self.tr("Exclude Selected (Check)"))
+             self.btnIncludeSel = QtWidgets.QPushButton(self.tr("Include Selected (Uncheck)"))
+             self.btnExcludeSel.setToolTip(self.tr("Check selected items in the list (excluded from map)."))
+             self.btnIncludeSel.setToolTip(self.tr("Uncheck selected items (included in map)."))
              
              self.btnExcludeSel.clicked.connect(lambda: self.set_list_check_state(self.listExclusions, True))
              self.btnIncludeSel.clicked.connect(lambda: self.set_list_check_state(self.listExclusions, False))
@@ -385,7 +385,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Validates settings and emits the run signal."""
         settings = self.get_settings()
         if not settings['study_area_id']:
-            QtWidgets.QMessageBox.warning(self, "입력 오류", "조사지역 레이어를 선택해 주세요.")
+            QtWidgets.QMessageBox.warning(self, self.tr("Input Error"), self.tr("Please select a study area layer."))
             return
         self.run_requested.emit(settings)
 
@@ -412,7 +412,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Update the scale indicator in the renumber section."""
         scale = self.spinScale.value()
         if hasattr(self, 'lblCurrentScale'):
-            self.lblCurrentScale.setText(f"1:{scale} (유적 삭제 후 확인!)")
+            self.lblCurrentScale.setText(self.tr("1:{scale} (verify after deleting sites!)").format(scale=scale))
 
     def pick_color(self, target):
         color = QColorDialog.getColor()
@@ -437,7 +437,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def apply_preset(self, w, h):
         self.spinWidth.setValue(w)
         self.spinHeight.setValue(h)
-        self.log(f"판형 규격이 설정되었습니다: {w} x {h} mm")
+        self.log(self.tr("Paper size set: {w} x {h} mm").format(w=w, h=h))
 
     def remove_buffer_from_list(self, item):
         self.listBuffers.takeItem(self.listBuffers.row(item))
@@ -446,12 +446,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Renumber the features of the currently selected layer."""
         layer = iface.activeLayer() # [CRITICAL FIX] Use global iface
         if not layer or layer.type() != 0: # Check if vector layer
-             QtWidgets.QMessageBox.warning(self, "선택 오류", "유적 레이어를 선택(활성화)한 후 실행해주세요.")
+             QtWidgets.QMessageBox.warning(self, self.tr("Selection Error"), self.tr("Please select (activate) a heritage layer before running."))
              return
              
         # Check for '번호' field
         if layer.fields().indexFromName("번호") == -1:
-             QtWidgets.QMessageBox.warning(self, "호환 오류", "선택한 레이어에 '번호' 필드가 없습니다.\nArchDistribution으로 생성된 결과물인지 확인해주세요.")
+             QtWidgets.QMessageBox.warning(self, self.tr("Compatibility Error"), self.tr("Selected layer does not have a '번호' field.\nPlease verify it was generated by ArchDistribution."))
              return
 
         # Get Study Area Centroid for Sorting
@@ -581,11 +581,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     self.reference_data = json.load(f)
-                self.log(f"참조 데이터 로드 완료: {len(self.reference_data)}개 항목")
+                self.log(self.tr("Reference data loaded: {count} entries").format(count=len(self.reference_data)))
             except Exception as e:
-                self.log(f"참조 데이터 로드 실패: {str(e)}")
+                self.log(self.tr("Reference data load failed: {e}").format(e=str(e)))
         else:
-            self.log("참조 데이터 파일이 없습니다. (reference_data.json)")
+            self.log(self.tr("Reference data file not found. (reference_data.json)"))
             
         # [NEW] Load Smart Patterns
         json_pattern_path = os.path.join(os.path.dirname(__file__), 'smart_patterns.json')
@@ -594,9 +594,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 with open(json_pattern_path, 'r', encoding='utf-8') as f:
                     self.smart_patterns = json.load(f)
-                self.log(f"스마트 필터 패턴 로드 완료.")
+                self.log(self.tr("Smart filter patterns loaded."))
             except Exception as e:
-                self.log(f"스마트 필터 패턴 로드 실패: {str(e)}")
+                self.log(self.tr("Smart filter pattern load failed: {e}").format(e=str(e)))
 
     def scan_categories(self):
         """Identify categories and potential exclusions using Smart Patterns."""
@@ -609,7 +609,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                              if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.CheckState.Checked]
         
         if not heritage_layer_ids:
-            QtWidgets.QMessageBox.warning(self, "선택 오류", "먼저 분석할 유적 레이어를 선택체크해주세요.")
+            QtWidgets.QMessageBox.warning(self, self.tr("Selection Error"), self.tr("Please check heritage layers to analyze first."))
             return
 
         found_eras = set()
@@ -623,20 +623,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             layer = QgsProject.instance().mapLayer(lid)
             if not layer: continue
             
-            self.log(f"레이어 스캔 중: {layer.name()}")
+            self.log(self.tr("Scanning layer: {name}").format(name=layer.name()))
 
             # [Auto-Fix] Check for Encoding Issues (Mojibake)
             fields = [f.name() for f in layer.fields()]
             needs_encoding_fix = any('\ufffd' in f for f in fields)
             
             if needs_encoding_fix:
-                self.log("  ⚠️ 인코딩 깨짐 감지됨. CP949(EUC-KR)로 자동 변환을 시도합니다.")
+                self.log(self.tr("  Warning: Encoding corruption detected. Attempting CP949 auto-conversion."))
                 layer.setProviderEncoding("CP949")
                 layer.dataProvider().reloadData()
                 fields = [f.name() for f in layer.fields()]
-                self.log(f"  - 변환 후 필드 목록: {', '.join(fields)}")
+                self.log(self.tr("  - Fields after conversion: {fields}").format(fields=', '.join(fields)))
             else:
-                self.log(f"  - 필드 목록: {', '.join(fields)}")
+                self.log(self.tr("  - Fields: {fields}").format(fields=', '.join(fields)))
             
             name_field = None
             keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
@@ -649,10 +649,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 if name_field: break
             
             if not name_field: 
-                self.log("  ⚠️ 경고: 유적 명칭 필드를 찾을 수 없어 건너뜁니다.")
+                self.log(self.tr("  Warning: Heritage name field not found, skipping."))
                 continue
                 
-            self.log(f"  - 명칭 필드 식별됨: {name_field}")
+            self.log(self.tr("  - Name field identified: {field}").format(field=name_field))
             
             layer_feats = 0
             for feat in layer.getFeatures():
@@ -695,7 +695,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             
             self.log(f"  - {layer_feats}개 객체 중 {matched_feats}개 매칭 성공")
         
-        self.log(f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.")
+        self.log(self.tr("Scan complete: {matched}/{total} features matched.").format(matched=matched_feats, total=total_feats))
         
         # Populate List - Era
         if found_eras:
@@ -707,7 +707,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 item.setCheckState(QtCore.Qt.CheckState.Checked)
                 self.listEras.addItem(item)
         else:
-            self.listEras.addItem("식별실패")
+            self.listEras.addItem(self.tr("Identification failed"))
 
         # Populate List - Type
         if found_types:
@@ -718,7 +718,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 item.setCheckState(QtCore.Qt.CheckState.Checked)
                 self.listTypes.addItem(item)
         else:
-            self.listTypes.addItem("식별실패")
+            self.listTypes.addItem(self.tr("Identification failed"))
             
         # [NEW] Populate Exclusion List
         if found_exclusions:
@@ -728,9 +728,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(QtCore.Qt.CheckState.Checked) # Default to Checked (Exclude)
                 self.listExclusions.addItem(item)
-            self.log(f"⚠️ {len(found_exclusions)}개의 제외 의심 항목이 발견되었습니다. '제외 제안 목록'을 확인하세요.")
+            self.log(self.tr("{count} suspected exclusion items found. Check the exclusion list.").format(count=len(found_exclusions)))
         else:
-            self.listExclusions.addItem("(제외 대상 없음)")
+            self.listExclusions.addItem(self.tr("(No exclusion candidates)"))
 
 
     def get_checked_items(self, _ignored):
@@ -752,66 +752,66 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def show_help(self):
         """Display User Guide and Export Tips."""
-        help_text = """
-<h3>📘 사용 가이드 및 유의사항 (User Guide)</h3>
+        help_text = self.tr("""
+<h3>User Guide & Notes</h3>
 <hr>
-<b>[📋 작업 순서 (Workflow)]</b><br>
+<b>[Workflow]</b><br>
 <ol>
-<li><b>레이어 준비:</b> 조사지역(Polygon), 수치지형도, 주변유적 레이어를 불러옵니다.</li>
-<li><b>레이어 선택:</b> [데이터 탭]에서 조사지역, 지형도, 유적 레이어를 선택합니다.</li>
-<li><b>도곽/축척 설정:</b> 도면 가로/세로(mm)와 축척을 입력합니다. (프리셋 활용 추천)</li>
-<li><b>스마트 분류:</b> [속성 분류 실행] 버튼으로 유적을 시대/유형별로 분류합니다.</li>
-<li><b>분석 실행:</b> [▶ 분석 및 지도 생성 실행] 클릭으로 자동 처리합니다.</li>
-<li><b>번호 새로고침:</b> 유적 삭제/수정 후 [스타일 탭 > 🔄 번호 새로고침]으로 번호 재정렬</li>
+<li><b>Prepare Layers:</b> Load study area (polygon), topo maps, and heritage site layers.</li>
+<li><b>Select Layers:</b> In the [Data] tab, select study area, topo, and heritage layers.</li>
+<li><b>Set Extent/Scale:</b> Enter paper width/height (mm) and scale. (Presets recommended)</li>
+<li><b>Smart Classification:</b> Click [Run Attribute Classification] to auto-classify heritage by era/type.</li>
+<li><b>Run Analysis:</b> Click [Run Analysis & Map Generation] for automated processing.</li>
+<li><b>Refresh Numbering:</b> After editing sites, use [Style tab > Refresh Numbering] to reorder.</li>
 </ol>
 <br>
-<b>[🗺️ 결과 확인 (View)]</b><br>
-작업이 끝나면 <b>도곽(Extent) 범위로 화면이 자동 확대(여백 포함)</b>되어 결과물을 바로 확인할 수 있습니다.<br>
-만약 화면이 비어 보이면 레이어 패널에서 <b>ArchDistribution_결과물</b> 그룹의 체크(가시성)를 확인하고,<br>
-개별 레이어 우클릭 → <b>레이어로 확대(Zoom to Layer)</b>를 시도해 주세요.
+<b>[View Results]</b><br>
+After processing, the map canvas <b>auto-zooms to the extent (with padding)</b> to display results.<br>
+If the view appears empty, check the <b>ArchDistribution_Results</b> group visibility in the Layers panel,<br>
+and try right-clicking individual layers > <b>Zoom to Layer</b>.
 <br><br>
-<b>[🏗️ 현상변경허용기준(Zone) 옵션]</b><br>
-현상변경허용기준 레이어를 선택하면, 도곽 내에서 자동 분할/스타일링을 수행합니다.<br>
+<b>[Zone Boundary Options]</b><br>
+When a zone boundary layer is selected, it is automatically split and styled within the extent.<br>
 <ul>
-<li><b>버퍼 범위 내 자르기</b>: 가장 큰 버퍼(최대 반경) 범위 안에 포함되는 구역만 남깁니다. (도곽 ∩ 버퍼)</li>
+<li><b>Clip to Buffer:</b> Keeps only zones within the largest buffer radius. (Extent intersect Buffer)</li>
 </ul>
 <br>
-<b>[🔢 번호 부여 팁]</b><br>
+<b>[Numbering Tips]</b><br>
 <ul>
-<li><b>버퍼 구간별 번호 부여</b>는 정렬 기준이 <b>거리순</b>일 때만 적용됩니다.</li>
-<li><b>버퍼 밖 제외</b> 옵션을 켜면, 최대 버퍼 밖 유적은 번호가 비워질 수 있습니다.</li>
+<li><b>Buffer-tiered numbering</b> only applies when sort order is set to <b>Distance</b>.</li>
+<li><b>Exclude outside buffer</b> option hides sites beyond the maximum buffer.</li>
 </ul>
 <br>
-<b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
-보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
+<b>[Illustrator (AI) Export Tips]</b><br>
+To bring results into Illustrator for report editing:
 <ol>
-<li>QGIS 상단 메뉴의 <b>'프로젝트 > 새 인쇄 조판'</b>을 엽니다.</li>
-<li>생성된 분포지도를 추가하고, <b>PDF로 내보내기</b>를 합니다.</li>
-<li><b>Tip:</b> 레이어(지형도, 유적, 버퍼 등)를 <u>하나씩만 켜서 각각 PDF로 저장</u>한 뒤,<br> 
-일러스트레이터에서 합치면 레이어가 섞이지 않아 편집이 훨씬 수월합니다.</li>
+<li>Open QGIS menu <b>Project > New Print Layout</b>.</li>
+<li>Add the distribution map and <b>export as PDF</b>.</li>
+<li><b>Tip:</b> Export each layer (topo, heritage, buffer) as <u>separate PDFs</u>,<br>
+then combine in Illustrator for easier editing.</li>
 </ol>
 <br>
-<b>[⚠️ 유의사항 (Disclaimer)]</b><br>
-본 플러그인은 좌표계 변환 및 데이터 병합을 자동화하여 사용자의 편의를 돕는 도구입니다.<br>
+<b>[Disclaimer]</b><br>
+This plugin automates CRS transforms and data merging for convenience.<br>
 <ul>
-<li>사용자마다 QGIS 환경(좌표계 설정 등)이 다르므로, <b>반드시 결과물의 위치와 속성을 육안으로 검수</b>해주시기 바랍니다.</li>
-<li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
-<li><b style='color:red'>⚠ 번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요!</b></li>
+<li>QGIS environments vary. <b>Always visually verify result positions and attributes.</b></li>
+<li>Auto-generated numbering may differ from expectations. Use <b>[Refresh Numbering]</b> to verify.</li>
+<li><b style='color:red'>Warning: Refreshing numbers reassigns based on current scale/extent. Verify scale first!</b></li>
 </ul>
 <br>
-<b>[♻️ 업데이트/캐시]</b><br>
-코드가 갱신되었는데도 동작이 예전과 같다면, <b>플러그인 관리자에서 비활성화→활성화</b> 또는 <b>QGIS 재시작</b>을 해주세요.
+<b>[Updates/Cache]</b><br>
+If behavior doesn't change after code updates, <b>disable/enable the plugin</b> or <b>restart QGIS</b>.
 <br>
 <div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
-"""
+""")
         help_text = help_text.format(version=get_plugin_version())
-        QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
+        QtWidgets.QMessageBox.information(self, self.tr("ArchDistribution User Guide"), help_text)
 
     def run_analysis(self):
         """Collect settings and emit run signal."""
         # Validation
         if self.comboStudyArea.currentIndex() == -1:
-             QtWidgets.QMessageBox.warning(self, "경고", "조사지역 레이어를 선택해주세요.")
+             QtWidgets.QMessageBox.warning(self, self.tr("Warning"), self.tr("Please select a study area layer."))
              return
              
         # Collection
