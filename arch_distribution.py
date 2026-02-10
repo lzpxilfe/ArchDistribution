@@ -16,6 +16,16 @@ import datetime
 
 from .arch_distribution_dialog import ArchDistributionDialog
 
+# Qt6/QGIS 4 compatibility: fully-qualified QVariant.Type enums
+try:
+    _QVariantInt = QVariant.Type.Int
+    _QVariantString = QVariant.Type.String
+    _QVariantDouble = QVariant.Type.Double
+except AttributeError:
+    _QVariantInt = QVariant.Int
+    _QVariantString = QVariant.String
+    _QVariantDouble = QVariant.Double
+
 class ArchDistribution:
     def __init__(self, iface):
         self.iface = iface
@@ -75,7 +85,7 @@ class ArchDistribution:
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
         self.dlg.renumber_requested.connect(self.process_renumbering)
-        self.dlg.exec_()
+        self.dlg.exec()
 
     def log(self, message):
         """Log a message to the dialog log window, QGIS message bar, and file."""
@@ -140,7 +150,7 @@ class ArchDistribution:
         try:
             log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
             with open(log_path, 'w', encoding='utf-8') as f:
-                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
+                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.DateFormat.ISODate)} ===\n")
         except:
             pass
             
@@ -151,7 +161,7 @@ class ArchDistribution:
         # 0. Setup Progress Dialog
         total_steps = 10 
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
-        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
         progress.setMinimumDuration(0)
         progress.setValue(0)
@@ -835,14 +845,14 @@ class ArchDistribution:
             # Define standard fields (번호 comes first for report readiness)
             # [NOTE] Warnings about QgsField constructor are harmless deprecation warnings in QGIS 3.x
             standard_fields = [
-                QgsField("번호", QVariant.Int),
-                QgsField("유적명", QVariant.String),
-                QgsField("주소", QVariant.String),
-                QgsField("면적_m2", QVariant.Double),
-                QgsField("국가유산명", QVariant.String), # [NEW]
-                QgsField("사업명", QVariant.String),     # [NEW]
-                QgsField("허용기준", QVariant.String),   # [NEW] Zone Info
-                QgsField("원본레이어", QVariant.String)
+                QgsField("번호", _QVariantInt),
+                QgsField("유적명", _QVariantString),
+                QgsField("주소", _QVariantString),
+                QgsField("면적_m2", _QVariantDouble),
+                QgsField("국가유산명", _QVariantString), # [NEW]
+                QgsField("사업명", _QVariantString),     # [NEW]
+                QgsField("허용기준", _QVariantString),   # [NEW] Zone Info
+                QgsField("원본레이어", _QVariantString)
             ]
             subset_pr.addAttributes(standard_fields)
             subset_layer.updateFields()
@@ -1091,12 +1101,12 @@ class ArchDistribution:
         # [NEW] Check/Add Distance Field
         dist_field_name = "이격거리(m)"
         if layer.fields().indexFromName(dist_field_name) == -1:
-            layer.dataProvider().addAttributes([QgsField(dist_field_name, QVariant.String)])
+            layer.dataProvider().addAttributes([QgsField(dist_field_name, _QVariantString)])
             
         # [NEW] Check/Add Note Field (For Human Verification)
         note_field_name = "비고"
         if layer.fields().indexFromName(note_field_name) == -1:
-            layer.dataProvider().addAttributes([QgsField(note_field_name, QVariant.String)])
+            layer.dataProvider().addAttributes([QgsField(note_field_name, _QVariantString)])
             
         layer.updateFields()
         dist_idx = layer.fields().indexFromName(dist_field_name)
