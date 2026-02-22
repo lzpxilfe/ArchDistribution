@@ -10,6 +10,8 @@ tracker=https://github.com/lzpxilfe/ArchDistribution/issues
 homepage=https://github.com/lzpxilfe/ArchDistribution
 category=Plugins
 experimental=False
+supportsQt6=True
+qgisMaximumVersion=4.99
 icon=icon.png
 tags=archaeology, distribution map, report, illustrator, buffer, merge
 
