@@ -14,7 +14,7 @@ import os.path
 import processing
 import datetime
 
-from .arch_distribution_dialog import ArchDistributionDialog
+from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
 
 class ArchDistribution:
     def __init__(self, iface):
@@ -70,7 +70,7 @@ class ArchDistribution:
 
     def run(self):
         """Run the plugin main dialog."""
-        print("🚀 ArchDistribution Version 1.0.1 LOADED (Robust Mode with File Reload)")
+        print(f"ArchDistribution Version {get_plugin_version()} LOADED")
         self.dlg = ArchDistributionDialog()
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
@@ -736,7 +736,7 @@ class ArchDistribution:
         # So we can just check: IS the ERA present in the allowed list?
         
         # Complication: filter_items contains only CHECKED items.
-        # So if era_key is valid (not '时代未详') and NOT in filter_items -> Exclude.
+        # So if era_key is valid (not an unknown era marker) and NOT in filter_items -> Exclude.
         
         if info['e'] and info['e'] != "시대미상":
              # Does the user care about eras? (i.e. are there any ERA tags in the list?)

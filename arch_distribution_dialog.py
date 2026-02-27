@@ -1,3 +1,4 @@
+import json
 import os
 
 from qgis.PyQt import uic, QtCore, QtGui
@@ -21,7 +22,7 @@ def get_plugin_version():
                     return line.strip().split('=')[1]
     except:
         pass
-    return "1.0.1"  # Fallback
+    return "unknown"  # Fallback
 
 
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
@@ -750,38 +751,82 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 
         return checked
 
+    def show_scrollable_help_dialog(self, title, html_text):
+        """Show long help text in a scrollable dialog."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.resize(860, 700)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        browser = QtWidgets.QTextBrowser(dialog)
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(html_text)
+        layout.addWidget(browser)
+
+        close_btn = QtWidgets.QPushButton("닫기", dialog)
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn, alignment=QtCore.Qt.AlignRight)
+
+        exec_fn = getattr(dialog, "exec", None) or getattr(dialog, "exec_", None)
+        if exec_fn:
+            exec_fn()
+
+    def _get_noise_keyword_examples(self, limit=6):
+        """Return exclusion keyword examples from smart_patterns.json."""
+        defaults = ["지표", "참관", "수습", "현상변경", "배수로", "보호수"]
+        patterns_path = os.path.join(os.path.dirname(__file__), "smart_patterns.json")
+        try:
+            with open(patterns_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            noise_keywords = data.get("noise", [])
+            if isinstance(noise_keywords, list):
+                cleaned = [str(x).strip() for x in noise_keywords if str(x).strip()]
+                if cleaned:
+                    return cleaned[:limit]
+        except Exception:
+            pass
+        return defaults[:limit]
+
     def show_help(self):
         """Display User Guide and Export Tips."""
+        examples = self._get_noise_keyword_examples()
+        noise_examples = ", ".join(f"<code>{kw}</code>" for kw in examples)
         help_text = """
-<h3>📘 사용 가이드 및 유의사항 (User Guide)</h3>
+<h3>사용 가이드 및 유의사항 (User Guide)</h3>
 <hr>
-<b>[📋 작업 순서 (Workflow)]</b><br>
+<b>[작업 순서 (Workflow)]</b><br>
 <ol>
 <li><b>레이어 준비:</b> 조사지역(Polygon), 수치지형도, 주변유적 레이어를 불러옵니다.</li>
 <li><b>레이어 선택:</b> [데이터 탭]에서 조사지역, 지형도, 유적 레이어를 선택합니다.</li>
 <li><b>도곽/축척 설정:</b> 도면 가로/세로(mm)와 축척을 입력합니다. (프리셋 활용 추천)</li>
 <li><b>스마트 분류:</b> [속성 분류 실행] 버튼으로 유적을 시대/유형별로 분류합니다.</li>
 <li><b>분석 실행:</b> [▶ 분석 및 지도 생성 실행] 클릭으로 자동 처리합니다.</li>
-<li><b>번호 새로고침:</b> 유적 삭제/수정 후 [스타일 탭 > 🔄 번호 새로고침]으로 번호 재정렬</li>
+<li><b>번호 새로고침:</b> 유적 삭제/수정 후 [스타일 탭 > 번호 새로고침]으로 번호 재정렬</li>
 </ol>
 <br>
-<b>[🗺️ 결과 확인 (View)]</b><br>
+<b>[결과 확인 (View)]</b><br>
 작업이 끝나면 <b>도곽(Extent) 범위로 화면이 자동 확대(여백 포함)</b>되어 결과물을 바로 확인할 수 있습니다.<br>
 만약 화면이 비어 보이면 레이어 패널에서 <b>ArchDistribution_결과물</b> 그룹의 체크(가시성)를 확인하고,<br>
 개별 레이어 우클릭 → <b>레이어로 확대(Zoom to Layer)</b>를 시도해 주세요.
 <br><br>
-<b>[🏗️ 현상변경허용기준(Zone) 옵션]</b><br>
+<b>[현상변경허용기준(Zone) 옵션]</b><br>
 현상변경허용기준 레이어를 선택하면, 도곽 내에서 자동 분할/스타일링을 수행합니다.<br>
 <ul>
 <li><b>버퍼 범위 내 자르기</b>: 가장 큰 버퍼(최대 반경) 범위 안에 포함되는 구역만 남깁니다. (도곽 ∩ 버퍼)</li>
 </ul>
 <br>
-<b>[🔢 번호 부여 팁]</b><br>
+<b>[번호 부여 팁]</b><br>
 <ul>
 <li><b>버퍼 구간별 번호 부여</b>는 정렬 기준이 <b>거리순</b>일 때만 적용됩니다.</li>
 <li><b>버퍼 밖 제외</b> 옵션을 켜면, 최대 버퍼 밖 유적은 번호가 비워질 수 있습니다.</li>
 </ul>
 <br>
+<b>[제외 제안 목록 안내]</b><br>
+제외 제안 목록은 <code>smart_patterns.json</code>의 <code>noise</code> 키워드를 기준으로 자동 표시됩니다.<br>
+예: {noise_examples}<br>
+이 목록은 자동 확정이 아니라 제안이므로, 현장 판단에 따라 체크를 해제해 포함할 수 있습니다.<br>
+최종 결과는 작업 마지막에 [번호 새로고침]으로 정리하는 것을 권장합니다.
+<br><br>
 <b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
 보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
 <ol>
@@ -791,21 +836,24 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 일러스트레이터에서 합치면 레이어가 섞이지 않아 편집이 훨씬 수월합니다.</li>
 </ol>
 <br>
-<b>[⚠️ 유의사항 (Disclaimer)]</b><br>
+<b>[유의사항 (Disclaimer)]</b><br>
 본 플러그인은 좌표계 변환 및 데이터 병합을 자동화하여 사용자의 편의를 돕는 도구입니다.<br>
 <ul>
 <li>사용자마다 QGIS 환경(좌표계 설정 등)이 다르므로, <b>반드시 결과물의 위치와 속성을 육안으로 검수</b>해주시기 바랍니다.</li>
-<li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[🔄 번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
-<li><b style='color:red'>⚠ 번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요!</b></li>
+<li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[번호 새로고침]</b> 기능 등을 활용하여 최종 확인 후 사용하세요.</li>
+<li><b style='color:red'>번호 새로고침 시 현재 설정된 축척/도곽 범위에 맞춰 번호가 재할당됩니다. 반드시 축척을 확인하세요.</b></li>
 </ul>
 <br>
-<b>[♻️ 업데이트/캐시]</b><br>
+<b>[업데이트/캐시]</b><br>
 코드가 갱신되었는데도 동작이 예전과 같다면, <b>플러그인 관리자에서 비활성화→활성화</b> 또는 <b>QGIS 재시작</b>을 해주세요.
 <br>
 <div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
 """
-        help_text = help_text.format(version=get_plugin_version())
-        QtWidgets.QMessageBox.information(self, "ArchDistribution 사용 가이드", help_text)
+        help_text = help_text.format(
+            version=get_plugin_version(),
+            noise_examples=noise_examples,
+        )
+        self.show_scrollable_help_dialog("ArchDistribution 사용 가이드", help_text)
 
     def run_analysis(self):
         """Collect settings and emit run signal."""
