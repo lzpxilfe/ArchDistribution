@@ -16,6 +16,20 @@ import datetime
 
 from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
 
+DEFAULT_ENCODING = "CP949"
+DEFAULT_LABEL_FONT_FAMILY = "Malgun Gothic"
+DEFAULT_LABEL_FONT_SIZE = 10
+DEFAULT_ZOOM_PADDING_RATIO = 0.08
+DEFAULT_PROGRESS_STEPS = 10
+DEGENERATE_PAD_GEOGRAPHIC = 1
+DEGENERATE_PAD_PROJECTED = 10
+STUDY_BUFFER_SEGMENTS = 20
+PROCESSING_BUFFER_SEGMENTS = 50
+DEFAULT_EXTENT_FALLBACK_CRS = "EPSG:5186"
+TOPO_BOUNDARY_EXCLUDE_CODE = "H0017334"
+SAFE_BUFFER_DIST_GEOGRAPHIC = 0.000001
+SAFE_BUFFER_DIST_PROJECTED = 0.01
+
 class ArchDistribution:
     def __init__(self, iface):
         self.iface = iface
@@ -98,7 +112,7 @@ class ArchDistribution:
         except Exception as e:
             print(f"Log file error: {e}")
 
-    def zoom_canvas_to_extent(self, extent_geom, extent_crs=None, padding_ratio=0.08):
+    def zoom_canvas_to_extent(self, extent_geom, extent_crs=None, padding_ratio=DEFAULT_ZOOM_PADDING_RATIO):
         """Zoom map canvas to a geometry extent (CRS-aware) with a small padding."""
         try:
             if not extent_geom:
@@ -124,9 +138,9 @@ class ArchDistribution:
 
             # Fallback padding for degenerate rectangles
             if pad_x == 0:
-                pad_x = 1 if project_crs.isGeographic() else 10
+                pad_x = DEGENERATE_PAD_GEOGRAPHIC if project_crs.isGeographic() else DEGENERATE_PAD_PROJECTED
             if pad_y == 0:
-                pad_y = 1 if project_crs.isGeographic() else 10
+                pad_y = DEGENERATE_PAD_GEOGRAPHIC if project_crs.isGeographic() else DEGENERATE_PAD_PROJECTED
 
             padded = QgsRectangle(xmin - pad_x, ymin - pad_y, xmax + pad_x, ymax + pad_y)
             canvas.setExtent(padded)
@@ -141,7 +155,7 @@ class ArchDistribution:
             log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
-        except:
+        except Exception:
             pass
             
         # Disable button to prevent double execution
@@ -149,7 +163,7 @@ class ArchDistribution:
         self.log("작업을 시작합니다...")
         
         # 0. Setup Progress Dialog
-        total_steps = 10 
+        total_steps = DEFAULT_PROGRESS_STEPS
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
         progress.setWindowModality(Qt.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
@@ -262,7 +276,7 @@ class ArchDistribution:
                 if settings.get('zone_layer_id'):
                     zone_layer_obj = QgsProject.instance().mapLayer(settings.get('zone_layer_id'))
                     if zone_layer_obj:
-                         self.fix_layer_encoding(zone_layer_obj, 'CP949')
+                         self.fix_layer_encoding(zone_layer_obj, DEFAULT_ENCODING)
 
                 merged_heritage = self.consolidate_heritage_layers(
                     settings['heritage_layer_ids'], 
@@ -291,7 +305,7 @@ class ArchDistribution:
                         if not combined_study.isNull():
                             sorted_buffers = sorted(settings['buffers'])
                             for dist in sorted_buffers:
-                                bg = combined_study.buffer(dist, 20)
+                                bg = combined_study.buffer(dist, STUDY_BUFFER_SEGMENTS)
                                 buffer_geoms.append({'dist': dist, 'geom': bg})
                             self.log(f"버퍼 구간 처리 준비 완료 ({len(buffer_geoms)}단계).")
 
@@ -311,8 +325,8 @@ class ArchDistribution:
                     self.apply_heritage_style(
                         merged_heritage, 
                         settings['heritage_style'],
-                        font_size=settings.get('label_font_size', 10),
-                        font_family=settings.get('label_font_family', 'Malgun Gothic')
+                        font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
+                        font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
                     )
                     
                     QgsProject.instance().addMapLayer(merged_heritage, False)
@@ -348,7 +362,11 @@ class ArchDistribution:
             progress.setValue(current_step)
             
             # Zoom to extent (CRS-aware + padded) to avoid showing blank space
-            self.zoom_canvas_to_extent(extent_geom, extent_crs=original_study_layer.crs(), padding_ratio=0.08)
+            self.zoom_canvas_to_extent(
+                extent_geom,
+                extent_crs=original_study_layer.crs(),
+                padding_ratio=DEFAULT_ZOOM_PADDING_RATIO,
+            )
             self.log("모든 작업이 성공적으로 완료되었습니다.")
             
             # Notify Log File
@@ -413,7 +431,7 @@ class ArchDistribution:
                 if not combined_study.isNull():
                     sorted_buffers = sorted(settings['buffers'])
                     for dist in sorted_buffers:
-                        bg = combined_study.buffer(dist, 20)
+                        bg = combined_study.buffer(dist, STUDY_BUFFER_SEGMENTS)
                         buffer_geoms.append({'dist': dist, 'geom': bg})
                     self.log(f"버퍼 구간 적용 ({len(buffer_geoms)}단계).")
 
@@ -436,8 +454,8 @@ class ArchDistribution:
             self.apply_heritage_style(
                 layer,
                 settings['heritage_style'],
-                font_size=settings.get('label_font_size', 10),
-                font_family=settings.get('label_font_family', 'Malgun Gothic')
+                font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
+                font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
             )
             
             layer.triggerRepaint()
@@ -475,7 +493,7 @@ class ArchDistribution:
             group.addChildNode(clone)
             layer_node.parent().removeChildNode(layer_node)
 
-    def fix_layer_encoding(self, layer, encoding='CP949'):
+    def fix_layer_encoding(self, layer, encoding=DEFAULT_ENCODING):
         """Force specific encoding to fix broken Korean characters."""
         if layer and layer.type() == 0: # VectorLayer
             layer.setProviderEncoding(encoding)
@@ -515,7 +533,7 @@ class ArchDistribution:
         merged_layer.setName("수치지형도_병합")
 
         # Boundary filtering (H0017334)
-        boundary_code = "H0017334"
+        boundary_code = TOPO_BOUNDARY_EXCLUDE_CODE
         fields = [f.name() for f in merged_layer.fields()]
         target_field = None
         for f in fields:
@@ -548,7 +566,7 @@ class ArchDistribution:
         params = {
             'INPUT': layer,
             'DISTANCE': distance,
-            'SEGMENTS': 50,
+            'SEGMENTS': PROCESSING_BUFFER_SEGMENTS,
             'DISSOLVE': False,
             'OUTPUT': 'memory:Buffer_' + str(distance)
         }
@@ -618,7 +636,7 @@ class ArchDistribution:
         # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
         vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory") 
         if not vl.isValid():
-            vl = QgsVectorLayer("Polygon?crs=EPSG:5186", "도곽_Extent", "memory")
+            vl = QgsVectorLayer(f"Polygon?crs={DEFAULT_EXTENT_FALLBACK_CRS}", "도곽_Extent", "memory")
         
         # Explicit outline-only styling
         symbol = QgsFillSymbol.createSimple({
@@ -677,7 +695,7 @@ class ArchDistribution:
             try:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     self.reference_data = json.load(f)
-            except:
+            except Exception:
                 self.reference_data = {}
         else:
             self.reference_data = {}
@@ -689,7 +707,7 @@ class ArchDistribution:
             try:
                 with open(json_pattern_path, 'r', encoding='utf-8') as f:
                     self.smart_patterns = json.load(f)
-            except:
+            except Exception:
                 pass
 
     def should_exclude(self, name, filter_items):
@@ -960,7 +978,7 @@ class ArchDistribution:
                         if area_field and feat[area_field]:
                             try:
                                 new_feat["면적_m2"] = float(feat[area_field])
-                            except:
+                            except (TypeError, ValueError):
                                 new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
                         else:
                             new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
@@ -1350,7 +1368,7 @@ class ArchDistribution:
         else:
              layer.setSubsetString("") # Clear any previous filter
 
-    def apply_heritage_style(self, layer, style, font_size=10, font_family="Malgun Gothic"):
+    def apply_heritage_style(self, layer, style, font_size=DEFAULT_LABEL_FONT_SIZE, font_family=DEFAULT_LABEL_FONT_FAMILY):
         """Apply complex symbology and labeling to heritage layer."""
         rgb_fill = QColor(style['fill_color'])
         rgba_fill = f"{rgb_fill.red()},{rgb_fill.green()},{rgb_fill.blue()},{int(style['opacity'] * 255)}"
@@ -1441,18 +1459,18 @@ class ArchDistribution:
         if source_path and os.path.exists(source_path):
              self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
              # Create new layer instance strictly for processing
-             layer_uri = f"{source_path}|encoding=CP949"
+             layer_uri = f"{source_path}|encoding={DEFAULT_ENCODING}"
              new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
              
              if new_layer.isValid():
-                 self.log(f"DEBUG: 파일 재로딩 성공 (CP949). 객체 수: {new_layer.featureCount()}")
+                 self.log(f"DEBUG: 파일 재로딩 성공 ({DEFAULT_ENCODING}). 객체 수: {new_layer.featureCount()}")
                  layer = new_layer # Replace variable
              else:
-                 self.log(f"⚠️ 경고: CP949 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
+                 self.log(f"⚠️ 경고: {DEFAULT_ENCODING} 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
         else:
              self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
              self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
-             self.fix_layer_encoding(layer, 'CP949')
+             self.fix_layer_encoding(layer, DEFAULT_ENCODING)
 
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
@@ -1519,7 +1537,7 @@ class ArchDistribution:
             return
 
         # Expand extent slightly to avoid precision loss on the border
-        safe_buffer_dist = 0.000001 if layer_crs.isGeographic() else 0.01
+        safe_buffer_dist = SAFE_BUFFER_DIST_GEOGRAPHIC if layer_crs.isGeographic() else SAFE_BUFFER_DIST_PROJECTED
         safe_extent = local_extent.buffer(safe_buffer_dist, 5)
 
         clip_mask = safe_extent

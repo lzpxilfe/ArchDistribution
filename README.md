@@ -1,9 +1,32 @@
-# ArchDistribution (v1.0.1 'Pallet Town')
+# ArchDistribution (v1.0.2)
 
 **문화유적분포지도 자동 생성 & 현상변경허용기준 스마트 분석 도구**
 
 이 플러그인은 고고학 연구자와 조사기관을 위해 개발된 QGIS 전용 자동화 도구입니다.
 복잡한 수치지형도 병합, 유적 분류, 도곽 설정, 스타일링 작업을 단 한 번의 클릭으로 해결하며, 특히 **현상변경허용기준(Zone) 레이어**의 자동 분할 및 스타일링 기능을 제공합니다.
+
+---
+
+## 🆕 v1.0.2 업데이트 (1.0.1 대비)
+
+이번 1.0.2는 “기능 추가”보다 “실무 안정성 최적화”에 집중한 업데이트입니다.  
+고고학 분포지도 제작 시 반복 작업과 실행 오류 가능성을 줄여, 더 예측 가능한 워크플로우를 제공합니다.
+
+### ✅ 사용자 체감 개선
+* 🧭 **실행 흐름 단순화**: 분석 실행 경로를 정리해 버튼 클릭 시 동작이 더 일관되게 수행됩니다.
+* 🧹 **중복 로직 정리**: 다이얼로그 내부 중복 시그널/함수 구조를 정리해 유지보수성과 신뢰성을 높였습니다.
+* 📏 **버퍼 입력 유연성 개선**: `100`, `100m` 등 입력값을 안정적으로 파싱해 설정 실수를 줄였습니다.
+
+### 🔧 내부 품질 개선
+* 🧱 **하드코딩 상수화**: 인코딩/폰트/버퍼 세그먼트/기본 CRS 등 매직값을 상수로 통합했습니다.
+* 🛡️ **예외 처리 명확화**: 광범위 예외 처리(`bare except`)를 줄여 디버깅과 장애 원인 파악이 쉬워졌습니다.
+* 📦 **환경 독립성 강화**: 보조 스크립트의 로컬 절대경로 의존성을 제거해 다른 PC에서도 재사용이 쉬워졌습니다.
+
+### 🧪 검증 상태
+* ✅ 핵심 모듈 문법 검증(`py_compile`) 통과
+* ✅ 필터링 로직 테스트 스크립트 통과
+
+> 💬 한 줄 요약: **1.0.2는 현장 실무에서 “덜 흔들리고, 더 믿고 쓰는” 안정화 버전입니다.**
 
 ---
 
@@ -79,14 +102,14 @@ If you find this repository useful, please consider giving it a star ⭐ and cit
   title = {ArchDistribution: Automated QGIS plugin for archaeological distribution maps},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
-  version = {1.0.1}
+  version = {1.0.2}
 }
 ```
 
 ---
 
 ## 📞 정보
-*   **Version**: 1.0.1 (Codename: Pallet Town)
+*   **Version**: 1.0.2
 *   **Author**: lzpxilfe (balguljang2)
 *   **Repository**: [GitHub Link](https://github.com/lzpxilfe/ArchDistribution)
 *   **License**: GPL v2

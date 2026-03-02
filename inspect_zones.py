@@ -1,5 +1,12 @@
 import struct
 import os
+import argparse
+
+DEFAULT_SHP_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "insite",
+    "현상변경허용기준.shp",
+)
 
 def list_unique_zones(dbf_path):
     print(f"Scanning values in: {dbf_path}")
@@ -48,14 +55,28 @@ def list_unique_zones(dbf_path):
             try:
                 val = val_bytes.decode('cp949').strip()
                 unique_values.add(val)
-            except:
+            except UnicodeDecodeError:
                 pass
                 
         print("Unique Zone Values:")
         for v in sorted(list(unique_values)):
             print(f"- {v}")
 
-shp_path = r"c:\Users\nuri9\.gemini\antigravity\scratch\ArchDistribution\insite\현상변경허용기준.shp"
-dbf_path = shp_path.replace('.shp', '.dbf')
-if os.path.exists(dbf_path):
-    list_unique_zones(dbf_path)
+def main():
+    parser = argparse.ArgumentParser(description="List unique zone values from DBF.")
+    parser.add_argument(
+        "--shp",
+        default=DEFAULT_SHP_PATH,
+        help=f"Path to source SHP file (default: {DEFAULT_SHP_PATH})",
+    )
+    args = parser.parse_args()
+
+    dbf_path = os.path.splitext(args.shp)[0] + ".dbf"
+    if os.path.exists(dbf_path):
+        list_unique_zones(dbf_path)
+    else:
+        print(f"DBF not found: {dbf_path}")
+
+
+if __name__ == "__main__":
+    main()

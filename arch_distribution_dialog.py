@@ -20,15 +20,57 @@ def get_plugin_version():
             for line in f:
                 if line.startswith('version='):
                     return line.strip().split('=')[1]
-    except:
+    except Exception:
         pass
     return "unknown"  # Fallback
+
+
+DEFAULT_COLORS = {
+    "heritage_stroke": QtGui.QColor(139, 69, 19),
+    "heritage_fill": QtGui.QColor(255, 178, 102),
+    "study_stroke": QtGui.QColor(255, 0, 0),
+    "topo_stroke": QtGui.QColor(0, 0, 0),
+    "buffer": QtGui.QColor(100, 100, 100),
+}
+
+DEFAULT_SPIN_VALUES = {
+    "heritage_stroke_width": 0.3,
+    "heritage_opacity": 40,
+    "study_stroke_width": 0.5,
+    "topo_stroke_width": 0.05,
+    "buffer_width": 0.3,
+    "paper_width": 210,
+    "paper_height": 297,
+    "scale": 5000,
+    "scale_step": 500,
+    "label_font_size": 10,
+}
+
+BUFFER_STYLE_OPTIONS = ["실선 (Solid)", "점선 (Dot)", "쇄선 (Dash)"]
+SORT_ORDER_OPTIONS = ["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)"]
+STYLE_FORCE_VISIBLE = """
+    QComboBox {
+        background-color: #ffffff;
+        color: #000000;
+        selection-background-color: #3498db;
+        border: 1px solid #bdc3c7;
+    }
+    QComboBox QAbstractItemView {
+        background-color: #ffffff;
+        color: #000000;
+        selection-background-color: #3498db;
+        selection-color: #ffffff;
+    }
+"""
+DEFAULT_LABEL_FONT_FAMILY = "맑은 고딕"
+PRESET_REPORT = (160, 240)
+PRESET_A4 = (210, 297)
 
 
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     # Define signals
     run_requested = QtCore.pyqtSignal(dict)
-    renumber_requested = QtCore.pyqtSignal(dict)
+    renumber_requested = QtCore.pyqtSignal(object)
     scan_requested = QtCore.pyqtSignal(dict)
 
     def __init__(self, parent=None):
@@ -130,22 +172,22 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.vTab1.insertWidget(2, self.groupSmartFilter) # Adjusted index
 
         # Default colors (Matching professional archaeological standards)
-        self.heritage_stroke_color = QtGui.QColor(139, 69, 19) # SaddleBrown
-        self.heritage_fill_color = QtGui.QColor(255, 178, 102) # Light Orange/Peach
-        self.study_stroke_color = QtGui.QColor(255, 0, 0) # Red for Study Area
-        self.topo_stroke_color = QtGui.QColor(0, 0, 0) # Black for Topo Maps
-        self.buffer_color = QtGui.QColor(100, 100, 100) # Gray for Buffers
+        self.heritage_stroke_color = QtGui.QColor(DEFAULT_COLORS["heritage_stroke"])
+        self.heritage_fill_color = QtGui.QColor(DEFAULT_COLORS["heritage_fill"])
+        self.study_stroke_color = QtGui.QColor(DEFAULT_COLORS["study_stroke"])
+        self.topo_stroke_color = QtGui.QColor(DEFAULT_COLORS["topo_stroke"])
+        self.buffer_color = QtGui.QColor(DEFAULT_COLORS["buffer"])
         
         # Set Default Values for SpinBoxes
-        self.spinHeritageStrokeWidth.setValue(0.3)
-        self.spinHeritageOpacity.setValue(40)
-        self.spinStudyStrokeWidth.setValue(0.5)
-        self.spinTopoStrokeWidth.setValue(0.05) # Traditional topo line weight
-        self.spinBufferWidth.setValue(0.3) # Default buffer width
-        self.spinWidth.setValue(210) # A4 width
-        self.spinHeight.setValue(297) # A4 height
-        self.spinScale.setValue(5000)
-        self.spinScale.setSingleStep(500) # [FIX] User Request: 500 unit step
+        self.spinHeritageStrokeWidth.setValue(DEFAULT_SPIN_VALUES["heritage_stroke_width"])
+        self.spinHeritageOpacity.setValue(DEFAULT_SPIN_VALUES["heritage_opacity"])
+        self.spinStudyStrokeWidth.setValue(DEFAULT_SPIN_VALUES["study_stroke_width"])
+        self.spinTopoStrokeWidth.setValue(DEFAULT_SPIN_VALUES["topo_stroke_width"])
+        self.spinBufferWidth.setValue(DEFAULT_SPIN_VALUES["buffer_width"])
+        self.spinWidth.setValue(DEFAULT_SPIN_VALUES["paper_width"])
+        self.spinHeight.setValue(DEFAULT_SPIN_VALUES["paper_height"])
+        self.spinScale.setValue(DEFAULT_SPIN_VALUES["scale"])
+        self.spinScale.setSingleStep(DEFAULT_SPIN_VALUES["scale_step"])
         self.comboSortOrder.setCurrentIndex(0)
         self.tabWidget.setCurrentIndex(0)
         
@@ -154,36 +196,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # [CRITICAL FIX] Explicitly populate dropdowns in Python to guarantee items exist
         self.comboBufferStyle.clear()
-        self.comboBufferStyle.addItems(["실선 (Solid)", "점선 (Dot)", "쇄선 (Dash)"])
+        self.comboBufferStyle.addItems(BUFFER_STYLE_OPTIONS)
         
         self.comboSortOrder.clear()
-        self.comboSortOrder.addItems(["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)"])
+        self.comboSortOrder.addItems(SORT_ORDER_OPTIONS)
 
-        # [CRITICAL FIX] Force Style to ensure visibility
-        STYLE_FORCE_VISIBLE = """
-            QComboBox { 
-                background-color: #ffffff; 
-                color: #000000; 
-                selection-background-color: #3498db;
-                border: 1px solid #bdc3c7;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #ffffff;
-                color: #000000;
-                selection-background-color: #3498db;
-                selection-color: #ffffff;
-            }
-        """
         self.comboBufferStyle.setStyleSheet(STYLE_FORCE_VISIBLE)
         self.comboSortOrder.setStyleSheet(STYLE_FORCE_VISIBLE)
-        
-        self.comboBufferStyle.setCurrentIndex(0)
-        self.comboSortOrder.setCurrentIndex(0)
-        self.btnHeritageStrokeColor.clicked.connect(lambda: self.pick_color('heritage_stroke'))
-        self.btnHeritageFillColor.clicked.connect(lambda: self.pick_color('heritage_fill'))
-        self.btnStudyStrokeColor.clicked.connect(lambda: self.pick_color('study_stroke'))
-        self.btnTopoStrokeColor.clicked.connect(lambda: self.pick_color('topo_stroke'))
-        self.btnBufferColor.clicked.connect(lambda: self.pick_color('buffer'))
         
         self.comboBufferStyle.setCurrentIndex(0)
         self.comboSortOrder.setCurrentIndex(0)
@@ -218,8 +237,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, 'vTab1'):
              self.vTab1.insertWidget(1, self.chkRestrictToBuffer)
 
-        self.btnRun.clicked.connect(self.run_analysis) # [FIX] Connect logic
-
         # [NEW] Label Font Controls
         self.groupLabelStyle = QtWidgets.QGroupBox("라벨 스타일")
         self.hLabelLayout = QtWidgets.QHBoxLayout()
@@ -227,12 +244,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblFontSize = QtWidgets.QLabel("글자 크기:")
         self.spinLabelFontSize = QtWidgets.QSpinBox()
         self.spinLabelFontSize.setRange(6, 72)
-        self.spinLabelFontSize.setValue(10)
+        self.spinLabelFontSize.setValue(DEFAULT_SPIN_VALUES["label_font_size"])
         self.spinLabelFontSize.setToolTip("유적 번호 라벨의 글자 크기 (pt)")
         
         self.lblFontFamily = QtWidgets.QLabel("글씨체:")
         self.comboLabelFont = QtWidgets.QFontComboBox()
-        self.comboLabelFont.setCurrentFont(QtGui.QFont("맑은 고딕"))
+        self.comboLabelFont.setCurrentFont(QtGui.QFont(DEFAULT_LABEL_FONT_FAMILY))
         self.comboLabelFont.setToolTip("유적 번호 라벨의 글씨체")
         
         self.hLabelLayout.addWidget(self.lblFontSize)
@@ -296,8 +313,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnSmartScan.clicked.connect(self.scan_categories)
 
         # Presets
-        self.btnPresetReport.clicked.connect(lambda: self.apply_preset(160, 240))
-        self.btnPresetA4.clicked.connect(lambda: self.apply_preset(210, 297))
+        self.btnPresetReport.clicked.connect(lambda: self.apply_preset(*PRESET_REPORT))
+        self.btnPresetA4.clicked.connect(lambda: self.apply_preset(*PRESET_A4))
 
         # Initialize layers
         self.populate_layers()
@@ -355,18 +372,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         for item in list_widget.selectedItems():
             item.setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
 
-    def set_batch_check(self, list_widget, checked):
-        """Legacy helper for Topo/Heritage layers."""
-        for i in range(list_widget.count()):
-            list_widget.item(i).setCheckState(QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
-
-
-    # Custom signal for execution
-    run_requested = QtCore.pyqtSignal(dict)
-    renumber_requested = QtCore.pyqtSignal(object) # Passing QgsVectorLayer
-    scan_requested = QtCore.pyqtSignal(dict) # [NEW]
-
-    # [FIX] Batch Check Implementation with Selection Support
     def set_batch_check(self, list_widget, checked):
         """
         Check/Uncheck items. 
@@ -428,12 +433,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def add_buffer_to_list(self):
         dist = self.editBufferDistance.text().strip()
         if dist:
-            try:
-                float(dist)
-                self.listBuffers.addItem(dist)
+            parsed = self._parse_buffer_value(dist)
+            if parsed is not None:
+                self.listBuffers.addItem(str(parsed))
                 self.editBufferDistance.clear()
-            except ValueError:
-                pass
 
     def apply_preset(self, w, h):
         self.spinWidth.setValue(w)
@@ -513,7 +516,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                              for i in range(self.listHeritageLayers.count()) 
                              if self.listHeritageLayers.item(i).checkState() == QtCore.Qt.Checked]
         
-        buffers = [float(self.listBuffers.item(i).text()) for i in range(self.listBuffers.count())]
+        buffers = []
+        for i in range(self.listBuffers.count()):
+            parsed = self._parse_buffer_value(self.listBuffers.item(i).text())
+            if parsed is not None:
+                buffers.append(parsed)
         
         filter_items = self.get_checked_items(None)
         has_filter_tags = False
@@ -573,6 +580,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "label_font_size": self.spinLabelFontSize.value(),
             "label_font_family": self.comboLabelFont.currentFont().family()
         }
+
+    def _parse_buffer_value(self, raw_value):
+        """Parse user-entered buffer value and normalize optional 'm' suffix."""
+        if raw_value is None:
+            return None
+        text = str(raw_value).strip().lower()
+        if text.endswith("m"):
+            text = text[:-1].strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
 
     def load_reference_data(self):
         """Load reference data from JSON file."""
@@ -856,77 +877,5 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.show_scrollable_help_dialog("ArchDistribution 사용 가이드", help_text)
 
     def run_analysis(self):
-        """Collect settings and emit run signal."""
-        # Validation
-        if self.comboStudyArea.currentIndex() == -1:
-             QtWidgets.QMessageBox.warning(self, "경고", "조사지역 레이어를 선택해주세요.")
-             return
-             
-        # Collection
-        # Helper to get IDs from QListWidget
-        def get_checked_ids(list_widget):
-            ids = []
-            for item in list_widget.selectedItems():
-                val = item.data(QtCore.Qt.UserRole)
-                if val: ids.append(val)
-            return ids
-
-        settings = {
-            'study_area_id': self.comboStudyArea.currentData(),
-            'topo_layer_ids': get_checked_ids(self.listTopoLayers),
-            'heritage_layer_ids': get_checked_ids(self.listHeritageLayers),
-            'paper_width': self.spinWidth.value(),
-            'paper_height': self.spinHeight.value(),
-            'scale': self.spinScale.value(),
-            'buffers': [],
-            # Styles
-            'study_style': {
-                'stroke_color': self.study_stroke_color.name(),
-                'stroke_width': self.spinStudyStrokeWidth.value()
-            },
-            'topo_style': {
-                'stroke_color': self.topo_stroke_color.name(),
-                 'stroke_width': self.spinTopoStrokeWidth.value()
-            },
-            'buffer_style': {
-                'color': self.buffer_color.name(),
-                'width': self.spinBufferWidth.value(),
-                'style': self.comboBufferStyle.currentIndex()
-            },
-            'heritage_style': {
-                'stroke_color': self.heritage_stroke_color.name(),
-                'fill_color': self.heritage_fill_color.name(),
-                'stroke_width': self.spinHeritageStrokeWidth.value(),
-                'opacity': self.spinHeritageOpacity.value() / 100.0,
-                # [NEW] Font Settings
-                'font_size': self.spinLabelFontSize.value(),
-                'font_family': self.comboLabelFont.currentFont().family() # Using QFontComboBox
-            },
-            # Options
-            'sort_order': self.comboSortOrder.currentIndex(),
-            
-            # [NEW] Zone Layer
-            'zone_layer_id': self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
-            
-            # [NEW] Restrictions
-            'restrict_to_buffer': self.chkRestrictToBuffer.isChecked(),
-            'clip_zone_to_buffer': self.chkClipZoneToBuffer.isChecked(), # [NEW CHECKBOX]
-            
-            # Filter Lists
-            'filter_eras': self.get_checked_items(self.listEras),
-            'filter_types': self.get_checked_items(self.listTypes),
-            'exclusion_list': [item.data(QtCore.Qt.UserRole) for item in self.listExclusions.findItems("*", QtCore.Qt.MatchWildcard)]
-        }
-        
-        # Collect Buffers
-        for i in range(self.listBuffers.count()):
-            item = self.listBuffers.item(i)
-            try:
-                val = float(item.text().replace("m", ""))
-                settings['buffers'].append(val)
-            except: pass
-            
-        settings['buffers'].sort(reverse=True) # Largest first
-        
-        self.run_requested.emit(settings)
-        self.accept()
+        """Backward-compatible wrapper for older signal connections."""
+        self.emit_run_requested()

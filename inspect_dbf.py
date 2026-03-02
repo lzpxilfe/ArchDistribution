@@ -1,5 +1,12 @@
 import struct
 import os
+import argparse
+
+DEFAULT_SHP_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "insite",
+    "현상변경허용기준.shp",
+)
 
 def read_dbf_header(dbf_path):
     print(f"Inspecting parsed DBF: {dbf_path}")
@@ -26,7 +33,7 @@ def read_dbf_header(dbf_path):
             try:
                 name = name_bytes.rstrip(b'\x00').decode('cp949')
                 print(f"Field: {name} (Raw: {name_bytes})")
-            except:
+            except UnicodeDecodeError:
                 print(f"Field: (Decdoding Failed) {name_bytes}")
                 
             fields.append(field_data)
@@ -41,18 +48,30 @@ def read_dbf_header(dbf_path):
             try:
                 decoded = data.decode('cp949', errors='ignore')
                 print(f"First Record CP949: {decoded}")
-            except:
+            except UnicodeDecodeError:
                 pass
             try:
                 decoded_utf8 = data.decode('utf-8', errors='ignore')
                 print(f"First Record UTF-8: {decoded_utf8}")
-            except:
+            except UnicodeDecodeError:
                 pass
 
 
-shp_path = r"c:\Users\nuri9\.gemini\antigravity\scratch\ArchDistribution\insite\현상변경허용기준.shp"
-dbf_path = shp_path.replace('.shp', '.dbf')
-if os.path.exists(dbf_path):
-    read_dbf_header(dbf_path)
-else:
-    print("DBF not found")
+def main():
+    parser = argparse.ArgumentParser(description="Inspect DBF header/encoding details.")
+    parser.add_argument(
+        "--shp",
+        default=DEFAULT_SHP_PATH,
+        help=f"Path to source SHP file (default: {DEFAULT_SHP_PATH})",
+    )
+    args = parser.parse_args()
+
+    dbf_path = os.path.splitext(args.shp)[0] + ".dbf"
+    if os.path.exists(dbf_path):
+        read_dbf_header(dbf_path)
+    else:
+        print(f"DBF not found: {dbf_path}")
+
+
+if __name__ == "__main__":
+    main()

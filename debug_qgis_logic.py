@@ -1,13 +1,18 @@
 import os
 from qgis.core import QgsVectorLayer, QgsProject
 
-def debug_zone_layer():
+DEFAULT_SOURCE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "insite",
+    "현상변경허용기준.shp",
+)
+
+
+def debug_zone_layer(source_path=None):
     print("--- DEBUG ZONE LAYER START ---")
     
-    # 1. HARDCODED PATH (User provided)
-    # Adjust this path if your QGIS cannot see this specific user path
-    # But usually absolute paths work fine in Windows QGIS
-    source_path = r"c:\Users\nuri9\.gemini\antigravity\scratch\ArchDistribution\insite\현상변경허용기준.shp"
+    if not source_path:
+        source_path = DEFAULT_SOURCE_PATH
     
     if not os.path.exists(source_path):
         print(f"❌ FAIL: Source file not found at {source_path}")
