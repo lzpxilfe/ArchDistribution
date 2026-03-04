@@ -1,100 +1,118 @@
-# ArchDistribution (v1.0.2)
+# ArchDistribution
 
-**문화유적분포지도 자동 생성 & 현상변경허용기준 스마트 분석 도구**
+## 프로젝트 소개 | Overview
 
-이 플러그인은 고고학 연구자와 조사기관을 위해 개발된 QGIS 전용 자동화 도구입니다.
-복잡한 수치지형도 병합, 유적 분류, 도곽 설정, 스타일링 작업을 단 한 번의 클릭으로 해결하며, 특히 **현상변경허용기준(Zone) 레이어**의 자동 분할 및 스타일링 기능을 제공합니다.
+**KR**  
+ArchDistribution는 고고학 분포지도 제작을 빠르게 수행하기 위한 QGIS 플러그인입니다.  
+레이어 선택, 버퍼 생성, 번호 부여, 존(Zone) 처리, 스타일 적용 등 반복 작업을 줄여 실무 생산성을 높이는 데 초점을 맞췄습니다.
 
----
+**EN**  
+ArchDistribution is a QGIS plugin for fast archaeological distribution map production.  
+It reduces repetitive GIS work such as layer selection, buffer generation, numbering, zone handling, and map styling.
 
-## 🆕 v1.0.2 업데이트 (1.0.1 대비)
+## 주요 기능 | Core Features
 
-이번 1.0.2는 “기능 추가”보다 “실무 안정성 최적화”에 집중한 업데이트입니다.  
-고고학 분포지도 제작 시 반복 작업과 실행 오류 가능성을 줄여, 더 예측 가능한 워크플로우를 제공합니다.
+1. **자동 지도 준비 | Automated map preparation**  
+   KR: 조사구역/수치지형도/유적/선택 존 레이어를 입력받아 도면 준비를 자동화합니다.  
+   EN: Automates map preparation from study area, topographic, heritage, and optional zone layers.
 
-### ✅ 사용자 체감 개선
-* 🧭 **실행 흐름 단순화**: 분석 실행 경로를 정리해 버튼 클릭 시 동작이 더 일관되게 수행됩니다.
-* 🧹 **중복 로직 정리**: 다이얼로그 내부 중복 시그널/함수 구조를 정리해 유지보수성과 신뢰성을 높였습니다.
-* 📏 **버퍼 입력 유연성 개선**: `100`, `100m` 등 입력값을 안정적으로 파싱해 설정 실수를 줄였습니다.
+2. **버퍼/번호 부여 | Buffer and numbering workflow**  
+   KR: 다중 버퍼 거리 생성, 라인 스타일 지정, 정렬 기준에 따른 자동 번호 부여를 지원합니다.  
+   EN: Supports multi-distance buffers, line styling, and auto numbering by selectable order.
 
-### 🔧 내부 품질 개선
-* 🧱 **하드코딩 상수화**: 인코딩/폰트/버퍼 세그먼트/기본 CRS 등 매직값을 상수로 통합했습니다.
-* 🛡️ **예외 처리 명확화**: 광범위 예외 처리(`bare except`)를 줄여 디버깅과 장애 원인 파악이 쉬워졌습니다.
-* 📦 **환경 독립성 강화**: 보조 스크립트의 로컬 절대경로 의존성을 제거해 다른 PC에서도 재사용이 쉬워졌습니다.
+3. **존 기반 처리 | Zone-based processing**  
+   KR: 버퍼 기준 클리핑, 버퍼 외 유적 제외(옵션), 구역 분리 스타일링을 지원합니다.  
+   EN: Supports buffer-based clipping, optional exclusion outside buffer, and split-zone styling.
 
-### 🧪 검증 상태
-* ✅ 핵심 모듈 문법 검증(`py_compile`) 통과
-* ✅ 필터링 로직 테스트 스크립트 통과
+4. **속성 분류 보조 | Smart attribute assistance**  
+   KR: 레이어 명칭 패턴 기반으로 분류 보조 및 제외 후보 제안을 제공합니다.  
+   EN: Provides pattern-based classification aid and suggested exclusion candidates.
 
-> 💬 한 줄 요약: **1.0.2는 현장 실무에서 “덜 흔들리고, 더 믿고 쓰는” 안정화 버전입니다.**
+5. **실무형 UX | Practical UX**  
+   KR: 진행 로그, `latest_log.txt` 저장, 긴 화면용 스크롤 UI를 제공합니다.  
+   EN: Includes progress logs, `latest_log.txt`, and a scroll-friendly long-form UI.
 
----
+## 언어 지원 | Language Support
 
-## 🚀 주요 기능 (Key Features)
+**KR**
+- `자동(QGIS)`, `한국어`, `영어` 수동 전환 지원
+- 전환 즉시 현재 대화상자에 반영
+- 원본 SHP/GPKG 속성값은 변경하지 않음
 
-### 1. 🏗️ 현상변경허용기준 자동 분석 (Improved)
-*   **정밀 구역 분할**: "2-1구역", "2-2구역" 등 세부 구역을 정규식(Regex)으로 완벽하게 식별하여 분리합니다.
-*   **도곽 기준 클리핑(데이터 보존)**: 기본은 도곽(Extent) 기준으로만 잘라내어 데이터 손실을 최소화합니다. (Data Loss 방지)
-*   **버퍼 범위 내 자르기(옵션)**: 필요 시 가장 큰 버퍼(최대 반경) 바깥은 제외하도록 설정할 수 있습니다. (도곽 ∩ 버퍼)
-*   **스마트 스타일링**: 2구역 세부 번호(2-1, 2-2...)에 따라 서로 다른 테두리 색상과 투명한 채우기 스타일을 자동 적용합니다.
-*   **안정성**: `.shx` 파일 오류 보정 및 혼합 기하학(GeometryCollection) 처리 로직이 내장되어 있습니다.
+**EN**
+- Manual switch: `Auto (QGIS)`, `Korean`, `English`
+- Applied immediately in the current dialog
+- Does not modify your source SHP/GPKG attributes
 
-### 2. 🧠 스마트 유적 분류
-*   **정밀 필터링**: '사지'로 등록된 유적도 '석불' 키워드가 있으면 '불교석조물'로 재분류하는 등 맥락을 파악합니다.
-*   **자동 번호 부여**: 거리순(조사지역과 가까운 순), 가나다순, 북→남 순서 등 원하는 기준으로 번호를 매깁니다.
+## 요구 사항 | Requirements
 
-### 3. 🎨 지도 제작 자동화
-*   **수치지형도 병합**: 여러 장의 DXF/NGI 지형도를 하나의 레이어로 깔끔하게 합칩니다.
-*   **도곽 자동 생성**: 축척(1/5000 등)과 용지 크기(보고서/A4)만 입력하면 딱 맞는 도곽을 생성합니다.
-*   **버퍼 분석**: 조사지역 주변 50m, 100m 등 다중 버퍼를 생성하고 분석합니다.
-*   **작업 완료 후 자동 확대(Zoom)**: 결과 생성 후 도곽(Extent) 범위로 화면이 자동 이동/확대되어 바로 확인할 수 있습니다.
+- QGIS 3.28 or newer
+- SHP/GPKG/기타 벡터 입력 데이터
 
-### 4. 🛡️ 안정성 및 로그
-*   **자동 로그 저장**: 모든 작업 내역은 `latest_log.txt` 파일에 자동 저장되어, 문제가 생겨도 원인을 바로 파악할 수 있습니다.
-*   **실시간 진행률**: 작업 단계별 진행 상황을 상세하게 보여줍니다.
+## 설치 방법 | Installation
 
----
+### 1) ZIP 설치 (권장) | Install from ZIP (Recommended)
 
-## 📝 사용 방법 (Guide)
+**KR**
+1. 플러그인 ZIP 파일을 준비합니다.
+2. QGIS에서 `Plugins -> Manage and Install Plugins -> Install from ZIP` 이동
+3. ZIP 선택 후 설치
+4. 플러그인 목록에서 `ArchDistribution` 활성화
 
-### 1단계: 레이어 준비
-QGIS에 다음 레이어들을 미리 불러옵니다:
-- **조사지역 (Polygon)**: 분석의 기준이 되는 조사 범위
-- **수치지형도 (Line/Polygon)**: 배경 지도 데이터
-- **주변 유적 (Point/Polygon)**: 분포지도에 표시할 유적
-- **현상변경허용기준 (Polygon)**: (선택사항) 해당 구역 데이터
+**EN**
+1. Prepare the plugin ZIP package.
+2. In QGIS, open `Plugins -> Manage and Install Plugins -> Install from ZIP`.
+3. Select the ZIP and install.
+4. Enable `ArchDistribution` in plugin list.
 
-### 2단계: 설정 및 실행
-1.  툴바의 🏛 아이콘을 클릭하여 플러그인을 실행합니다.
-2.  **입력 탭**: 조사지역, 수치지형도, (선택) 현상변경허용기준 레이어를 선택합니다.
-3.  **설정 탭**: 도면 크기(보고서용 프리셋 등)와 축척을 설정합니다.
-4.  **[▶ 분석 및 지도 생성 실행]** 버튼을 클릭합니다.
+### 2) 수동 설치 | Manual Install
 
-### 3단계: 결과 확인
-*   `ArchDistribution_결과물` 그룹에 모든 결과가 정리되어 나타납니다.
-*   현상변경허용기준 레이어는 `현상변경허용기준` 그룹에 별도로 자동 분류되어 들어갑니다.
-*   작업 완료 후 화면이 도곽(Extent)으로 자동 확대되며, 필요 시 레이어 우클릭 → “레이어로 확대(Zoom to Layer)”를 사용하세요.
+**KR / EN**  
+`ArchDistribution` 폴더를 아래 경로에 복사 후 QGIS 재시작(또는 Plugin Reloader):
 
----
+`.../QGIS/QGIS3/profiles/default/python/plugins/ArchDistribution`
 
-## 🐛 문제 해결 (Troubleshooting)
-오류 발생 시 플러그인 폴더 내의 `latest_log.txt` 파일을 확인하거나, 해당 내용을 복사하여 제보해 주세요.
+## 기본 사용 흐름 | Typical Workflow
 
----
+**KR**
+1. QGIS에 입력 레이어 로드
+2. `ArchDistribution` 실행
+3. 레이어/축척/스타일/버퍼 옵션 설정
+4. 분석 및 지도 생성 실행
+5. 결과 그룹과 로그 확인
 
-## ⚠️ 주의사항 및 면책 (Disclaimer)
-**본 플러그인은 업무 보조 도구이며, 최종 결과물의 정확성을 보장하지 않습니다.**
-*   자동 분석 결과는 데이터 상태나 좌표계에 따라 오차가 발생할 수 있습니다.
-*   **반드시 사용자가 직접 결과물을 검수해야 합니다.**
-*   보고서나 법적 효력이 있는 문서에 사용하기 전, 전문가의 확인이 필요합니다.
-*   개발자는 본 도구 사용으로 인한 어떠한 결과에 대해서도 책임을 지지 않습니다.
+**EN**
+1. Load input layers in QGIS
+2. Open `ArchDistribution`
+3. Configure layer/scale/style/buffer options
+4. Run analysis and map generation
+5. Review output groups and logs
 
----
+## 문제 해결 | Troubleshooting
 
-## 🌟 Citation & Star
+**KR**
+- 업데이트 후 반영이 안 되면 QGIS 재시작 + 플러그인 캐시 정리
+- ZIP 설치 오류 시 ZIP 루트 구조 확인  
+  (루트에 `ArchDistribution` 폴더가 있고 그 안에 `metadata.txt` 존재)
+- 런타임 오류는 플러그인 폴더의 `latest_log.txt` 확인
 
-이 플러그인이 유용했다면 **GitHub Star** ⭐를 눌러주세요! 개발자에게 큰 힘이 됩니다.
-If you find this repository useful, please consider giving it a star ⭐ and citing it in your work:
+**EN**
+- If update is not reflected, restart QGIS and clear plugin cache
+- If ZIP install fails, verify package structure  
+  (ZIP root must contain `ArchDistribution/`, and inside it `metadata.txt`)
+- Check `latest_log.txt` for runtime errors
+
+## 면책 | Disclaimer
+
+**KR**  
+본 플러그인은 업무 보조 도구이며 법적 효력을 보장하지 않습니다.  
+공식 제출 전 최종 결과를 반드시 검수하세요.
+
+**EN**  
+This plugin is a production aid and does not guarantee legal validity.  
+Always review outputs before official submission.
+
+## Citation
 
 ```bibtex
 @software{ArchDistribution2026,
@@ -102,14 +120,13 @@ If you find this repository useful, please consider giving it a star ⭐ and cit
   title = {ArchDistribution: Automated QGIS plugin for archaeological distribution maps},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
-  version = {1.0.2}
+  version = {1.0.3}
 }
 ```
 
----
+## 프로젝트 정보 | Project Info
 
-## 📞 정보
-*   **Version**: 1.0.2
-*   **Author**: lzpxilfe (balguljang2)
-*   **Repository**: [GitHub Link](https://github.com/lzpxilfe/ArchDistribution)
-*   **License**: GPL v2
+- Version: `1.0.3`
+- Author: `lzpxilfe (balguljang2)`
+- Repository: `https://github.com/lzpxilfe/ArchDistribution`
+- License: `GPL v2`

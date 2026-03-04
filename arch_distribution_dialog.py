@@ -71,6 +71,14 @@ STYLE_FORCE_VISIBLE = """
 DEFAULT_LABEL_FONT_FAMILY = {"ko": "맑은 고딕", "en": "Arial"}
 PRESET_REPORT = (160, 240)
 PRESET_A4 = (210, 297)
+LANG_PREF_KEY = "ArchDistribution/ui_language"
+LANG_PREF_OPTIONS = ("auto", "ko", "en")
+
+
+def get_ui_language_preference():
+    """Read persisted UI language preference."""
+    pref = str(QtCore.QSettings().value(LANG_PREF_KEY, "auto")).strip().lower()
+    return pref if pref in LANG_PREF_OPTIONS else "auto"
 
 
 def detect_ui_language():
@@ -78,6 +86,10 @@ def detect_ui_language():
     forced = os.environ.get("ARCHDISTRIBUTION_LANG", "").strip().lower()
     if forced in ("ko", "en"):
         return forced
+
+    pref = get_ui_language_preference()
+    if pref in ("ko", "en"):
+        return pref
 
     locale = str(QtCore.QSettings().value("locale/userLocale", "ko")).lower()
     return "en" if locale.startswith("en") else "ko"
@@ -95,6 +107,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.ui_lang = detect_ui_language()
         self.setupUi(self) # [CRITICAL FIX] Restore UI initialization
         self._apply_static_ui_translation()
+        self._add_language_selector()
 
         # [MOVED FROM HERE]
         # make_tab_scrollable logic moved to end of __init__
@@ -320,6 +333,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
              
              self.groupSmartFilter.layout().addLayout(self.hExclusionBtns)
 
+        # Ensure all UI texts are synchronized after dynamic widgets are created.
+        self._retranslate_dynamic_widgets()
+
         # Renumber signal
         self.btnRenumber.clicked.connect(self.renumber_current_layer)
 
@@ -404,62 +420,398 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Small runtime translator for KR/EN without changing UI layout."""
         return en_text if self.ui_lang == "en" else ko_text
 
+    def _apply_compact_selection_buttons(self):
+        """Keep list action buttons compact without changing base layout behavior."""
+        compact_buttons = [
+            "btnCheckTopo",
+            "btnUncheckTopo",
+            "btnCheckHeritage",
+            "btnUncheckHeritage",
+        ]
+        for name in compact_buttons:
+            if not hasattr(self, name):
+                continue
+            btn = getattr(self, name)
+            btn.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+            btn.setMaximumWidth(140)
+
+        if hasattr(self, "vTopoButtons"):
+            self.vTopoButtons.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        if hasattr(self, "vHeritageButtons"):
+            self.vHeritageButtons.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+
     def _apply_static_ui_translation(self):
         """Translate Qt-Designer widgets at runtime while keeping .ui structure intact."""
-        if self.ui_lang != "en":
-            return
+        self.setWindowTitle(
+            self._t(
+                "ArchDistribution - 프리미엄 분포지도 엔진",
+                "ArchDistribution - Premium Distribution Map Engine",
+            )
+        )
+        if hasattr(self, "lSub"):
+            self.lSub.setText(
+                self._t(
+                    "고고학 분포지도 제작 최적화 솔루션",
+                    "Optimized solution for archaeological distribution mapping",
+                )
+            )
+
+        if hasattr(self, "tabWidget"):
+            if self.tabWidget.count() > 0:
+                self.tabWidget.setTabText(0, self._t("1. 데이터 및 구획(Spec)", "1. Data & Layout (Spec)"))
+            if self.tabWidget.count() > 1:
+                self.tabWidget.setTabText(1, self._t("2. 스타일 및 분석(Style)", "2. Style & Analysis (Style)"))
 
         if hasattr(self, "groupData"):
-            self.groupData.setTitle("Input Layer Controls")
+            self.groupData.setTitle(self._t("입력 레이어 제어 (Input Layers)", "Input Layer Controls"))
         if hasattr(self, "groupSpecs"):
-            self.groupSpecs.setTitle("Output Extent / Scale")
+            self.groupSpecs.setTitle(self._t("출력 도곽 및 축척 (Print Specifications)", "Output Extent / Scale"))
         if hasattr(self, "groupSym"):
-            self.groupSym.setTitle("Detailed Symbology")
+            self.groupSym.setTitle(self._t("레이어별 정밀 심볼 제어 (Detailed Symbology)", "Detailed Symbology"))
         if hasattr(self, "groupBuffer"):
-            self.groupBuffer.setTitle("Buffer Analysis")
+            self.groupBuffer.setTitle(self._t("버퍼 정밀 스타일 (Buffer Analysis)", "Buffer Analysis"))
         if hasattr(self, "groupNumbering"):
-            self.groupNumbering.setTitle("Numbering Rules")
+            self.groupNumbering.setTitle(self._t("유적 번호 매기기 기준 (Numbering Rules)", "Numbering Rules"))
         if hasattr(self, "groupLog"):
-            self.groupLog.setTitle("Progress Log")
+            self.groupLog.setTitle(self._t("🚀 진행 상태 로그", "🚀 Progress Log"))
+
+        if hasattr(self, "ld1"):
+            self.ld1.setText(self._t("① 조사지역 선택 (기준):", "① Study area (base):"))
+        if hasattr(self, "ld1u"):
+            self.ld1u.setText(
+                self._t(
+                    "◀ 지도 중심 및 도곽 설정의 기준이 됩니다.",
+                    "◀ Used as the baseline for map center and layout extent.",
+                )
+            )
+        if hasattr(self, "ld2"):
+            self.ld2.setText(self._t("② 수치지형도 (배경):", "② Topographic layers (base map):"))
+        if hasattr(self, "ld3"):
+            self.ld3.setText(self._t("③ 주변 유적 (분석):", "③ Heritage layers (analysis):"))
+
+        if hasattr(self, "comboStudyArea"):
+            self.comboStudyArea.setToolTip(
+                self._t(
+                    "분석의 기준이 되는 조사범위 폴리곤 레이어를 선택하세요.",
+                    "Select the study-area polygon layer used as analysis baseline.",
+                )
+            )
+        if hasattr(self, "listTopoLayers"):
+            self.listTopoLayers.setToolTip(
+                self._t(
+                    "배경으로 깔릴 수치지형도를 모두 선택하세요 (Shift/Ctrl 드래그 가능).",
+                    "Select all topo layers for background (Shift/Ctrl multi-select supported).",
+                )
+            )
+        if hasattr(self, "listHeritageLayers"):
+            self.listHeritageLayers.setToolTip(
+                self._t(
+                    "분포지도에 표시할 유적 레이어를 모두 선택하세요.",
+                    "Select heritage layers to include in the distribution map.",
+                )
+            )
 
         if hasattr(self, "btnCheckTopo"):
-            self.btnCheckTopo.setText("Check selected")
-            self.btnCheckTopo.setToolTip("Check selected items in the list.")
+            self.btnCheckTopo.setText(self._t("선택 설정(V)", "Check selected"))
+            self.btnCheckTopo.setToolTip(
+                self._t(
+                    "목록에서 선택(음영표시)된 항목의 체크박스를 활성화합니다.",
+                    "Check selected items in the list.",
+                )
+            )
         if hasattr(self, "btnUncheckTopo"):
-            self.btnUncheckTopo.setText("Uncheck selected")
+            self.btnUncheckTopo.setText(self._t("선택 해제", "Uncheck selected"))
         if hasattr(self, "btnCheckHeritage"):
-            self.btnCheckHeritage.setText("Check selected")
-            self.btnCheckHeritage.setToolTip("Check selected items in the list.")
+            self.btnCheckHeritage.setText(self._t("선택 설정(V)", "Check selected"))
+            self.btnCheckHeritage.setToolTip(
+                self._t(
+                    "목록에서 선택(음영표시)된 항목의 체크박스를 활성화합니다.",
+                    "Check selected items in the list.",
+                )
+            )
         if hasattr(self, "btnUncheckHeritage"):
-            self.btnUncheckHeritage.setText("Uncheck selected")
+            self.btnUncheckHeritage.setText(self._t("선택 해제", "Uncheck selected"))
 
         if hasattr(self, "btnPresetReport"):
-            self.btnPresetReport.setText("Report (160x240)")
-            self.btnPresetReport.setToolTip("Apply report-size preset.")
+            self.btnPresetReport.setText(self._t("보고서 (160x240)", "Report (160x240)"))
+            self.btnPresetReport.setToolTip(
+                self._t(
+                    "표준 보고서 사이즈로 가로/세로 길이를 자동 설정합니다.",
+                    "Apply report-size preset for width/height.",
+                )
+            )
         if hasattr(self, "btnPresetA4"):
             self.btnPresetA4.setText("A4 (210x297)")
-            self.btnPresetA4.setToolTip("Apply A4-size preset.")
+            self.btnPresetA4.setToolTip(
+                self._t(
+                    "A4 사이즈로 가로/세로 길이를 자동 설정합니다.",
+                    "Apply A4 preset for width/height.",
+                )
+            )
+
+        if hasattr(self, "lp1"):
+            self.lp1.setText(self._t("도면 가로(W):", "Paper width (W):"))
+        if hasattr(self, "lp1u"):
+            self.lp1u.setText(self._t("mm (밀리미터)", "mm (millimeter)"))
+        if hasattr(self, "lp2"):
+            self.lp2.setText(self._t("도면 세로(H):", "Paper height (H):"))
+        if hasattr(self, "lp2u"):
+            self.lp2u.setText(self._t("mm (밀리미터)", "mm (millimeter)"))
+        if hasattr(self, "lp3"):
+            self.lp3.setText(self._t("축척(Scale):", "Scale:"))
+        if hasattr(self, "lp3u"):
+            self.lp3u.setText(self._t("1 : [입력값]", "1 : [value]"))
+
+        if hasattr(self, "ls1"):
+            self.ls1.setText(self._t("① 주변 유적 스타일:", "① Heritage style:"))
+        if hasattr(self, "spinHeritageStrokeWidth"):
+            self.spinHeritageStrokeWidth.setToolTip(
+                self._t(
+                    "유적 폴리곤의 외곽선 두께(mm)를 설정합니다.",
+                    "Set heritage polygon stroke width in mm.",
+                )
+            )
+        if hasattr(self, "spinHeritageOpacity"):
+            self.spinHeritageOpacity.setToolTip(
+                self._t(
+                    "유적 내부 채움 색상의 투명도입니다 (0% = 투명, 100% = 불투명).",
+                    "Opacity of heritage fill color (0% transparent, 100% opaque).",
+                )
+            )
+        if hasattr(self, "ls2"):
+            self.ls2.setText(self._t("② 조사지역 스타일:", "② Study area style:"))
+        if hasattr(self, "ls3"):
+            self.ls3.setText(self._t("③ 수치지형도 스타일:", "③ Topographic style:"))
+        if hasattr(self, "lStudyInfo"):
+            self.lStudyInfo.setText(
+                self._t(
+                    "※ 조사지역은 내부를 비우고 외곽선만 표시합니다.",
+                    "* Study area is rendered as outline only (no fill).",
+                )
+            )
+        if hasattr(self, "lTopoInfo"):
+            self.lTopoInfo.setText(
+                self._t(
+                    "※ 수치지형도의 모든 라인을 병합하여 단일 색상으로 표현합니다.",
+                    "* Topographic lines are merged and rendered in one color.",
+                )
+            )
 
         if hasattr(self, "btnHeritageStrokeColor"):
-            self.btnHeritageStrokeColor.setText("Stroke color")
+            self.btnHeritageStrokeColor.setText(self._t("테두리 색상", "Stroke color"))
         if hasattr(self, "btnHeritageFillColor"):
-            self.btnHeritageFillColor.setText("Fill color")
+            self.btnHeritageFillColor.setText(self._t("채움(면) 색상", "Fill color"))
         if hasattr(self, "btnStudyStrokeColor"):
-            self.btnStudyStrokeColor.setText("Stroke color")
+            self.btnStudyStrokeColor.setText(self._t("테두리 색상", "Stroke color"))
         if hasattr(self, "btnTopoStrokeColor"):
-            self.btnTopoStrokeColor.setText("Topo color")
-        if hasattr(self, "btnBufferColor"):
-            self.btnBufferColor.setText("Line color")
+            self.btnTopoStrokeColor.setText(self._t("수치지형도 색상", "Topo color"))
+
+        if hasattr(self, "lb1"):
+            self.lb1.setText(self._t("① 조사구역 버퍼 거리(m):", "① Study-area buffer distance (m):"))
+        if hasattr(self, "editBufferDistance"):
+            self.editBufferDistance.setToolTip(
+                self._t(
+                    "조사구역 주변으로 그릴 반경(미터)을 입력하세요 (예: 500).",
+                    "Enter buffer distance in meters (e.g., 500).",
+                )
+            )
+            self.editBufferDistance.setPlaceholderText(
+                self._t("숫자 입력 (예: 500)", "Enter number (e.g., 500)")
+            )
         if hasattr(self, "btnAddBuffer"):
-            self.btnAddBuffer.setText("Add (+)")
+            self.btnAddBuffer.setText(self._t("추가 (+)", "Add (+)"))
+        if hasattr(self, "listBuffers"):
+            self.listBuffers.setToolTip(
+                self._t(
+                    "추가된 버퍼 목록입니다. 더블클릭하면 삭제할 수 있습니다.",
+                    "Added buffer list. Double-click an item to remove.",
+                )
+            )
+        if hasattr(self, "lb2"):
+            self.lb2.setText(self._t("② 버퍼 라인 스타일:", "② Buffer line style:"))
+        if hasattr(self, "spinBufferWidth"):
+            self.spinBufferWidth.setToolTip(
+                self._t(
+                    "버퍼 라인의 두께(mm)를 설정합니다.",
+                    "Set buffer line width in mm.",
+                )
+            )
+        if hasattr(self, "lbWidthUnit"):
+            self.lbWidthUnit.setText(self._t("mm (두께)", "mm (width)"))
+        if hasattr(self, "btnBufferColor"):
+            self.btnBufferColor.setText(self._t("라인 색상 설정", "Line color"))
+
+        if hasattr(self, "ln1"):
+            self.ln1.setText(self._t("번호 부여 질서(목록):", "Numbering order:"))
         if hasattr(self, "btnRenumber"):
-            self.btnRenumber.setText("Refresh numbering (active layer)")
-            self.btnRenumber.setToolTip("Renumber features from 1 in the current active layer.")
+            self.btnRenumber.setText(self._t("🔄 번호 새로고침 (현재 레이어)", "Refresh numbering (active layer)"))
+            self.btnRenumber.setToolTip(
+                self._t(
+                    "현재 선택된 레이어의 유적 번호를 1번부터 다시 매깁니다 (삭제 후 번호 정리용).",
+                    "Renumber features from 1 in the active layer (after edits/deletions).",
+                )
+            )
+        if hasattr(self, "ln1u"):
+            self.ln1u.setText(self._t("(자동 번호 부여)", "(auto numbering)"))
+        if hasattr(self, "lnScaleInfo"):
+            self.lnScaleInfo.setText(self._t("⚠ 현재 축척:", "⚠ Current scale:"))
+
         if hasattr(self, "btnRun"):
-            self.btnRun.setText("Run Analysis / Generate Map")
+            self.btnRun.setText(self._t("▶ 분석 및 지도 생성 실행", "Run Analysis / Generate Map"))
 
         if hasattr(self, "btnHelp"):
-            self.btnHelp.setToolTip("User guide and export tips")
+            self.btnHelp.setToolTip(self._t("사용 가이드 및 PDF 반출 도움말", "User guide and export tips"))
+
+        self._apply_compact_selection_buttons()
+
+    def _add_language_selector(self):
+        """Add manual UI language selector without modifying the .ui layout file."""
+        if not hasattr(self, "hHeader"):
+            return
+
+        self.lblUiLang = QtWidgets.QLabel(self._t("언어:", "Language:"))
+        self.comboUiLang = QtWidgets.QComboBox()
+        self.comboUiLang.setToolTip(
+            self._t(
+                "UI 언어를 수동 선택합니다. 즉시 반영됩니다.",
+                "Manually choose UI language. Applies immediately.",
+            )
+        )
+        self.comboUiLang.setMinimumWidth(125)
+        self._populate_language_selector_items()
+
+        self.comboUiLang.currentIndexChanged.connect(self._on_language_combo_changed)
+
+        # hHeader order: title, spacer, help, subtitle. Insert selector before help.
+        self.hHeader.insertWidget(2, self.lblUiLang)
+        self.hHeader.insertWidget(3, self.comboUiLang)
+
+    def _populate_language_selector_items(self):
+        """Populate language selector options and keep the persisted selection."""
+        if not hasattr(self, "comboUiLang"):
+            return
+
+        pref = get_ui_language_preference()
+        self.comboUiLang.blockSignals(True)
+        self.comboUiLang.clear()
+        self.comboUiLang.addItem(self._t("자동 (QGIS)", "Auto (QGIS)"), "auto")
+        self.comboUiLang.addItem(self._t("한국어", "Korean"), "ko")
+        self.comboUiLang.addItem(self._t("영어", "English"), "en")
+
+        idx = self.comboUiLang.findData(pref)
+        if idx < 0:
+            idx = 0
+        self.comboUiLang.setCurrentIndex(idx)
+        self.comboUiLang.blockSignals(False)
+
+    def _retranslate_dynamic_widgets(self):
+        """Update programmatically created widgets when language preference changes."""
+        # Update combo options while preserving current selection index
+        if hasattr(self, "comboBufferStyle"):
+            idx = self.comboBufferStyle.currentIndex()
+            self.comboBufferStyle.blockSignals(True)
+            self.comboBufferStyle.clear()
+            self.comboBufferStyle.addItems(BUFFER_STYLE_OPTIONS[self.ui_lang])
+            self.comboBufferStyle.setCurrentIndex(max(0, min(idx, self.comboBufferStyle.count() - 1)))
+            self.comboBufferStyle.blockSignals(False)
+
+        if hasattr(self, "comboSortOrder"):
+            idx = self.comboSortOrder.currentIndex()
+            self.comboSortOrder.blockSignals(True)
+            self.comboSortOrder.clear()
+            self.comboSortOrder.addItems(SORT_ORDER_OPTIONS[self.ui_lang])
+            self.comboSortOrder.setCurrentIndex(max(0, min(idx, self.comboSortOrder.count() - 1)))
+            self.comboSortOrder.blockSignals(False)
+
+        if hasattr(self, "groupSmartFilter"):
+            self.groupSmartFilter.setTitle(self._t("유적 속성 분류", "Site Attribute Classification"))
+        if hasattr(self, "lSmartDesc"):
+            self.lSmartDesc.setText(
+                self._t(
+                    "체크된 유적 레이어의 명칭을 분석하여 시대와 성격을 자동 분류합니다.",
+                    "Analyze selected heritage-layer names and classify period/type automatically.",
+                )
+            )
+        if hasattr(self, "btnSmartScan"):
+            self.btnSmartScan.setText(self._t("속성 분류 실행", "Run Attribute Scan"))
+        if hasattr(self, "lblEra"):
+            self.lblEra.setText(self._t("시대", "Era"))
+        if hasattr(self, "lblType"):
+            self.lblType.setText(self._t("성격", "Type"))
+        if hasattr(self, "lblExclusion"):
+            self.lblExclusion.setText(self._t("제외 제안 목록 (체크시 제외됨):", "Suggested Exclusions (checked = exclude):"))
+
+        if hasattr(self, "lblZoneLayer"):
+            self.lblZoneLayer.setText(self._t("현상변경 허용구간 레이어 (선택):", "Zone Layer (optional):"))
+        if hasattr(self, "chkClipZoneToBuffer"):
+            self.chkClipZoneToBuffer.setText(self._t("버퍼 범위 내 자르기 (반경 내만 표시)", "Clip to buffer extent (inside radius only)"))
+            self.chkClipZoneToBuffer.setToolTip(
+                self._t(
+                    "체크 시, 도곽 전체가 아닌 조사 반경(가장 큰 버퍼) 내의 현상변경허용기준만 남기고 나머지는 잘라냅니다.",
+                    "Keep only zone features inside the largest survey buffer (instead of full extent).",
+                )
+            )
+        if hasattr(self, "chkRestrictToBuffer"):
+            self.chkRestrictToBuffer.setText(self._t("버퍼 범위 외 유적 제외 (감추기)", "Exclude sites outside buffer (hide)"))
+            self.chkRestrictToBuffer.setToolTip(
+                self._t(
+                    "체크 시: 최외곽 버퍼 바깥의 유적은 번호를 매기지 않고 지도에서 숨깁니다. (지표조사 등)\n체크 해제 시: 모든 유적에 번호를 매깁니다. (일반조사 등)",
+                    "Checked: hide/unnumber sites outside the outermost buffer.\nUnchecked: number all sites.",
+                )
+            )
+
+        if hasattr(self, "groupLabelStyle"):
+            self.groupLabelStyle.setTitle(self._t("라벨 스타일", "Label Style"))
+        if hasattr(self, "lblFontSize"):
+            self.lblFontSize.setText(self._t("글자 크기:", "Font size:"))
+        if hasattr(self, "spinLabelFontSize"):
+            self.spinLabelFontSize.setToolTip(self._t("유적 번호 라벨의 글자 크기 (pt)", "Label font size (pt) for site number"))
+        if hasattr(self, "lblFontFamily"):
+            self.lblFontFamily.setText(self._t("글씨체:", "Font family:"))
+        if hasattr(self, "comboLabelFont"):
+            self.comboLabelFont.setToolTip(self._t("유적 번호 라벨의 글씨체", "Label font family for site number"))
+
+        if hasattr(self, "btnExcludeSel"):
+            self.btnExcludeSel.setText(self._t("선택 항목 제외 (체크)", "Exclude selected (check)"))
+            self.btnExcludeSel.setToolTip(self._t("선택한 항목들을 리스트에서 체크합니다. (지도에서 제외됨)", "Check selected items (excluded on map)"))
+        if hasattr(self, "btnIncludeSel"):
+            self.btnIncludeSel.setText(self._t("선택 항목 포함 (해제)", "Include selected (uncheck)"))
+            self.btnIncludeSel.setToolTip(self._t("선택한 항목들의 체크를 해제합니다. (지도에 포함됨)", "Uncheck selected items (included on map)"))
+
+        if hasattr(self, "lblUiLang"):
+            self.lblUiLang.setText(self._t("언어:", "Language:"))
+        if hasattr(self, "comboUiLang"):
+            self.comboUiLang.setToolTip(
+                self._t(
+                    "UI 언어를 수동 선택합니다. 즉시 반영됩니다.",
+                    "Manually choose UI language. Applies immediately.",
+                )
+            )
+            self._populate_language_selector_items()
+
+        self._apply_static_ui_translation()
+        self.update_scale_indicator()
+
+    def _on_language_combo_changed(self, _index):
+        selected = str(self.comboUiLang.currentData())
+        if not selected:
+            return
+
+        current_pref = get_ui_language_preference()
+        if selected == current_pref:
+            return
+
+        QtCore.QSettings().setValue(LANG_PREF_KEY, selected)
+        self.ui_lang = detect_ui_language()
+        self._retranslate_dynamic_widgets()
+        QtWidgets.QMessageBox.information(
+            self,
+            self._t("언어 설정", "Language Setting"),
+            self._t(
+                "언어 설정이 저장되었습니다.\n현재 창에 즉시 반영됩니다.",
+                "Language preference has been saved.\nIt has been applied to the current dialog.",
+            ),
+        )
 
     def set_list_check_state(self, list_widget, checked):
         """Batch set check state for selected items in a list widget."""
