@@ -3,6 +3,7 @@ import zipfile
 import configparser
 import subprocess
 import sys
+from pathlib import Path
 
 def get_git_files():
     try:
@@ -17,55 +18,56 @@ def get_git_files():
         return None
 
 def create_plugin_zip():
-    # Detect plugin name from metadata.txt
-    plugin_name = "ArchDistribution" # Default
-    metadata_path = 'metadata.txt'
-    
-    if os.path.exists(metadata_path):
+    plugin_name = "ArchDistribution"
+    version = "dev"
+    metadata_path = Path("metadata.txt")
+
+    if metadata_path.exists():
         config = configparser.ConfigParser()
         try:
-            config.read(metadata_path, encoding='utf-8')
-            # Keeping default name for consistency
-            pass
+            config.read(metadata_path, encoding="utf-8")
+            plugin_name = config.get("general", "name", fallback=plugin_name).strip() or plugin_name
+            version = config.get("general", "version", fallback=version).strip() or version
         except Exception as e:
             print(f"Warning: Could not read metadata.txt: {e}")
 
     # The folder name INSIDE the zip file must match the plugin package name
-    zip_root_name = "ArchDistribution"
-    
+    zip_root_name = plugin_name
+
     # Save to Desktop
-    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-    zip_filename = os.path.join(desktop_path, "ArchDistribution.zip")
+    desktop_path = Path.home() / "Desktop"
+    zip_filename = desktop_path / f"{plugin_name}-{version}.zip"
 
     # Try to get files from git
     git_files = get_git_files()
 
-    # Files to explicitly exclude even if they are in git (dev scripts, tools, etc.)
-    # We match these by filename or partial path
-    dev_exclusions = [
-        'create_zip.py', 'debug_', 'test_', 'analyze_', 'inspect_', 'fix_', 'force_', 
-        'compile_reference.py', 'find_insite.py', '.gitignore', '.gitattributes'
-    ]
+    runtime_files = {
+        "LICENSE",
+        "README.md",
+        "__init__.py",
+        "arch_distribution.py",
+        "arch_distribution_dialog.py",
+        "arch_distribution_dialog_base.ui",
+        "icon.png",
+        "metadata.txt",
+        "reference_data.json",
+        "smart_patterns.json",
+    }
 
     print(f"Creating {zip_filename}...")
-    
+
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # QGIS expects a real top-level plugin directory inside the archive.
+        root_info = zipfile.ZipInfo(f"{zip_root_name}/")
+        root_info.external_attr = 0o40755 << 16
+        zipf.writestr(root_info, b"")
+
         if git_files:
             print("Using git tracked files list...")
             files_to_zip = []
             for f in git_files:
-                # Check exclusions
-                is_excluded = False
                 basename = os.path.basename(f)
-                if basename == 'create_zip.py' or f.endswith('.zip'):
-                    is_excluded = True
-                else:
-                    for exc in dev_exclusions:
-                        if exc in basename: # Simple substring check for things like debug_*.py
-                            is_excluded = True
-                            break
-                
-                if not is_excluded:
+                if basename in runtime_files:
                     files_to_zip.append(f)
         else:
             print("Warning: git not found. Using manual file walking (fallback).")
@@ -77,10 +79,9 @@ def create_plugin_zip():
                 continue
                 
             # git files are relative path strings from repo root
-            rel_path = file_path.replace('/', os.sep)
-            
-            arc_name = os.path.join(zip_root_name, rel_path)
-            
+            rel_path = Path(file_path).as_posix()
+            arc_name = f"{zip_root_name}/{rel_path}"
+
             print(f"Adding {rel_path} as {arc_name}")
             
             try:
