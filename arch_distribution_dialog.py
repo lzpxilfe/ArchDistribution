@@ -108,6 +108,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self) # [CRITICAL FIX] Restore UI initialization
         self._apply_static_ui_translation()
         self._add_language_selector()
+        self._stabilize_data_panel_layout()
 
         # [MOVED FROM HERE]
         # make_tab_scrollable logic moved to end of __init__
@@ -420,6 +421,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Small runtime translator for KR/EN without changing UI layout."""
         return en_text if self.ui_lang == "en" else ko_text
 
+    def _stabilize_data_panel_layout(self):
+        """Keep the layer-selection lists wide and hide the optional study-area hint."""
+        if hasattr(self, "ld1u"):
+            self.ld1u.clear()
+            self.ld1u.setToolTip("")
+            self.ld1u.hide()
+
     def _apply_compact_selection_buttons(self):
         """Keep list action buttons compact without changing base layout behavior."""
         compact_buttons = [
@@ -476,18 +484,28 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.groupLog.setTitle(self._t("🚀 진행 상태 로그", "🚀 Progress Log"))
 
         if hasattr(self, "ld1"):
-            self.ld1.setText(self._t("① 조사지역 선택 (기준):", "① Study area (base):"))
-        if hasattr(self, "ld1u"):
-            self.ld1u.setText(
+            self.ld1.setText(self._t("① 조사지역 선택 (기준):", "① Study area:"))
+            self.ld1.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
+            self.ld1.setMinimumWidth(160)
+            self.ld1.setMaximumWidth(160)
+            self.ld1.setToolTip(
                 self._t(
-                    "◀ 지도 중심 및 도곽 설정의 기준이 됩니다.",
-                    "◀ Used as the baseline for map center and layout extent.",
+                    "지도 중심 및 도곽 설정의 기준이 되는 레이어입니다.",
+                    "This layer is used as the baseline for map center and layout extent.",
                 )
             )
+        if hasattr(self, "ld1u"):
+            self.ld1u.clear()
         if hasattr(self, "ld2"):
-            self.ld2.setText(self._t("② 수치지형도 (배경):", "② Topographic layers (base map):"))
+            self.ld2.setText(self._t("② 수치지형도 (배경):", "② Topographic layers:"))
+            self.ld2.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
+            self.ld2.setMinimumWidth(160)
+            self.ld2.setMaximumWidth(160)
         if hasattr(self, "ld3"):
-            self.ld3.setText(self._t("③ 주변 유적 (분석):", "③ Heritage layers (analysis):"))
+            self.ld3.setText(self._t("③ 주변 유적 (분석):", "③ Heritage layers:"))
+            self.ld3.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Preferred)
+            self.ld3.setMinimumWidth(160)
+            self.ld3.setMaximumWidth(160)
 
         if hasattr(self, "comboStudyArea"):
             self.comboStudyArea.setToolTip(
@@ -669,7 +687,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if not hasattr(self, "hHeader"):
             return
 
-        self.lblUiLang = QtWidgets.QLabel(self._t("언어:", "Language:"))
+        self.lblUiLang = QtWidgets.QLabel("Language:")
         self.comboUiLang = QtWidgets.QComboBox()
         self.comboUiLang.setToolTip(
             self._t(
@@ -694,9 +712,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         pref = get_ui_language_preference()
         self.comboUiLang.blockSignals(True)
         self.comboUiLang.clear()
-        self.comboUiLang.addItem(self._t("자동 (QGIS)", "Auto (QGIS)"), "auto")
-        self.comboUiLang.addItem(self._t("한국어", "Korean"), "ko")
-        self.comboUiLang.addItem(self._t("영어", "English"), "en")
+        self.comboUiLang.addItem("Auto (QGIS)", "auto")
+        self.comboUiLang.addItem("Korean", "ko")
+        self.comboUiLang.addItem("English", "en")
 
         idx = self.comboUiLang.findData(pref)
         if idx < 0:
@@ -779,7 +797,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.btnIncludeSel.setToolTip(self._t("선택한 항목들의 체크를 해제합니다. (지도에 포함됨)", "Uncheck selected items (included on map)"))
 
         if hasattr(self, "lblUiLang"):
-            self.lblUiLang.setText(self._t("언어:", "Language:"))
+            self.lblUiLang.setText("Language:")
         if hasattr(self, "comboUiLang"):
             self.comboUiLang.setToolTip(
                 self._t(
@@ -790,6 +808,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self._populate_language_selector_items()
 
         self._apply_static_ui_translation()
+        self._stabilize_data_panel_layout()
         self.update_scale_indicator()
 
     def _on_language_combo_changed(self, _index):
