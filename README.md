@@ -120,13 +120,13 @@ Always review outputs before official submission.
   title = {ArchDistribution: Automated QGIS plugin for archaeological distribution maps},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
-  version = {1.0.3}
+  version = {1.0.4}
 }
 ```
 
 ## 프로젝트 정보 | Project Info
 
-- Version: `1.0.3`
+- Version: `1.0.4`
 - Author: `lzpxilfe (balguljang2)`
 - Repository: `https://github.com/lzpxilfe/ArchDistribution`
 - License: `GPL v2`

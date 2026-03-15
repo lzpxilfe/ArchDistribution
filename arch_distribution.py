@@ -1,18 +1,17 @@
 from qgis.PyQt import QtCore
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant, Qt
+from qgis.PyQt.QtCore import QCoreApplication, QVariant, Qt
 from qgis.PyQt.QtGui import QIcon, QColor, QFont
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QProgressDialog
-from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature, 
-                       QgsField, QgsDistanceArea, QgsUnitTypes, QgsPointXY,
+from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
+                       QgsField, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
-                       QgsFillSymbol, QgsLayerTreeGroup, QgsLayerTreeLayer,
+                       QgsFillSymbol,
                        QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling,
-                       QgsCategorizedSymbolRenderer, QgsRendererCategory,
                        QgsCoordinateTransform, QgsWkbTypes, QgsRectangle)
 
 import os.path
 import processing
-import datetime
+from datetime import datetime
 
 from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
 
@@ -29,6 +28,7 @@ DEFAULT_EXTENT_FALLBACK_CRS = "EPSG:5186"
 TOPO_BOUNDARY_EXCLUDE_CODE = "H0017334"
 SAFE_BUFFER_DIST_GEOGRAPHIC = 0.000001
 SAFE_BUFFER_DIST_PROJECTED = 0.01
+
 
 class ArchDistribution:
     def __init__(self, iface):
@@ -93,8 +93,7 @@ class ArchDistribution:
 
     def log(self, message):
         """Log a message to the dialog log window, QGIS message bar, and file."""
-        import datetime
-        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+        timestamp = datetime.now().strftime('%H:%M:%S')
         full_msg = f"[{timestamp}] {message}"
         
         # 1. Dialog Log
@@ -155,8 +154,8 @@ class ArchDistribution:
             log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
-        except Exception:
-            pass
+        except OSError as exc:
+            print(f"ArchDistribution: log file initialization failed: {exc}")
             
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
@@ -212,7 +211,7 @@ class ArchDistribution:
                  self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
             
             # Create a clone in memory for the results group
-            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType()==2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
+            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType() == 2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
             study_result_pr = study_result_layer.dataProvider()
             
             # Copy all features
@@ -707,8 +706,8 @@ class ArchDistribution:
             try:
                 with open(json_pattern_path, 'r', encoding='utf-8') as f:
                     self.smart_patterns = json.load(f)
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError) as exc:
+                self.log(f"스마트 패턴 로드 실패, 기본값 사용: {exc}")
 
     def should_exclude(self, name, filter_items):
         """
@@ -919,26 +918,11 @@ class ArchDistribution:
                         val_name = feat[name_field] if name_field else ""
                         val_heritage = feat[heritage_name_field] if heritage_name_field else ""
                         val_project = feat[project_name_field] if project_name_field else ""
-                        val_type = feat[self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE'])] if self.find_field(layer, ['유적종류', '종류', '성격', '구분', 'TYPE']) else ""
-
                         # [NEW] Filtering Logic
                         # 1. Smart Filter (Era/Type from JSON)
                         if self.should_exclude(val_name, filter_categories): # filter_categories is actually 'filter_items' list
                             continue
 
-                        # Determine category for filtering (Old Logic - Deprecated but kept for safety/fallback?)
-                        # Actually we can skip the old logic if we rely on the new one.
-                        # But for 'VIP' status, we might still want to mark it?
-                        
-                        current_cat = "기타"
-                        is_vip = any(k in layer.name() for k in ["국가지정", "시도지정", "등록", "지정", "문화유산"])
-                        if is_vip or val_heritage:
-                             current_cat = "[필수] 지정문화유산 (VIP)"
-                        elif val_type and len(str(val_type)) > 1:
-                             current_cat = str(val_type)
-                        else:
-                             current_cat = self.keyword_inference(val_name)
-                        
                         # [NEW] Smart Naming Logic
                         display_name = val_name
                         if val_heritage: # National Heritage takes precedence
@@ -1036,9 +1020,6 @@ class ArchDistribution:
         # 1. Strip Whitespace
         # 2. Extract real name if it contains "지표조사" or "발굴조사" (User feedback: long project name + site name)
         merged_layer.startEditing()
-        name_idx = merged_layer.fields().indexOf(name_field)
-        
-        split_keywords = ["지표조사", "발굴조사", "시굴조사", "표본조사", "정밀조사", "입회조사"]
         
         # [FIX] Disabled Aggressive Name Cleaning (User Request)
         # Reason: "Site A (Survey)" and "Site A (Excavation)" were being merged into "Site A", causing data loss.
@@ -1090,7 +1071,6 @@ class ArchDistribution:
             final_layer.setName("수집_및_병합된_주변유적")
 
         return final_layer
-
 
     def number_heritage_v4(self, layer, study_layer_or_centroid, sort_order, extent_geom=None, extent_crs=None, buffer_geoms=None, restrict_to_buffer=True):
         """
@@ -1310,7 +1290,6 @@ class ArchDistribution:
         # [FIX] Delete Outside Features instead of hiding
         # Collect IDs to delete
         # ids_to_delete already initialized above
-        seen_names = set()
         
         # Identify Name Field for Soft Deduplication
         idx_name = layer.fields().indexOf("유적명")
@@ -1677,8 +1656,9 @@ class ArchDistribution:
                 elif norm_val in style_map: style = style_map[norm_val]
                 else:
                      for k, v in sorted(style_map.items(), key=lambda item: len(item[0]), reverse=True):
-                         if k in val_str and len(k) > 0: 
-                             style = v; break
+                         if k in val_str and len(k) > 0:
+                             style = v
+                             break
             
             if style:
                 # Apply Style with Opacity
@@ -1689,7 +1669,7 @@ class ArchDistribution:
                 # Check if it's "transparent" fill or actual color
                 fill_col = style['fill']
                 if fill_col == 'transparent':
-                     symbol.setColor(QColor(0,0,0,0)) # Transparent
+                     symbol.setColor(QColor(0, 0, 0, 0)) # Transparent
                 else:
                      symbol.setColor(QColor(fill_col))
                 

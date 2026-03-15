@@ -12,6 +12,7 @@ from qgis.utils import iface # [CRITICAL FIX] Import global iface
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'arch_distribution_dialog_base.ui'))
 
+
 def get_plugin_version():
     """Read version from metadata.txt"""
     try:
@@ -20,8 +21,8 @@ def get_plugin_version():
             for line in f:
                 if line.startswith('version='):
                     return line.strip().split('=')[1]
-    except Exception:
-        pass
+    except (OSError, ValueError):
+        return "unknown"
     return "unknown"  # Fallback
 
 
@@ -112,7 +113,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # [MOVED FROM HERE]
         # make_tab_scrollable logic moved to end of __init__
-
 
         # [NEW] Programmatically add missing UI elements for Smart Filter
         self.groupSmartFilter = QtWidgets.QGroupBox(self._t("유적 속성 분류", "Site Attribute Classification"))
@@ -232,8 +232,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.spinScale.setSingleStep(DEFAULT_SPIN_VALUES["scale_step"])
         self.comboSortOrder.setCurrentIndex(0)
         self.tabWidget.setCurrentIndex(0)
-        
-        
         self.update_button_colors()
 
         # [CRITICAL FIX] Explicitly populate dropdowns in Python to guarantee items exist
@@ -874,8 +872,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # Force UI update
         QtWidgets.QApplication.processEvents()
 
-
-
     def update_button_colors(self):
         self.btnHeritageStrokeColor.setStyleSheet(f"background-color: {self.heritage_stroke_color.name()}; color: {'white' if self.heritage_stroke_color.lightness() < 128 else 'black'};")
         self.btnHeritageFillColor.setStyleSheet(f"background-color: {self.heritage_fill_color.name()}; color: {'white' if self.heritage_fill_color.lightness() < 128 else 'black'};")
@@ -942,22 +938,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                  ),
              )
              return
-
-        # Get Study Area Centroid for Sorting
-        study_layer_id = self.comboStudyArea.currentData()
-        study_layer = QgsProject.instance().mapLayer(study_layer_id)
-        
-        centroid = None
-        if study_layer:
-             # Hacky way to access the helper method in the main logic class?
-             # Actually, logic code is in 'ArchDistribution' class instance which holds 'dlg'.
-             # 'dlg' doesn't hold 'ArchDistribution'.
-             # So we should emit a signal to request renumbering, or move the logic here?
-             # Cleanest: Emit a signal 'renumber_requested' with the layer.
-             pass
-        else:
-             # If study layer is missing, we can't do distance sort, but others work.
-             pass
 
         # Wait, the Dialog shouldn't do the heavy lifting.
         # Let's emit a signal sending the layer to the main plugin logic.
@@ -1248,7 +1228,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             self.listExclusions.addItem(self._t("(제외 대상 없음)", "(No exclusion candidates)"))
 
-
     def get_checked_items(self, _ignored):
         """Return list of checked items data from both Era and Type lists."""
         checked = []
@@ -1302,8 +1281,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 cleaned = [str(x).strip() for x in noise_keywords if str(x).strip()]
                 if cleaned:
                     return cleaned[:limit]
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, TypeError):
+            return defaults[:limit]
         return defaults[:limit]
 
     def show_help(self):
