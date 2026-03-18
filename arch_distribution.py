@@ -55,7 +55,7 @@ class ArchDistribution:
         for action in self.actions:
             self.iface.removePluginMenu(self.menu, action)
             self.iface.removeToolBarIcon(action)
-        
+
         # Remove toolbar
         if self.toolbar:
             del self.toolbar
@@ -95,14 +95,14 @@ class ArchDistribution:
         """Log a message to the dialog log window, QGIS message bar, and file."""
         timestamp = datetime.now().strftime('%H:%M:%S')
         full_msg = f"[{timestamp}] {message}"
-        
+
         # 1. Dialog Log
         if hasattr(self, 'dlg') and self.dlg:
             self.dlg.log(full_msg)
-            
+
         # 2. QGIS Console/Message Bar
         print(f"ArchDistribution: {message}")
-        
+
         # 3. File Log (New)
         try:
             log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
@@ -156,11 +156,11 @@ class ArchDistribution:
                 f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
         except OSError as exc:
             print(f"ArchDistribution: log file initialization failed: {exc}")
-            
+
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
         self.log("작업을 시작합니다...")
-        
+
         # 0. Setup Progress Dialog
         total_steps = DEFAULT_PROGRESS_STEPS
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
@@ -168,19 +168,20 @@ class ArchDistribution:
         progress.setWindowTitle("ArchDistribution 진행률")
         progress.setMinimumDuration(0)
         progress.setValue(0)
-        
+
         try:
             current_step = 0
-            
+
             # Step 1: Groups
             self.log("레이어 그룹 설정 중...")
             root = QgsProject.instance().layerTreeRoot()
-            
+
             # 1-1. Output Group: Clear and recreate
             existing_out = root.findGroup("ArchDistribution_결과물")
-            if existing_out: root.removeChildNode(existing_out)
+            if existing_out:
+                root.removeChildNode(existing_out)
             out_group = root.insertGroup(0, "ArchDistribution_결과물")
-            
+
             # Sub-groups in specific order (Top to Bottom)
             stu_group = out_group.addGroup("00_조사구역_및_표제")
             her_group = out_group.addGroup("01_유적_현황")
@@ -188,12 +189,12 @@ class ArchDistribution:
             buf_group = out_group.addGroup("03_조사구역_버퍼")
             topo_merged_group = out_group.addGroup("04_수치지형도_병합")
             zone_merged_group = out_group.addGroup("05_현상변경허용기준")
-            
+
             # 1-2. Source Group: Persist (don't delete original layers!)
             src_group = root.findGroup("ArchDistribution_원본_데이터")
             if not src_group:
                 src_group = root.addGroup("ArchDistribution_원본_데이터")
-            
+
             # Hide source group by default to focus on outputs
             src_group.setItemVisibilityChecked(False)
             current_step += 1
@@ -208,12 +209,12 @@ class ArchDistribution:
 
             # CRS Validation
             if original_study_layer.crs().isGeographic():
-                 self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
-            
+                self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
+
             # Create a clone in memory for the results group
             study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType() == 2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
             study_result_pr = study_result_layer.dataProvider()
-            
+
             # Copy all features
             new_feats = []
             for f in original_study_layer.getFeatures():
@@ -221,11 +222,11 @@ class ArchDistribution:
                 new_feats.append(nf)
             study_result_pr.addFeatures(new_feats)
             study_result_layer.updateExtents()
-            
+
             self.apply_study_style(study_result_layer, settings['study_style'])
             QgsProject.instance().addMapLayer(study_result_layer, False)
             stu_group.addLayer(study_result_layer)
-            
+
             # Also keep original in source group (hidden)
             self.move_layer_to_group(original_study_layer, src_group)
             current_step += 1
@@ -248,7 +249,7 @@ class ArchDistribution:
             if not centroid:
                 self.log("오류: 조사지역의 데이터가 비어있거나 중심점을 계산할 수 없습니다.")
                 return
-            
+
             self.log(f"중심점 기반 도곽 생성 중 (Scale 1:{settings['scale']})...")
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, original_study_layer.crs())
             self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
@@ -259,7 +260,8 @@ class ArchDistribution:
             if settings['buffers']:
                 self.log(f"버퍼 생성 시작 ({len(settings['buffers'])}개)...")
                 for distance in settings['buffers']:
-                    if progress.wasCanceled(): break
+                    if progress.wasCanceled():
+                        break
                     self.create_buffer(original_study_layer, distance, buf_group, settings['buffer_style'])
                     self.log(f"{distance}m 버퍼 생성 완료.")
                 current_step += 1
@@ -275,21 +277,21 @@ class ArchDistribution:
                 if settings.get('zone_layer_id'):
                     zone_layer_obj = QgsProject.instance().mapLayer(settings.get('zone_layer_id'))
                     if zone_layer_obj:
-                         self.fix_layer_encoding(zone_layer_obj, DEFAULT_ENCODING)
+                        self.fix_layer_encoding(zone_layer_obj, DEFAULT_ENCODING)
 
                 merged_heritage = self.consolidate_heritage_layers(
-                    settings['heritage_layer_ids'], 
-                    extent_geom, 
-                    original_study_layer, 
+                    settings['heritage_layer_ids'],
+                    extent_geom,
+                    original_study_layer,
                     src_group,
                     filter_categories=settings.get('filter_items', None),
                     exclusion_list=settings.get('exclusion_list', []),
-                    zone_layer=zone_layer_obj 
+                    zone_layer=zone_layer_obj
                 )
-                
+
                 if merged_heritage:
                     self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
-                    
+
                     buffer_geoms = []
                     if settings.get('buffers'):
                         combined_study = QgsGeometry()
@@ -312,26 +314,26 @@ class ArchDistribution:
                             self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_v4(
-                        merged_heritage, 
-                        original_study_layer, 
-                        settings['sort_order'], 
-                        extent_geom, 
-                        original_study_layer.crs(), 
-                        buffer_geoms, 
+                        merged_heritage,
+                        original_study_layer,
+                        settings['sort_order'],
+                        extent_geom,
+                        original_study_layer.crs(),
+                        buffer_geoms,
                         restrict_to_buffer=settings.get('restrict_to_buffer', True)
                     )
                     self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
                     self.apply_heritage_style(
-                        merged_heritage, 
+                        merged_heritage,
                         settings['heritage_style'],
                         font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
                         font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
                     )
-                    
+
                     QgsProject.instance().addMapLayer(merged_heritage, False)
                     her_group.addLayer(merged_heritage)
                     self.log("최종 결과 유적 레이어 등록 완료.")
-                    
+
                     # [NEW] Check Zone Layer and Add/Style it if present
                     zone_id = settings.get('zone_layer_id')
                     if zone_id:
@@ -353,13 +355,13 @@ class ArchDistribution:
                                 buffer_limit_geom,
                                 source_crs=original_study_layer.crs()
                             )
-                            
+
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
-            
+
             current_step = total_steps
             progress.setValue(current_step)
-            
+
             # Zoom to extent (CRS-aware + padded) to avoid showing blank space
             self.zoom_canvas_to_extent(
                 extent_geom,
@@ -367,7 +369,7 @@ class ArchDistribution:
                 padding_ratio=DEFAULT_ZOOM_PADDING_RATIO,
             )
             self.log("모든 작업이 성공적으로 완료되었습니다.")
-            
+
             # Notify Log File
             self.log(f"로그 파일 저장됨: {os.path.join(self.plugin_dir, 'latest_log.txt')}")
             self.iface.messageBar().pushMessage("ArchDistribution", "작업 완료", level=0)
@@ -386,12 +388,12 @@ class ArchDistribution:
     def process_renumbering(self, layer):
         """Renumber the specific layer based on current UI settings."""
         self.log(f"레이어 '{layer.name()}' 번호 새로고침 중...")
-        
+
         try:
             # 1. Get Settings (Sort Order & Study Area)
             settings = self.dlg.get_settings()
             sort_order = settings['sort_order']
-            
+
             # 2. Get Centroid (if needed)
             centroid = None
             study_layer = None
@@ -399,34 +401,36 @@ class ArchDistribution:
                 study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
                 if study_layer:
                     centroid = self.get_study_area_centroid(study_layer)
-            
+
             # [FIX] If no study layer, use layer's own extent center as centroid for extent calculation
             if not centroid:
                 layer_extent = layer.extent()
                 if not layer_extent.isEmpty():
                     centroid = layer_extent.center()
                     self.log("조사지역 미선택 - 현재 레이어 범위 중심 사용")
-            
+
             if sort_order == 1 and not centroid:
-                 QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
-                 return
+                QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
+                return
 
             # [NEW] Calculate Extent Geometry for Exclusion
             extent_geom = self.calculate_extent_geometry(
-                centroid, 
-                settings['paper_width'], 
-                settings['paper_height'], 
+                centroid,
+                settings['paper_width'],
+                settings['paper_height'],
                 settings['scale']
             )
-            
+
             # [NEW] Calculate Buffer Geometries (Renumbering context)
             buffer_geoms = []
             if settings.get('buffers') and study_layer:
                 combined_study = QgsGeometry()
                 for f in study_layer.getFeatures():
-                     if combined_study.isNull(): combined_study = f.geometry()
-                     else: combined_study = combined_study.combine(f.geometry())
-                
+                    if combined_study.isNull():
+                        combined_study = f.geometry()
+                    else:
+                        combined_study = combined_study.combine(f.geometry())
+
                 if not combined_study.isNull():
                     sorted_buffers = sorted(settings['buffers'])
                     for dist in sorted_buffers:
@@ -439,15 +443,15 @@ class ArchDistribution:
             extent_crs = study_layer.crs() if study_layer else layer.crs()
             # If study_layer is missing, pass centroid as fallback
             self.number_heritage_v4(
-                layer, 
-                study_layer if study_layer else centroid, 
-                sort_order, 
-                extent_geom, 
-                extent_crs, 
+                layer,
+                study_layer if study_layer else centroid,
+                sort_order,
+                extent_geom,
+                extent_crs,
                 buffer_geoms,
                 restrict_to_buffer=settings.get('restrict_to_buffer', True)
             )
-            
+
             # 4. Refresh & Re-Apply Style (to update font/labels)
             self.log(f"레이어 '{layer.name()}' 번호 재정렬 완료. 스타일 적용 중...")
             self.apply_heritage_style(
@@ -456,12 +460,12 @@ class ArchDistribution:
                 font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
                 font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
             )
-            
+
             layer.triggerRepaint()
             self.iface.mapCanvas().refresh()
             self.log(f"레이어 '{layer.name()}' 번호가 {layer.featureCount()}개로 재정렬되었습니다.")
             QMessageBox.information(self.dlg, "완료", "번호 새로고침 및 스타일 적용이 완료되었습니다.")
-            
+
         except Exception as e:
             self.log(f"오류 발생: {str(e)}")
             QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
@@ -486,15 +490,15 @@ class ArchDistribution:
             if layer_node.parent() == group:
                 layer_node.setItemVisibilityChecked(False)
                 return
-                
+
             clone = layer_node.clone()
-            clone.setItemVisibilityChecked(False) # Hide the original layer
+            clone.setItemVisibilityChecked(False)  # Hide the original layer
             group.addChildNode(clone)
             layer_node.parent().removeChildNode(layer_node)
 
     def fix_layer_encoding(self, layer, encoding=DEFAULT_ENCODING):
         """Force specific encoding to fix broken Korean characters."""
-        if layer and layer.type() == 0: # VectorLayer
+        if layer and layer.type() == 0:  # VectorLayer
             layer.setProviderEncoding(encoding)
             layer.dataProvider().setEncoding(encoding)
             # Reload to apply
@@ -509,14 +513,14 @@ class ArchDistribution:
             layer = QgsProject.instance().mapLayer(lid)
             if layer:
                 # [FIX] Filter for Line Layers Only (Topo is usually lines)
-                if layer.geometryType() != 1: # 0:Point, 1:Line, 2:Polygon
+                if layer.geometryType() != 1:  # 0:Point, 1:Line, 2:Polygon
                     self.log(f"  ⚠️ 지형도 병합 제외 (라인 레이어 아님): {layer.name()}")
                     continue
-                    
+
                 self.fix_layer_encoding(layer)
                 layers.append(layer)
                 self.move_layer_to_group(layer, src_group)
-        
+
         if not layers:
             self.log("  ⚠️ 병합할 수치지형도(라인)가 없습니다.")
             return
@@ -539,7 +543,7 @@ class ArchDistribution:
             if f.upper() in ['LAYER', 'REFNAME', 'NAME']:
                 target_field = f
                 break
-        
+
         if target_field:
             expr = f"\"{target_field}\" = '{boundary_code}'"
             merged_layer.startEditing()
@@ -550,8 +554,8 @@ class ArchDistribution:
 
         # Styling
         symbol = QgsLineSymbol.createSimple({
-            'color': style['stroke_color'], 
-            'width': str(style['stroke_width']), 
+            'color': style['stroke_color'],
+            'width': str(style['stroke_width']),
             'width_unit': 'MM'
         })
         renderer = QgsSingleSymbolRenderer(symbol)
@@ -572,20 +576,20 @@ class ArchDistribution:
         result = processing.run("native:buffer", params)
         buffer_layer = result['OUTPUT']
         buffer_layer.setName(f"Buffer_{distance}m")
-        
+
         # Apply outline-only style with custom color and dash pattern
         # User requested: Solid, Dot, Dash (indices 0, 1, 2)
         pen_styles = ['solid', 'dot', 'dash']
         target_style = pen_styles[style['style']] if style['style'] < len(pen_styles) else 'solid'
-        
+
         symbol = QgsFillSymbol.createSimple({
-            'color': '0,0,0,0', # Transparent fill
+            'color': '0,0,0,0',  # Transparent fill
             'outline_color': style['color'],
-            'outline_width': str(style['width']), # User defined width
+            'outline_width': str(style['width']),  # User defined width
             'outline_style': target_style
         })
         buffer_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
-        
+
         QgsProject.instance().addMapLayer(buffer_layer, False)
         group.addLayer(buffer_layer)
 
@@ -600,47 +604,52 @@ class ArchDistribution:
             combined_geom = QgsGeometry()
             for feat in layer.getFeatures():
                 if feat.hasGeometry():
-                    if combined_geom.isNull(): combined_geom = feat.geometry()
-                    else: combined_geom = combined_geom.combine(feat.geometry())
-            if combined_geom.isNull(): return None
+                    if combined_geom.isNull():
+                        combined_geom = feat.geometry()
+                    else:
+                        combined_geom = combined_geom.combine(feat.geometry())
+            if combined_geom.isNull():
+                return None
             pt = combined_geom.centroid().asPoint()
             return QgsPointXY(pt.x(), pt.y())
-            
+
         return extent.center()
 
     def calculate_extent_geometry(self, centroid, width_mm, height_mm, scale):
         """Calculate the extent geometry (rectangle) without creating a layer."""
-        if not centroid: return None
-        
+        if not centroid:
+            return None
+
         # Real world dimensions in meters
         width_m = (width_mm / 1000.0) * scale
         height_m = (height_mm / 1000.0) * scale
-        
+
         half_w = width_m / 2.0
         half_h = height_m / 2.0
-        
+
         # Create corners
-        p1 = QgsPointXY(centroid.x() - half_w, centroid.y() + half_h) # Top Left
-        p2 = QgsPointXY(centroid.x() + half_w, centroid.y() + half_h) # Top Right
-        p3 = QgsPointXY(centroid.x() + half_w, centroid.y() - half_h) # Bottom Right
-        p4 = QgsPointXY(centroid.x() - half_w, centroid.y() - half_h) # Bottom Left
-        
+        p1 = QgsPointXY(centroid.x() - half_w, centroid.y() + half_h)  # Top Left
+        p2 = QgsPointXY(centroid.x() + half_w, centroid.y() + half_h)  # Top Right
+        p3 = QgsPointXY(centroid.x() + half_w, centroid.y() - half_h)  # Bottom Right
+        p4 = QgsPointXY(centroid.x() - half_w, centroid.y() - half_h)  # Bottom Left
+
         return QgsGeometry.fromPolygonXY([[p1, p2, p3, p4, p1]])
 
     def create_extent_polygon(self, centroid, width_mm, height_mm, scale, group, crs):
         """Create a rectangle polygon based on paper size and scale."""
         rect_geom = self.calculate_extent_geometry(centroid, width_mm, height_mm, scale)
-        if not rect_geom: return None
+        if not rect_geom:
+            return None
 
         # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
-        vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory") 
+        vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory")
         if not vl.isValid():
             vl = QgsVectorLayer(f"Polygon?crs={DEFAULT_EXTENT_FALLBACK_CRS}", "도곽_Extent", "memory")
-        
+
         # Explicit outline-only styling
         symbol = QgsFillSymbol.createSimple({
-            'color': '0,0,0,0', # No fill
-            'outline_color': '0,0,0,255', # Black outline
+            'color': '0,0,0,0',  # No fill
+            'outline_color': '0,0,0,255',  # Black outline
             'outline_width': '0.3'
         })
         vl.setRenderer(QgsSingleSymbolRenderer(symbol))
@@ -650,7 +659,7 @@ class ArchDistribution:
         feat.setGeometry(rect_geom)
         pr.addFeatures([feat])
         vl.updateExtents()
-        
+
         QgsProject.instance().addMapLayer(vl, False)
         group.addLayer(vl)
         return rect_geom
@@ -658,20 +667,20 @@ class ArchDistribution:
     def apply_study_style(self, layer, style):
         """Apply outline style to study area."""
         symbol = None
-        if layer.geometryType() == 2: # Polygon
+        if layer.geometryType() == 2:  # Polygon
             symbol = QgsFillSymbol.createSimple({
-                'color': '0,0,0,0', # Transparent fill
+                'color': '0,0,0,0',  # Transparent fill
                 'outline_color': style['stroke_color'],
                 'outline_width': str(style['stroke_width']),
                 'outline_width_unit': 'MM'
             })
-        elif layer.geometryType() == 1: # Line
+        elif layer.geometryType() == 1:  # Line
             symbol = QgsLineSymbol.createSimple({
                 'color': style['stroke_color'],
                 'width': str(style['stroke_width']),
                 'width_unit': 'MM'
             })
-        
+
         if symbol:
             renderer = QgsSingleSymbolRenderer(symbol)
             layer.setRenderer(renderer)
@@ -715,19 +724,20 @@ class ArchDistribution:
         filter_items: List of allowed strings e.g. ["ERA:고려", "TYPE:고분"]
         If filter_items is None, Allow all.
         """
-        if filter_items is None: return False # No filtering
-        
+        if filter_items is None:
+            return False  # No filtering
+
         # Load data if not loaded
         if not hasattr(self, 'reference_data'):
             self.load_reference_data()
-            
+
         if name not in self.reference_data:
-            return False # Unknown items are allowed by default (or denied? Let's allow for safety)
-            
+            return False  # Unknown items are allowed by default (or denied? Let's allow for safety)
+
         info = self.reference_data[name]
         era_key = f"ERA:{info['e']}"
         type_key = f"TYPE:{info['t']}"
-        
+
         # [NEW] Keyword Override Logic
         # Prioritize keyword inference over DB value if a match exists.
         # This solves the "Temple Site containing Stone Buddha" issue.
@@ -737,62 +747,68 @@ class ArchDistribution:
             for key, val in refinements.items():
                 if key in name:
                     effective_type = val
-                    break # Use the first matching keyword
-        
+                    break  # Use the first matching keyword
+
         type_key = f"TYPE:{effective_type}"
-        
-        # Logic: 
+
+        # Logic:
         # If the item has an Era, and that Era is NOT in the allowed list -> Exclude
         # If the item has a Type, and that Type is NOT in the allowed list -> Exclude
         # Wait, if I uncheck "Era: Goryeo", then Goryeo items should be gone.
         # But what if I uncheck "Type: Tomb"? Then Tomb items gone.
         # Basically, we need to check if the specific Era tag is present in filter_items (if applicable)
         # AND if the specific Type tag is present in filter_items (if applicable).
-        
+
         # However, we only emitted tags that were found.
         # So we can just check: IS the ERA present in the allowed list?
-        
+
         # Complication: filter_items contains only CHECKED items.
         # So if era_key is valid (not an unknown era marker) and NOT in filter_items -> Exclude.
-        
+
         if info['e'] and info['e'] != "시대미상":
-             # Does the user care about eras? (i.e. are there any ERA tags in the list?)
-             # We can assume if filter_items provided, we enforce it.
-             # We need to know if "ERA:Goryeo" was presented to the user?
-             # Actually, simpler: if filter_items is passed, it represents the ALLOW LIST of properties.
-             # But if "ERA:Goryeo" was never in the list (not found in scan), we shouldn't block it?
-             # The Dialog only adds found items.
-             # So if it was found, it must be in the list?
-             # Correct. 
-             
-             # Optimization: We assume the Dialog passed ONLY the checked items.
-             # But we also need to know if the Era was even *candidate* for filtering. 
-             # If "Goryeo" wasn't in the input layers, it wouldn't be in the list.
-             # But here we are processing features. If this feature is Goryeo, then "ERA:Goryeo" WOULD have been found by scan?
-             # YES, because we scan the same layers.
-             
-             if era_key not in filter_items:
-                 # Check if this era key was actually available to be unchecked?
-                 # If we rely on the list containing ONLY checked items, then missing item = unchecked.
-                 return True
+            # Does the user care about eras? (i.e. are there any ERA tags in the list?)
+            # We can assume if filter_items provided, we enforce it.
+            # We need to know if "ERA:Goryeo" was presented to the user?
+            # Actually, simpler: if filter_items is passed, it represents the ALLOW LIST of properties.
+            # But if "ERA:Goryeo" was never in the list (not found in scan), we shouldn't block it?
+            # The Dialog only adds found items.
+            # So if it was found, it must be in the list?
+            # Correct.
+
+            # Optimization: We assume the Dialog passed ONLY the checked items.
+            # But we also need to know if the Era was even *candidate* for filtering.
+            # If "Goryeo" wasn't in the input layers, it wouldn't be in the list.
+            # But here we are processing features. If this feature is Goryeo, then "ERA:Goryeo" WOULD have been found by scan?
+            # YES, because we scan the same layers.
+
+            if era_key not in filter_items:
+                # Check if this era key was actually available to be unchecked?
+                # If we rely on the list containing ONLY checked items, then missing item = unchecked.
+                return True
 
         if info['t'] and info['t'] != "기타":
-             if type_key not in filter_items:
-                 return True
-                 
+            if type_key not in filter_items:
+                return True
+
         return False
 
     def keyword_inference(self, name):
         """Infer category from name."""
-        if not name: return "기타"
-        
+        if not name:
+            return "기타"
+
         # Priority mapping
-        if any(k in name for k in ["고분", "분묘", "묘", "총", "릉"]): return "분묘"
-        if any(k in name for k in ["산성", "성", "진", "보", "루"]): return "성곽"
-        if any(k in name for k in ["요지", "가마", "생산"]): return "생산유적"
-        if any(k in name for k in ["주거", "취락", "마을", "생활"]): return "생활유적"
-        if any(k in name for k in ["사지", "불상", "탑", "비", "당간"]): return "불교/장묘"
-        
+        if any(k in name for k in ["고분", "분묘", "묘", "총", "릉"]):
+            return "분묘"
+        if any(k in name for k in ["산성", "성", "진", "보", "루"]):
+            return "성곽"
+        if any(k in name for k in ["요지", "가마", "생산"]):
+            return "생산유적"
+        if any(k in name for k in ["주거", "취락", "마을", "생활"]):
+            return "생활유적"
+        if any(k in name for k in ["사지", "불상", "탑", "비", "당간"]):
+            return "불교/장묘"
+
         return "기타"
 
     def consolidate_heritage_layers(self, heritage_layer_ids, extent_geom, study_layer, src_group, filter_categories=None, exclusion_list=None, zone_layer=None):
@@ -801,34 +817,37 @@ class ArchDistribution:
         if exclusion_list is None:
             exclusion_list = []
         temp_layers = []
-        
+
         # Merge study area geometries for fast intersection check
         study_geom = QgsGeometry()
         for f in study_layer.getFeatures():
-            if study_geom.isNull(): study_geom = f.geometry()
-            else: study_geom = study_geom.combine(f.geometry())
+            if study_geom.isNull():
+                study_geom = f.geometry()
+            else:
+                study_geom = study_geom.combine(f.geometry())
 
         target_crs = study_layer.crs()
 
         for lid in heritage_layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
-            if not layer or layer.type() != 0: continue
-            
+            if not layer or layer.type() != 0:
+                continue
+
             self.log(f"데이터 수취 및 필드 맵핑 중: {layer.name()}")
             self.fix_layer_encoding(layer)
-            
+
             # Identify fields (Fuzzy matching)
             # [FIX] Broaden search to include National/State Heritage naming conventions
             name_keywords = ['유적명', '명칭', 'NAME', 'SITE', 'TITLE', '문화재명', '지정명칭', '국가유산명', '등록명칭']
             name_field = self.find_field(layer, name_keywords)
-            
+
             # [FIX] Skip invalid layers (e.g. Topo maps selected as Heritage)
             if not name_field:
                 self.log(f"  ⚠️ 명칭 필드({name_keywords}) 미확인으로 병합 제외: {layer.name()}")
                 continue
-                
-            heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭']) # Keep specific for attribute extraction
-            project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT']) 
+
+            heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭'])  # Keep specific for attribute extraction
+            project_name_field = self.find_field(layer, ['사업명', '조사명', '공사명', 'PROJECT'])
             addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
             area_field = self.find_field(layer, ['면적', 'AREA', 'SHAPE_AREA'])
 
@@ -839,16 +858,19 @@ class ArchDistribution:
 
             # Detect geometry type
             geom_type_str = ""
-            if layer.geometryType() == 0: geom_type_str = "Point"
-            elif layer.geometryType() == 1: geom_type_str = "LineString"
-            elif layer.geometryType() == 2: geom_type_str = "Polygon"
-            
+            if layer.geometryType() == 0:
+                geom_type_str = "Point"
+            elif layer.geometryType() == 1:
+                geom_type_str = "LineString"
+            elif layer.geometryType() == 2:
+                geom_type_str = "Polygon"
+
             # Create a standardized subset layer
             subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.toWkt()}", f"Sub_{layer.name()}", "memory")
             if not subset_layer.isValid():
                 subset_layer = QgsVectorLayer(f"{geom_type_str}?crs={target_crs.authid()}", f"Sub_{layer.name()}", "memory")
             subset_pr = subset_layer.dataProvider()
-            
+
             # Define standard fields (번호 comes first for report readiness)
             # [NOTE] Warnings about QgsField constructor are harmless deprecation warnings in QGIS 3.x
             standard_fields = [
@@ -856,14 +878,14 @@ class ArchDistribution:
                 QgsField("유적명", QVariant.String),
                 QgsField("주소", QVariant.String),
                 QgsField("면적_m2", QVariant.Double),
-                QgsField("국가유산명", QVariant.String), # [NEW]
+                QgsField("국가유산명", QVariant.String),  # [NEW]
                 QgsField("사업명", QVariant.String),     # [NEW]
                 QgsField("허용기준", QVariant.String),   # [NEW] Zone Info
                 QgsField("원본레이어", QVariant.String)
             ]
             subset_pr.addAttributes(standard_fields)
             subset_layer.updateFields()
-            
+
             # Reproject if necessary
             do_reproject = layer.crs() != target_crs
             if do_reproject:
@@ -872,12 +894,13 @@ class ArchDistribution:
 
             new_features = []
             for feat in layer.getFeatures():
-                if not feat.hasGeometry(): continue
-                
+                if not feat.hasGeometry():
+                    continue
+
                 geom = feat.geometry()
                 if do_reproject:
                     geom.transform(transform)
-                
+
                 # Retrieve Attributes for filtering
                 val_name = feat[name_field] if name_field else ""
 
@@ -887,11 +910,11 @@ class ArchDistribution:
                     # Log removed item occasionally?
                     # self.log(f"  - 사용자 제외: {val_name}")
                     continue
-                
+
                 # Check Category Filters (Legacy Reference Data)
                 if self.should_exclude(val_name, filter_categories):
                     continue
-                
+
                 # Check if heritage site intersects the map extent
                 if geom.intersects(extent_geom):
                     # [NEW FIX] Clip geometry to extent bounds
@@ -899,40 +922,40 @@ class ArchDistribution:
                     clipped_geom = geom.intersection(extent_geom)
                     if clipped_geom.isEmpty():
                         continue  # No part inside extent
-                    
+
                     # We exclude sites that are entirely within the study area (as they are 'internal')
                     # But we include ones that overlap or are outside
                     is_entirely_inside = clipped_geom.within(study_geom) if not study_geom.isNull() else False
-                    
+
                     if not is_entirely_inside:
                         # [FIX] Included internal sites as well (User Request: Prevent aggressive data loss)
                         # Originally: if not is_entirely_inside:
                         # Now: Allow all (since we clipped to extent already)
                         pass
-                    
-                    if True: # Always proceed if it intersects extent
+
+                    if True:  # Always proceed if it intersects extent
                         new_feat = QgsFeature(subset_layer.fields())
                         new_feat.setGeometry(clipped_geom)  # Use clipped geometry
-                        
+
                         # [NEW] Attribute Extraction
                         val_name = feat[name_field] if name_field else ""
                         val_heritage = feat[heritage_name_field] if heritage_name_field else ""
                         val_project = feat[project_name_field] if project_name_field else ""
                         # [NEW] Filtering Logic
                         # 1. Smart Filter (Era/Type from JSON)
-                        if self.should_exclude(val_name, filter_categories): # filter_categories is actually 'filter_items' list
+                        if self.should_exclude(val_name, filter_categories):  # filter_categories is actually 'filter_items' list
                             continue
 
                         # [NEW] Smart Naming Logic
                         display_name = val_name
-                        if val_heritage: # National Heritage takes precedence
+                        if val_heritage:  # National Heritage takes precedence
                             display_name = val_heritage
                             if val_name and val_name not in display_name:
-                                 display_name += f" ({val_name})"
-                        elif val_project: # Project name context
-                             display_name = val_project
-                             if val_name and val_name not in display_name:
-                                  display_name += f" {val_name}"
+                                display_name += f" ({val_name})"
+                        elif val_project:  # Project name context
+                            display_name = val_project
+                            if val_name and val_name not in display_name:
+                                display_name += f" {val_name}"
 
                         # Map attributes
                         new_feat["유적명"] = display_name if display_name else "N/A"
@@ -944,20 +967,22 @@ class ArchDistribution:
                             # Iterate zones
                             # Optimization: Use spatial index if large, but usually small.
                             for z_feat in zone_layer.getFeatures():
-                                if z_feat.geometry().intersects(new_feat.geometry()): # Or clipped_geom
+                                if z_feat.geometry().intersects(new_feat.geometry()):  # Or clipped_geom
                                     z_name = z_feat[zone_name_field]
                                     if z_name:
-                                        if val_zone: val_zone += ", " + str(z_name) # Handle overlap
-                                        else: val_zone = str(z_name)
+                                        if val_zone:
+                                            val_zone += ", " + str(z_name)  # Handle overlap
+                                        else:
+                                            val_zone = str(z_name)
                                     # Usually features don't overlap much in zones, but lines might.
-                        
+
                         # Map attributes
                         new_feat["유적명"] = display_name if display_name else "N/A"
                         new_feat["주소"] = feat[addr_field] if addr_field else "N/A"
                         new_feat["국가유산명"] = val_heritage
                         new_feat["사업명"] = val_project
                         new_feat["허용기준"] = val_zone if val_zone else None
-                        
+
                         # Area logic
                         if area_field and feat[area_field]:
                             try:
@@ -966,25 +991,26 @@ class ArchDistribution:
                                 new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
                         else:
                             new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
-                        
+
                         new_feat["원본레이어"] = layer.name()
                         new_features.append(new_feat)
-            
+
             if new_features:
                 self.log(f"  -> {len(new_features)}개소 수집됨.")
                 subset_pr.addFeatures(new_features)
                 temp_layers.append(subset_layer)
             else:
                 self.log("  -> 영역 내 수집된 유적 없음.")
-            
+
             self.move_layer_to_group(layer, src_group)
 
-        if not temp_layers: return None
+        if not temp_layers:
+            return None
 
         # Merge subsets grouped by geometry type (native:mergevectorlayers prefers uniform types)
         # We'll merge everything into one if possible, but separate results are safer for display
         # For simplicity and export-readiness, we'll try to merge all, but warn if mixed.
-        
+
         self.log("최종 데이터 병합 처리 중...")
         params = {
             'LAYERS': temp_layers,
@@ -995,10 +1021,10 @@ class ArchDistribution:
         # To be safe, we'll just use it and rely on the fact that most are Polygons.
         result = processing.run("native:mergevectorlayers", params)
         merged_layer = result['OUTPUT']
-        
+
         # [NEW] Dissolve by Name to prevent duplicate numbering for same-site polygons
         self.log("동일 유적 병합 처리 중 (Dissolve by Name)...")
-        
+
         # 1. Identify Name Field in Merged Layer
         fields = [f.name() for f in merged_layer.fields()]
         name_field = None
@@ -1008,8 +1034,9 @@ class ArchDistribution:
                 if k in f.upper():
                     name_field = f
                     break
-            if name_field: break
-        
+            if name_field:
+                break
+
         if not name_field:
             self.log("  ⚠️ 병합 레이어에서 명칭 필드를 찾을 수 없어 Dissolve를 건너뜁니다.")
             return merged_layer
@@ -1020,14 +1047,14 @@ class ArchDistribution:
         # 1. Strip Whitespace
         # 2. Extract real name if it contains "지표조사" or "발굴조사" (User feedback: long project name + site name)
         merged_layer.startEditing()
-        
+
         # [FIX] Disabled Aggressive Name Cleaning (User Request)
         # Reason: "Site A (Survey)" and "Site A (Excavation)" were being merged into "Site A", causing data loss.
         # for f in merged_layer.getFeatures():
         #      val = f[name_idx]
         #      if isinstance(val, str):
         #          clean_val = val.strip()
-        #          
+        #
         #          # Logic: Split by keyword, take the LAST part if length > 1
         #          # e.g., "Project A 지표조사 Site B" -> " Site B" -> "Site B"
         #          for kw in split_keywords:
@@ -1040,7 +1067,7 @@ class ArchDistribution:
         #                      if len(candidate) > 1:
         #                          clean_val = candidate
         #                          break # Stop after first keyword match
-        #          
+        #
         #          if clean_val != val:
         #              merged_layer.changeAttributeValue(f.id(), name_idx, clean_val)
         merged_layer.commitChanges()
@@ -1048,18 +1075,18 @@ class ArchDistribution:
         try:
             dissolve_params = {
                 'INPUT': merged_layer,
-                'FIELD': [name_field], # Use dynamic name field
+                'FIELD': [name_field],  # Use dynamic name field
                 'OUTPUT': 'memory:Dissolved_Heritage'
             }
             dissolve_result = processing.run("native:dissolve", dissolve_params)
             final_layer = dissolve_result['OUTPUT']
             final_layer.setName("수집_및_병합된_주변유적")
-            
+
             # [CRITICAL] Ensure '유적명' field exists for later usage (numbering/labelling)
             # Rename the dynamic name field to '유적명' if it isn't already
             if name_field != '유적명':
                 # We can't easily rename in memory layer without processing.
-                # But our numbering logic looks for '유적명' or similar? 
+                # But our numbering logic looks for '유적명' or similar?
                 # Actually number_heritage_v4 doesn't read the name, it just writes ID.
                 # But 'arch_distribution_dialog' scan might need it.
                 pass
@@ -1075,7 +1102,7 @@ class ArchDistribution:
     def number_heritage_v4(self, layer, study_layer_or_centroid, sort_order, extent_geom=None, extent_crs=None, buffer_geoms=None, restrict_to_buffer=True):
         """
         Sort features and assign numbers to '번호' field with Buffer Tiers.
-        
+
         Args:
             study_layer_or_centroid: QgsVectorLayer of study area OR QgsPointXY (fallback).
             buffer_geoms: List of dicts [{'dist': 100, 'geom': QgsGeometry}, ...]. Sorted by distance.
@@ -1085,17 +1112,17 @@ class ArchDistribution:
         if buffer_geoms is None:
             buffer_geoms = []
         idx = layer.fields().indexFromName("번호")
-        
+
         # [NEW] Check/Add Distance Field
         dist_field_name = "이격거리(m)"
         if layer.fields().indexFromName(dist_field_name) == -1:
             layer.dataProvider().addAttributes([QgsField(dist_field_name, QVariant.String)])
-            
+
         # [NEW] Check/Add Note Field (For Human Verification)
         note_field_name = "비고"
         if layer.fields().indexFromName(note_field_name) == -1:
             layer.dataProvider().addAttributes([QgsField(note_field_name, QVariant.String)])
-            
+
         layer.updateFields()
         dist_idx = layer.fields().indexFromName(dist_field_name)
         note_idx = layer.fields().indexFromName(note_field_name)
@@ -1103,94 +1130,96 @@ class ArchDistribution:
         # Prepare base geometry for precise distance calculation
         base_geom = None
         if isinstance(study_layer_or_centroid, QgsVectorLayer):
-             # Merge study layer into one geometry
-             combined = QgsGeometry()
-             for f in study_layer_or_centroid.getFeatures():
-                 if combined.isNull(): combined = f.geometry()
-                 else: combined = combined.combine(f.geometry())
-             # Transform if needed? usually assume same CRS if passed from main logic
-             if combined and not combined.isNull():
-                 base_geom = combined
-        
+            # Merge study layer into one geometry
+            combined = QgsGeometry()
+            for f in study_layer_or_centroid.getFeatures():
+                if combined.isNull():
+                    combined = f.geometry()
+                else:
+                    combined = combined.combine(f.geometry())
+            # Transform if needed? usually assume same CRS if passed from main logic
+            if combined and not combined.isNull():
+                base_geom = combined
+
         # Prepare transformation for Extent and Buffers
         target_extent = extent_geom
         transformed_buffers = []
-        
+
         if extent_crs and layer.crs() != extent_crs:
             tr = QgsCoordinateTransform(extent_crs, layer.crs(), QgsProject.instance())
             try:
                 if extent_geom:
                     target_extent = QgsGeometry(extent_geom)
                     target_extent.transform(tr)
-                
+
                 # Transform buffers
                 for b in buffer_geoms:
                     bg = QgsGeometry(b['geom'])
                     bg.transform(tr)
-                    
+
                     # Also transform base_geom if it came from study_layer (which is in extent_crs usually)
                     # Wait, study_layer is from project, likely same as extent_crs.
                     # We need base_geom in LAYER crs for distance calculation.
                     transformed_buffers.append({'dist': b['dist'], 'geom': bg})
-                
+
                 if base_geom:
-                     # base_geom is from study_layer. Its CRS is study_layer.crs() which IS extent_crs.
-                     # So we need to transform it to layer.crs()
-                     base_geom.transform(tr)
+                    # base_geom is from study_layer. Its CRS is study_layer.crs() which IS extent_crs.
+                    # So we need to transform it to layer.crs()
+                    base_geom.transform(tr)
 
                 self.log(f"좌표 변환 적용됨: {extent_crs.authid()} -> {layer.crs().authid()}")
             except Exception as e:
                 self.log(f"좌표 변환 오류 (무시됨): {e}")
         else:
-            transformed_buffers = buffer_geoms # No transform needed
+            transformed_buffers = buffer_geoms  # No transform needed
 
         # Determine Max Limit Geometry (Largest Buffer)
         limit_geom = None
         if transformed_buffers:
-            limit_geom = transformed_buffers[-1]['geom'] # Last one is largest
+            limit_geom = transformed_buffers[-1]['geom']  # Last one is largest
 
         layer.startEditing()
-        
+
         # Collect all features
-        ids_to_delete = [] # [FIX] Initialize early to collect outside features
+        ids_to_delete = []  # [FIX] Initialize early to collect outside features
         all_features = []
         for feat in layer.getFeatures():
             geom = feat.geometry()
-            
+
             # [FIX] Robust Geometry Check
             if not geom.isGeosValid():
                 geom = geom.makeValid()
-            
+
             # [CHECK 1] Extent Intersection
             if target_extent and not geom.intersects(target_extent):
                 layer.changeAttributeValue(feat.id(), idx, None)
                 layer.changeAttributeValue(feat.id(), dist_idx, None)
                 continue
-            
+
             # [CHECK 2] Limit Geometry (Max Buffer) Intersection
             # If buffers exist AND restriction is enabled
-            if limit_geom and restrict_to_buffer: 
+            if limit_geom and restrict_to_buffer:
                 if not geom.intersects(limit_geom):
                     layer.changeAttributeValue(feat.id(), idx, None)
                     layer.changeAttributeValue(feat.id(), dist_idx, None)
-                    ids_to_delete.append(feat.id()) # [FIX] Mark for deletion
+                    ids_to_delete.append(feat.id())  # [FIX] Mark for deletion
                     continue
-            
+
             # If restriction is OFF, we keep it even if outside buffer.
             # However, if it's OUTSIDE buffer, it won't be in any "Tier", so it ends up in 'remaining' list.
             # That's exactly what we want.
 
             all_features.append(feat)
-            
+
         if ids_to_delete:
             self.log(f"  -> 초기 스캔에서 범위 밖 유적 {len(ids_to_delete)}개 식별됨 (삭제 예정).")
 
         # Sorting Logic
         sorted_features = []
-        
-        if sort_order == 1: # Closest to Study Area (Buffer Tiered)
+
+        if sort_order == 1:  # Closest to Study Area (Buffer Tiered)
             # We will process in Tiers if buffers exist
-            
+
             # Helper to calc distance
             def get_dist(feat_geom):
                 if base_geom:
@@ -1207,7 +1236,7 @@ class ArchDistribution:
             for f in all_features:
                 d = get_dist(f.geometry())
                 feat_dists.append({'feat': f, 'dist': d, 'dist_str': f"{d:.1f}m"})
-            
+
             if transformed_buffers:
                 # Tiered Sorting
                 # 1. Bucket features into rings
@@ -1216,88 +1245,89 @@ class ArchDistribution:
                 # ...
                 # Actually, simpler:
                 # Iterate buffers ascending. Assign feature to FIRST buffer it intersects.
-                
-                # Careful: 'intersects' checks geometry overlap. 
+
+                # Careful: 'intersects' checks geometry overlap.
                 # Distance based check is cleaner if we trust distance?
                 # But polygon buffers might handle holes/islands better.
                 # Let's use Geometry Intersection for robustness with complex shapes.
-                
+
                 remaining = feat_dists[:]
                 tiered_result = []
-                
+
                 for b_info in transformed_buffers:
                     b_geom = b_info['geom']
                     in_this_tier = []
                     next_remaining = []
-                    
+
                     for item in remaining:
                         # Check intersection
                         if item['feat'].geometry().intersects(b_geom):
                             in_this_tier.append(item)
                         else:
                             next_remaining.append(item)
-                    
+
                     # Sort this tier by distance
                     in_this_tier.sort(key=lambda x: x['dist'])
                     tiered_result.extend(in_this_tier)
-                    
+
                     remaining = next_remaining
-                
+
                 # If anything remains (shouldn't if limit_geom check worked, but floating point issues?)
                 if remaining:
                     remaining.sort(key=lambda x: x['dist'])
                     tiered_result.extend(remaining)
-                    
+
                 sorted_features = tiered_result
-                
+
             else:
                 # No buffers, just pure distance sort
                 feat_dists.sort(key=lambda x: x['dist'])
                 sorted_features = feat_dists
-                
-        elif sort_order == 0: # Top-to-Bottom
-             temp = [{'feat': f, 'sort_val': -f.geometry().centroid().asPoint().y(), 'dist_str': None} for f in all_features]
-             temp.sort(key=lambda x: x['sort_val'])
-             sorted_features = temp
-             
-        else: # Alphabetical
-             temp = [{'feat': f, 'sort_val': f["유적명"], 'dist_str': None} for f in all_features]
-             temp.sort(key=lambda x: x['sort_val'])
-             sorted_features = temp
+
+        elif sort_order == 0:  # Top-to-Bottom
+            temp = [{'feat': f, 'sort_val': -f.geometry().centroid().asPoint().y(), 'dist_str': None} for f in all_features]
+            temp.sort(key=lambda x: x['sort_val'])
+            sorted_features = temp
+
+        else:  # Alphabetical
+            temp = [{'feat': f, 'sort_val': f["유적명"], 'dist_str': None} for f in all_features]
+            temp.sort(key=lambda x: x['sort_val'])
+            sorted_features = temp
 
         # Assign Numbers
         # If restrict_to_buffer is True:
         #   Assign IDs 1..N to features that have a valid 'dist' (inside buffer).
         #   Assign NULL to features outside (dist is None or large, but here 'sorted_features' contains ALL).
         # Wait, sorted_features contains 'feat_dists' items.
-        # If restrict_to_buffer was handled in previous logic (limit_geom check), 
+        # If restrict_to_buffer was handled in previous logic (limit_geom check),
         # then 'sorted_features' might still contain outside features if we didn't filter them out there.
         # Let's check `number_heritage_v4` logic:
         # It calculates distances for ALL features.
-        # If buffers exist, it tiers them. 
-        # But it doesn't seem to explicitly exclude outside features from 'sorted_features' list in the sorting block above, 
+        # If buffers exist, it tiers them.
+        # But it doesn't seem to explicitly exclude outside features from 'sorted_features' list in the sorting block above,
         # unless 'transformed_buffers' logic handles it.
-        # 
+        #
         # Actually, let's look at how we handle 'restrict_to_buffer'.
         # Previously we just set a subset string.
         # To fix gaps (28, 30...), we must ensure that the sequence 1,2,3 is assigned ONLY to the visible subset.
-        
+
         # Assign Numbers
         # [FIX] Continuous Numbering Logic
         # We must ensure that only features INSIDE the buffer (if restricted) get numbers,
         # and that the numbers are sequential (1, 2, 3...) with no gaps.
-        
+
         # [FIX] Delete Outside Features instead of hiding
         # Collect IDs to delete
         # ids_to_delete already initialized above
-        
+
         # Identify Name Field for Soft Deduplication
         idx_name = layer.fields().indexOf("유적명")
-        if idx_name == -1: idx_name = layer.fields().indexOf("명칭") # Fallback
-        
+        if idx_name == -1:
+            idx_name = layer.fields().indexOf("명칭")  # Fallback
+
         # 1. First Pass: Identify and Number Inside Features
         current_id = 1
-        
+
         # [FIX] Use correctly transformed limit geometry determined above (lines 1073-1075)
         # Verify limit_geom validity with restrict_to_buffer flag
         target_limit_geom = None
@@ -1306,67 +1336,67 @@ class ArchDistribution:
 
         for item in sorted_features:
             feat = item['feat']
-            
+
             # [REMOVED] Aggressive Name-based Deduplication
             # User reported excessive feature loss (250 -> 150).
             # We strictly trust the input layer (which may have spatial duplicates if dissolve failed, but safer to keep).
 
             is_inside = True
-            
+
             if target_limit_geom:
-                 if not feat.geometry().intersects(target_limit_geom):
-                     is_inside = False
-            
+                if not feat.geometry().intersects(target_limit_geom):
+                    is_inside = False
+
             if is_inside:
                 layer.changeAttributeValue(feat.id(), idx, current_id)
-                layer.changeAttributeValue(feat.id(), note_idx, None) # Clear note
+                layer.changeAttributeValue(feat.id(), note_idx, None)  # Clear note
                 current_id += 1
             else:
                 ids_to_delete.append(feat.id())
                 # [FIX] Human Verification: Mark details instead of just deleting logic
-                layer.changeAttributeValue(feat.id(), idx, None) # No Number
-                layer.changeAttributeValue(feat.id(), note_idx, "범위_밖") # Mark reason
+                layer.changeAttributeValue(feat.id(), idx, None)  # No Number
+                layer.changeAttributeValue(feat.id(), note_idx, "범위_밖")  # Mark reason
 
             if item.get('dist_str'):
                 layer.changeAttributeValue(feat.id(), dist_idx, item['dist_str'])
             else:
                 layer.changeAttributeValue(feat.id(), dist_idx, None)
-                 
+
         layer.commitChanges()
-        
+
         # 2. Hide Outside Features (Non-Destructive for Human Verification)
         if ids_to_delete:
             # removing 'delete logic'. Instead we apply filter.
             # layer.deleteFeatures(ids_to_delete)
-            
+
             # Apply Filter to show only Numbered items
             layer.setSubsetString('"번호" IS NOT NULL')
-            
+
             self.log(f"범위 밖 유적 {len(ids_to_delete)}개를 숨김 처리했습니다. (삭제 안함)")
             self.log(" -> 확인 방법: 레이어 우클릭 > 필터 설정 > 지우기")
         else:
-             layer.setSubsetString("") # Clear any previous filter
+            layer.setSubsetString("")  # Clear any previous filter
 
     def apply_heritage_style(self, layer, style, font_size=DEFAULT_LABEL_FONT_SIZE, font_family=DEFAULT_LABEL_FONT_FAMILY):
         """Apply complex symbology and labeling to heritage layer."""
         rgb_fill = QColor(style['fill_color'])
         rgba_fill = f"{rgb_fill.red()},{rgb_fill.green()},{rgb_fill.blue()},{int(style['opacity'] * 255)}"
-        
+
         symbol = None
-        if layer.geometryType() == 2: # Polygon
+        if layer.geometryType() == 2:  # Polygon
             symbol = QgsFillSymbol.createSimple({
                 'color': rgba_fill,
                 'outline_color': style['stroke_color'],
                 'outline_width': str(style['stroke_width']),
                 'outline_width_unit': 'MM'
             })
-        elif layer.geometryType() == 1: # Line
+        elif layer.geometryType() == 1:  # Line
             symbol = QgsLineSymbol.createSimple({
                 'color': style['stroke_color'],
                 'width': str(style['stroke_width']),
                 'width_unit': 'MM'
             })
-        
+
         if symbol:
             renderer = QgsSingleSymbolRenderer(symbol)
             layer.setRenderer(renderer)
@@ -1376,7 +1406,7 @@ class ArchDistribution:
         label_settings = QgsPalLayerSettings()
         label_settings.fieldName = "번호"
         label_settings.enabled = True
-        
+
         text_format = QgsTextFormat()
         # Use user-specified font
         font = QFont(font_family)
@@ -1384,81 +1414,82 @@ class ArchDistribution:
             font = QFont("Arial")
         font.setBold(True)
         font.setPointSize(font_size)
-        
+
         text_format.setFont(font)
-        text_format.setColor(QColor(0, 0, 0)) # Black text
-        
+        text_format.setColor(QColor(0, 0, 0))  # Black text
+
         # Add a buffer (halo) - Removed for Illustrator compatibility as requested
         # (Halos often become separate complex paths in AI, solid black is easier to edit)
         from qgis.core import QgsTextBufferSettings
         buffer_settings = QgsTextBufferSettings()
-        buffer_settings.setEnabled(False) # Now Disabled
+        buffer_settings.setEnabled(False)  # Now Disabled
         text_format.setBuffer(buffer_settings)
-        
+
         label_settings.setFormat(text_format)
-        
+
         # Placement
-        if layer.geometryType() == 2: # Polygon
+        if layer.geometryType() == 2:  # Polygon
             label_settings.placement = QgsPalLayerSettings.Horizontal
         else:
             label_settings.placement = QgsPalLayerSettings.AroundPoint
-            
+
         layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
         layer.setLabelsEnabled(True)
-        
+
         layer.triggerRepaint()
 
     def apply_zone_categorical_style(self, layer):
         """Apply categorical style to Zone Layer based on '구역' or 'NAME' matching user legend."""
         field_name = self.find_field(layer, ['구역', '구역명', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
-        if not field_name: return
+        if not field_name:
+            return
 
         # Exact Color Map based on User Image
         # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
         # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
-        
+
     def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None, source_crs=None):
         """
-        Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested), 
+        Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested),
         and apply specific single-symbol style.
         """
         layer_name = layer.name()
         self.log(f"DEBUG: Zone Layer '{layer_name}' Processing Started.")
-        
+
         # [FIX] Robust Reload: Ignore UI layer instance, reload effectively from source file
         source_path = layer.source().split("|")[0]
-        
+
         # [FIX] Handle QGIS oddities (file.shx|layername=...) or wrong extensions
         if source_path:
             base, ext = os.path.splitext(source_path)
             if ext.lower() in ['.shx', '.dbf']:
-                 source_path = base + '.shp'
-        
+                source_path = base + '.shp'
+
         new_layer = None
         if source_path and os.path.exists(source_path):
-             self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
-             # Create new layer instance strictly for processing
-             layer_uri = f"{source_path}|encoding={DEFAULT_ENCODING}"
-             new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
-             
-             if new_layer.isValid():
-                 self.log(f"DEBUG: 파일 재로딩 성공 ({DEFAULT_ENCODING}). 객체 수: {new_layer.featureCount()}")
-                 layer = new_layer # Replace variable
-             else:
-                 self.log(f"⚠️ 경고: {DEFAULT_ENCODING} 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
+            self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
+            # Create new layer instance strictly for processing
+            layer_uri = f"{source_path}|encoding={DEFAULT_ENCODING}"
+            new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
+
+            if new_layer.isValid():
+                self.log(f"DEBUG: 파일 재로딩 성공 ({DEFAULT_ENCODING}). 객체 수: {new_layer.featureCount()}")
+                layer = new_layer  # Replace variable
+            else:
+                self.log(f"⚠️ 경고: {DEFAULT_ENCODING} 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
         else:
-             self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
-             self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
-             self.fix_layer_encoding(layer, DEFAULT_ENCODING)
+            self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
+            self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
+            self.fix_layer_encoding(layer, DEFAULT_ENCODING)
 
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
-        if not field_name: 
+        if not field_name:
             self.log("❌ 오류: 구역 필드 찾기 실패.")
             self.log(f"   - 현재 인코딩: {layer.dataProvider().encoding()}")
             self.log(f"   - 발견된 필드 목록: {[f.name() for f in layer.fields()]}")
             return
-        
+
         self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
 
         # 2. Define Style Map (Updated based on User Legend - Image Analysis)
@@ -1466,29 +1497,29 @@ class ArchDistribution:
         # 2-X구역 -> Transparent Fill + Colored Outline (Thick)
         base_map = {
             # Filled Types (Standard)
-            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2, "style": "solid"}, # 1 (Orange)
-            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2, "style": "solid"}, # 2 (Magenta)
-            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2, "style": "solid"}, # 3 (Blue-Purple)
-            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2, "style": "solid"}, # 4 (Rose)
-            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2, "style": "solid"}, # 5 (Green)
-            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2, "style": "solid"}, # 6 (Red)
-            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2, "style": "solid"}, # 7 (Mint)
-            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2, "style": "solid"}, # 8 (Yellow)
-            
+            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2, "style": "solid"},  # 1 (Orange)
+            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2, "style": "solid"},  # 2 (Magenta)
+            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2, "style": "solid"},  # 3 (Blue-Purple)
+            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2, "style": "solid"},  # 4 (Rose)
+            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2, "style": "solid"},  # 5 (Green)
+            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2, "style": "solid"},  # 6 (Red)
+            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2, "style": "solid"},  # 7 (Mint)
+            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2, "style": "solid"},  # 8 (Yellow)
+
             # Outline Types (2-X Sub-zones)
             # Fill: Transparent/Light Pink, Stroke: Specific Colors, Width: 0.8
-            "2-1": {"fill": "#FFDDDD", "stroke": "#0000FF", "width": 0.8, "style": "solid", "opacity": 0.2}, # Blue Stroke, Faint Pink Fill
-            "2-2": {"fill": "#FFDDDD", "stroke": "#008000", "width": 0.8, "style": "solid", "opacity": 0.2}, # Green Stroke
-            "2-3": {"fill": "#FFDDDD", "stroke": "#C71585", "width": 0.8, "style": "solid", "opacity": 0.2}, # Magenta Stroke
-            "2-4": {"fill": "#FFDDDD", "stroke": "#008080", "width": 0.8, "style": "solid", "opacity": 0.2}, # Teal Stroke
-            "2-5": {"fill": "#FFDDDD", "stroke": "#8B4513", "width": 0.8, "style": "solid", "opacity": 0.2}, # Brown Stroke
-            "2-6": {"fill": "#FFDDDD", "stroke": "#808000", "width": 0.8, "style": "solid", "opacity": 0.2}, # Olive Stroke
+            "2-1": {"fill": "#FFDDDD", "stroke": "#0000FF", "width": 0.8, "style": "solid", "opacity": 0.2},  # Blue Stroke, Faint Pink Fill
+            "2-2": {"fill": "#FFDDDD", "stroke": "#008000", "width": 0.8, "style": "solid", "opacity": 0.2},  # Green Stroke
+            "2-3": {"fill": "#FFDDDD", "stroke": "#C71585", "width": 0.8, "style": "solid", "opacity": 0.2},  # Magenta Stroke
+            "2-4": {"fill": "#FFDDDD", "stroke": "#008080", "width": 0.8, "style": "solid", "opacity": 0.2},  # Teal Stroke
+            "2-5": {"fill": "#FFDDDD", "stroke": "#8B4513", "width": 0.8, "style": "solid", "opacity": 0.2},  # Brown Stroke
+            "2-6": {"fill": "#FFDDDD", "stroke": "#808000", "width": 0.8, "style": "solid", "opacity": 0.2},  # Olive Stroke
         }
-        
+
         style_map = {}
         for k, v in base_map.items():
             style_map[k] = v
-            style_map[f"{k}구역"] = v 
+            style_map[f"{k}구역"] = v
             style_map[f"제{k}구역"] = v
 
         # 3. Prepare Clipping Geometries
@@ -1538,35 +1569,37 @@ class ArchDistribution:
 
         # 4. Iterate and Split
         idx = layer.fields().indexFromName(field_name)
-        if idx == -1: return
-             
+        if idx == -1:
+            return
+
         # [REFACTOR] Single Pass Feature Collection (O(N))
         # prevents logic gaps between uniqueValues() and manually determining equality.
         from collections import defaultdict
         grouped_feats = defaultdict(list)
-        
+
         all_feats_count = layer.featureCount()
         self.log(f"DEBUG: 총 피처 개수: {all_feats_count}")
-        
+
         for f in layer.getFeatures():
             v = f.attributes()[idx]
-            if v is None: continue
-            
+            if v is None:
+                continue
+
             # Normalize Key
             val_str = str(v).strip()
-            
-            # Handle float/int mismatch (e.g. "1.0" vs "1") if necessary, 
+
+            # Handle float/int mismatch (e.g. "1.0" vs "1") if necessary,
             # usually str() is enough, but to be safe:
             if isinstance(v, float) and v.is_integer():
                 val_str = str(int(v))
-            
+
             grouped_feats[val_str].append(f)
-            
+
         self.log(f"DEBUG: 그룹화 완료. 총 {len(grouped_feats)}개 그룹 생성됨.")
-        
+
         # Sort keys for consistent processing order
         sorted_keys = sorted(grouped_feats.keys())
-        
+
         for val_str in sorted_keys:
             subset_feats = grouped_feats[val_str]
             # self.log(f"DEBUG: Processing Group '{val_str}' (Count: {len(subset_feats)})")
@@ -1576,69 +1609,74 @@ class ArchDistribution:
             for f in subset_feats:
                 geom = f.geometry()
                 # [FIX] Robust Geometry Check
-                if not geom.isGeosValid(): geom = geom.makeValid()
+                if not geom.isGeosValid():
+                    geom = geom.makeValid()
 
                 # Check Intersection with Clip Mask (Extent or Extent∩Buffer)
                 if geom.intersects(clip_mask):
                     try:
                         res = geom.intersection(clip_mask)
-                        if not res.isGeosValid(): res = res.makeValid()
-                        
+                        if not res.isGeosValid():
+                            res = res.makeValid()
+
                         # [FIX] Handle Mixed Geometry Types (Collection)
-                        # If intersection grazing edge returns LineString/Point, we must discard those 
+                        # If intersection grazing edge returns LineString/Point, we must discard those
                         # but KEEP any Polygon parts.
                         final_geom = QgsGeometry()
                         if res.isEmpty():
-                             # If intersection is empty but intersects() was true, it's likely a grazing touch.
-                             pass
+                            # If intersection is empty but intersects() was true, it's likely a grazing touch.
+                            pass
                         else:
-                             if QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
-                                 final_geom = res
-                             elif QgsWkbTypes.isMultiType(res.wkbType()) and QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
-                                 final_geom = res
-                             elif res.isMultipart():
-                                 # Collection or Multi-Type with mixed (unlikely but possible from makeValid)
-                                 parts = []
-                                 for part in res.asGeometryCollection():
-                                      if QgsWkbTypes.geometryType(part.wkbType()) == QgsWkbTypes.PolygonGeometry:
-                                           parts.append(part)
-                                 if parts:
-                                     final_geom = QgsGeometry.fromMultiPolygonXY([p.asPolygon() for p in parts])
-                             else:
-                                 # Single non-polygon (Line/Point) -> Discard
-                                 pass
+                            if QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                final_geom = res
+                            elif QgsWkbTypes.isMultiType(res.wkbType()) and QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                final_geom = res
+                            elif res.isMultipart():
+                                # Collection or Multi-Type with mixed (unlikely but possible from makeValid)
+                                parts = []
+                                for part in res.asGeometryCollection():
+                                    if QgsWkbTypes.geometryType(part.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                        parts.append(part)
+                                if parts:
+                                    final_geom = QgsGeometry.fromMultiPolygonXY([p.asPolygon() for p in parts])
+                            else:
+                                # Single non-polygon (Line/Point) -> Discard
+                                pass
 
                         if not final_geom.isEmpty():
                             # [FIX] Force MultiPolygon conversion
                             if not QgsWkbTypes.isMultiType(final_geom.wkbType()):
-                                 final_geom.convertToMultiType()
-                            
+                                final_geom.convertToMultiType()
+
                             nf = QgsFeature(f)
                             nf.setGeometry(final_geom)
                             clipped_feats.append(nf)
                     except Exception as e:
-                         self.log(f"   -> Geometry Error: {e}")
-            
-            if not clipped_feats: continue
-            
+                        self.log(f"   -> Geometry Error: {e}")
+
+            if not clipped_feats:
+                continue
+
             # Create Memory Layer
             crs_def = layer.crs().authid()
-            if not crs_def: crs_def = layer.crs().toWkt()
-            
+            if not crs_def:
+                crs_def = layer.crs().toWkt()
+
             vl = QgsVectorLayer(f"MultiPolygon?crs={crs_def}", val_str, "memory")
-            if not vl.isValid(): continue
-                
+            if not vl.isValid():
+                continue
+
             pr = vl.dataProvider()
             pr.addAttributes(layer.fields())
             vl.updateFields()
             pr.addFeatures(clipped_feats)
             vl.updateExtents()
-            
+
             # 4.4 Apply Style
             # Find matching style
             norm_val = val_str.replace("구역", "").replace(" ", "").strip()
             style = None
-            
+
             # [FIX: Strict 2-X Matching]
             # Detect pattern "2-X" (handles -, space, dot, underscore)
             import re
@@ -1652,51 +1690,53 @@ class ArchDistribution:
                     self.log(f"   -> Regex Matched '2-{sub_code}' but not in style map.")
 
             if not style:
-                if val_str in style_map: style = style_map[val_str]
-                elif norm_val in style_map: style = style_map[norm_val]
+                if val_str in style_map:
+                    style = style_map[val_str]
+                elif norm_val in style_map:
+                    style = style_map[norm_val]
                 else:
-                     for k, v in sorted(style_map.items(), key=lambda item: len(item[0]), reverse=True):
-                         if k in val_str and len(k) > 0:
-                             style = v
-                             break
-            
+                    for k, v in sorted(style_map.items(), key=lambda item: len(item[0]), reverse=True):
+                        if k in val_str and len(k) > 0:
+                            style = v
+                            break
+
             if style:
                 # Apply Style with Opacity
-                opacity = style.get('opacity', 0.4) # Default 0.4 (40%)
-                
+                opacity = style.get('opacity', 0.4)  # Default 0.4 (40%)
+
                 symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
-                
+
                 # Check if it's "transparent" fill or actual color
                 fill_col = style['fill']
                 if fill_col == 'transparent':
-                     symbol.setColor(QColor(0, 0, 0, 0)) # Transparent
+                    symbol.setColor(QColor(0, 0, 0, 0))  # Transparent
                 else:
-                     symbol.setColor(QColor(fill_col))
-                
+                    symbol.setColor(QColor(fill_col))
+
                 symbol.setOpacity(opacity)
-                
+
                 symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
                 symbol.symbolLayer(0).setStrokeWidth(style['width'])
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
             else:
-                pass 
-            
+                pass
+
             vl.triggerRepaint()
-            
+
             # 4.5 Add to Group
             QgsProject.instance().addMapLayer(vl, False)
             parent_group.addLayer(vl)
-            
+
         parent_group.setExpanded(True)
         parent_group.setItemVisibilityChecked(True)
-        
+
         # [UX] Move original input layer to Source Group
         try:
             root = QgsProject.instance().layerTreeRoot()
             src_group = root.findGroup("ArchDistribution_원본_데이터")
             if not src_group:
                 src_group = root.addGroup("ArchDistribution_원본_데이터")
-            
+
             # Find the layer node
             my_node = root.findLayer(layer.id())
             if my_node:
