@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this repository in research, teaching, or applied work, please cite it using the metadata below."
+type: software
+title: "ArchDistribution: 문화유적분포지도 만들기"
+authors:
+  - family-names: Hwang
+    given-names: Jinseo
+repository-code: "https://github.com/lzpxilfe/ArchDistribution"
+url: "https://github.com/lzpxilfe/ArchDistribution"
+date-released: 2026-07-10
+abstract: >
+  문화유적분포지도 만들기
+keywords:
+  - archaeology
+  - digital archaeology
+  - research software
+  - gis
+  - spatial analysis
