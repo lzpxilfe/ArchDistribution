@@ -235,6 +235,183 @@ class QgisPreservationIntegrationTests(unittest.TestCase):
                 1,
             )
 
+    def test_renumber_hides_extent_outside_features_and_reconsiders_them(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "재번호_도곽_검증",
+            "memory",
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("번호", QVariant.Int),
+            QgsField("유적명", QVariant.String),
+        ])
+        layer.updateFields()
+
+        rows = (
+            (
+                1,
+                "도곽 안",
+                "POLYGON((0 0,10 0,10 10,0 10,0 0))",
+            ),
+            (
+                2,
+                "도곽 밖",
+                "POLYGON((200 200,210 200,210 210,200 210,200 200))",
+            ),
+            (
+                3,
+                "도곽 접촉",
+                "POLYGON((20 0,30 0,30 10,20 10,20 0))",
+            ),
+        )
+        features = []
+        for number, name, wkt in rows:
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+            feature["번호"] = number
+            feature["유적명"] = name
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        layer.setSubsetString('"번호" IS NOT NULL')
+
+        plugin = self.make_plugin()
+        first_summary = plugin.number_heritage_v4(
+            layer,
+            QgsPointXY(0, 0),
+            sort_order=0,
+            extent_geom=QgsGeometry.fromRect(
+                QgsRectangle(-1, -1, 20, 20)
+            ),
+            extent_crs=layer.crs(),
+            buffer_geoms=[],
+            restrict_to_buffer=False,
+        )
+
+        self.assertEqual(first_summary["numbered_feature_count"], 1)
+        self.assertEqual(layer.subsetString(), '"번호" IS NOT NULL')
+        self.assertEqual(
+            [feature["유적명"] for feature in layer.getFeatures()],
+            ["도곽 안"],
+        )
+
+        layer.setSubsetString("")
+        all_features = {
+            feature["유적명"]: feature
+            for feature in layer.getFeatures()
+        }
+        self.assertIsNone(all_features["도곽 밖"]["번호"])
+        self.assertEqual(all_features["도곽 밖"]["비고"], "도곽_밖")
+        self.assertIsNone(all_features["도곽 접촉"]["번호"])
+        self.assertEqual(all_features["도곽 접촉"]["비고"], "도곽_밖")
+
+        # Simulate a later renumber run which starts with the plugin-managed
+        # visibility filter still applied. Expanding the extent must restore
+        # the previously hidden record instead of losing it permanently.
+        layer.setSubsetString('"번호" IS NOT NULL')
+        second_summary = plugin.number_heritage_v4(
+            layer,
+            QgsPointXY(0, 0),
+            sort_order=0,
+            extent_geom=QgsGeometry.fromRect(
+                QgsRectangle(-1, -1, 220, 220)
+            ),
+            extent_crs=layer.crs(),
+            buffer_geoms=[],
+            restrict_to_buffer=False,
+        )
+
+        self.assertEqual(second_summary["numbered_feature_count"], 3)
+        self.assertEqual(layer.subsetString(), "")
+        restored = list(layer.getFeatures())
+        self.assertEqual({feature["유적명"] for feature in restored}, {
+            "도곽 안",
+            "도곽 밖",
+            "도곽 접촉",
+        })
+        self.assertTrue(all(feature["번호"] is not None for feature in restored))
+
+    def test_renumber_preserves_user_subset_filter(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "재번호_사용자_필터",
+            "memory",
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("번호", QVariant.Int),
+            QgsField("유적명", QVariant.String),
+        ])
+        layer.updateFields()
+
+        rows = (
+            (
+                1,
+                "유지_안",
+                "POLYGON((0 0,10 0,10 10,0 10,0 0))",
+            ),
+            (
+                2,
+                "유지_밖",
+                "POLYGON((200 200,210 200,210 210,200 210,200 200))",
+            ),
+            (
+                3,
+                "사용자숨김",
+                "POLYGON((5 5,8 5,8 8,5 8,5 5))",
+            ),
+        )
+        features = []
+        for number, name, wkt in rows:
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+            feature["번호"] = number
+            feature["유적명"] = name
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+
+        user_subset = "\"유적명\" LIKE '유지_%'"
+        layer.setSubsetString(user_subset)
+        plugin = self.make_plugin()
+        plugin.number_heritage_v4(
+            layer,
+            QgsPointXY(0, 0),
+            sort_order=0,
+            extent_geom=QgsGeometry.fromRect(
+                QgsRectangle(-1, -1, 20, 20)
+            ),
+            extent_crs=layer.crs(),
+            buffer_geoms=[],
+            restrict_to_buffer=False,
+        )
+
+        managed_subset = (
+            f'({user_subset}) AND ("번호" IS NOT NULL)'
+        )
+        self.assertEqual(layer.subsetString(), managed_subset)
+        self.assertEqual(
+            [feature["유적명"] for feature in layer.getFeatures()],
+            ["유지_안"],
+        )
+
+        plugin.number_heritage_v4(
+            layer,
+            QgsPointXY(0, 0),
+            sort_order=0,
+            extent_geom=QgsGeometry.fromRect(
+                QgsRectangle(-1, -1, 220, 220)
+            ),
+            extent_crs=layer.crs(),
+            buffer_geoms=[],
+            restrict_to_buffer=False,
+        )
+
+        self.assertEqual(layer.subsetString(), user_subset)
+        self.assertEqual(
+            {feature["유적명"] for feature in layer.getFeatures()},
+            {"유지_안", "유지_밖"},
+        )
+
     def test_source_json_is_aggregated_for_every_action_part(self):
         layer = QgsVectorLayer("Point?crs=EPSG:5186", "source-audit", "memory")
         provider = layer.dataProvider()

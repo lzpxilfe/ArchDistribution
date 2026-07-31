@@ -288,6 +288,9 @@ python create_zip.py
   처리 설정을 남깁니다. 비밀번호·토큰 계열 값은 마스킹됩니다.
 - `인쇄조판 JPG/PDF`는 선택한 용지 크기와 축척으로 QGIS Layout Manager에
   편집 가능한 조판을 남기며, JPG는 300dpi로 출력합니다.
+- 자동 인쇄조판은 프로젝트 화면 CRS가 달라도 조사구역·`도곽_Extent` CRS를
+  사용하므로 판형·축척·유적 수집 범위가 일치합니다. 조판을 직접 만들 때에도
+  지도 항목 CRS를 `도곽_Extent`와 같게 설정하세요.
 - Illustrator 작업이 필요하면 지형도, 유적, 버퍼 등을 하나씩만 켜서 각각 PDF로 저장한 뒤 합치는 방식이 편합니다.
 
 **EN**
@@ -296,6 +299,8 @@ python create_zip.py
 - `GeoPackage + run manifest` archives representative, suppressed, protection,
   and audit layers together; credential-like settings are redacted from JSON.
 - JPG/PDF export also keeps an editable layout in QGIS Layout Manager; JPG uses 300 dpi.
+- Automatic layouts use the study/`도곽_Extent` CRS even when the project display
+  CRS differs. For a manual layout, set the map item's CRS to the extent CRS.
 - For Illustrator workflows, exporting separate PDFs by layer visibility often makes editing easier.
 
 ## 🌐 언어 지원 | Language Support

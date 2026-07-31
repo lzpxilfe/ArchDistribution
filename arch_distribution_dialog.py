@@ -3307,6 +3307,8 @@ ArchDistribution은 자료 역할과 함께 명칭·중첩·주소·거리를 �
 <br>
 <b>[View results]</b><br>
 When processing completes, map canvas auto-zooms to extent.<br>
+The canvas includes viewing padding. Automatic print layouts use the study/extent CRS even when the project CRS differs.<br>
+For a manually created print layout, set the map item's CRS to the same CRS as <b>도곽_Extent</b> so paper size, scale, and collection footprint remain identical.<br>
 If nothing appears, check visibility of <b>ArchDistribution_결과물</b> and try <b>Zoom to Layer</b>.<br><br>
 <b>[Zone option]</b><br>
 If a Zone layer is selected, features are automatically split/styled by zone code.<br>
@@ -3359,6 +3361,8 @@ If updates are not reflected, disable/enable the plugin or restart QGIS.<br>
 <br>
 <b>[결과 확인 (View)]</b><br>
 작업이 끝나면 <b>도곽(Extent) 범위로 화면이 자동 확대(여백 포함)</b>되어 결과물을 바로 확인할 수 있습니다.<br>
+프로젝트 CRS가 조사구역과 달라도 자동 인쇄조판은 조사구역·도곽 CRS를 사용합니다.<br>
+인쇄조판을 직접 만들 때에는 지도 항목 CRS를 <b>도곽_Extent와 같은 CRS</b>로 설정해야 판형·축척·유적 수집 범위가 정확히 일치합니다.<br>
 만약 화면이 비어 보이면 레이어 패널에서 <b>ArchDistribution_결과물</b> 그룹의 체크(가시성)를 확인하고,<br>
 개별 레이어 우클릭 → <b>레이어로 확대(Zoom to Layer)</b>를 시도해 주세요.
 <br><br>

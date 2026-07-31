@@ -323,6 +323,49 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
             ),
         )
 
+    def test_print_layout_uses_extent_crs_when_project_crs_differs(self):
+        self.project.setCrs(QgsCoordinateReferenceSystem("EPSG:3857"))
+        extent_crs = QgsCoordinateReferenceSystem("EPSG:5179")
+        extent_rectangle = QgsRectangle(
+            958000,
+            1917000,
+            962000,
+            1923000,
+        )
+        extent = QgsGeometry.fromRect(extent_rectangle)
+
+        result = self.plugin._export_print_layout(
+            self._distribution_layout_settings(self.output_directory),
+            extent,
+            extent_crs,
+            "distribution_map",
+            base_name="cross_crs_distribution_layout",
+        )
+
+        self.assertEqual(result["errors"], [])
+        layout = self.project.layoutManager().layoutByName(
+            result["layout_name"]
+        )
+        self.assertIsNotNone(layout)
+        map_items = [
+            item for item in layout.items()
+            if isinstance(item, QgsLayoutItemMap)
+        ]
+        self.assertEqual(len(map_items), 1)
+
+        map_item = map_items[0]
+        self.assertEqual(map_item.crs().authid(), "EPSG:5179")
+        self.assertAlmostEqual(map_item.scale(), 25000, delta=1)
+
+        map_extent = map_item.extent()
+        self.assertAlmostEqual(map_extent.xMinimum(), 958000, delta=0.01)
+        self.assertAlmostEqual(map_extent.yMinimum(), 1917000, delta=0.01)
+        self.assertAlmostEqual(map_extent.xMaximum(), 962000, delta=0.01)
+        self.assertAlmostEqual(map_extent.yMaximum(), 1923000, delta=0.01)
+        self.assertAlmostEqual(map_extent.width(), 4000, delta=0.01)
+        self.assertAlmostEqual(map_extent.height(), 6000, delta=0.01)
+        self.assertTrue(map_extent.contains(extent_rectangle))
+
     def test_optional_outputs_create_complete_artifact_bundle(self):
         output_group, spatial, audit = self._make_temporary_output_group()
         settings = self._distribution_layout_settings(

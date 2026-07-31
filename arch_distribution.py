@@ -378,7 +378,28 @@ class ArchDistribution:
 
             self.log(f"중심점 기반 도곽 생성 중 (Scale 1:{settings['scale']})...")
             extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, original_study_layer.crs())
-            self.log(f"도곽 생성 완료: {settings['paper_width']}x{settings['paper_height']} mm (1:{settings['scale']})")
+            extent_bounds = extent_geom.boundingBox()
+            extent_unit = QgsUnitTypes.toAbbreviatedString(
+                original_study_layer.crs().mapUnits()
+            )
+            self.log(
+                "도곽 생성 완료: "
+                f"{settings['paper_width']}x{settings['paper_height']} mm "
+                f"(1:{settings['scale']}) → "
+                f"{extent_bounds.width():,.1f}x"
+                f"{extent_bounds.height():,.1f} {extent_unit}, "
+                f"{original_study_layer.crs().authid()}"
+            )
+            project_crs = QgsProject.instance().crs()
+            if project_crs != original_study_layer.crs():
+                self.log(
+                    "안내: 프로젝트 화면 CRS와 도곽 CRS가 다릅니다. "
+                    f"화면={project_crs.authid()}, "
+                    f"도곽·수집={original_study_layer.crs().authid()}. "
+                    "ArchDistribution 자동 인쇄조판은 도곽 CRS를 "
+                    "사용합니다. 수동 인쇄조판도 지도 항목 CRS를 "
+                    f"{original_study_layer.crs().authid()}로 설정하세요."
+                )
             current_step += 1
             progress.setValue(current_step)
 
@@ -690,7 +711,11 @@ class ArchDistribution:
                 "매장유산 도곽 계산 완료: "
                 f"{settings.get('preservation_paper_width', 210)}×"
                 f"{settings.get('preservation_paper_height', 297)} mm, "
-                f"1:{settings.get('preservation_scale', 5000)}"
+                f"1:{settings.get('preservation_scale', 5000)} → "
+                f"{extent_geom.boundingBox().width():,.1f}×"
+                f"{extent_geom.boundingBox().height():,.1f} "
+                f"{QgsUnitTypes.toAbbreviatedString(study_layer.crs().mapUnits())}, "
+                f"{study_layer.crs().authid()}"
             )
 
             requested_field = settings.get("preservation_action_field")
@@ -1354,6 +1379,10 @@ class ArchDistribution:
         """Create one editable print layout and optionally export JPG/PDF."""
         if not extent_geom or extent_geom.isEmpty():
             raise RuntimeError("인쇄조판 도곽이 비어 있습니다.")
+        if not extent_crs or not extent_crs.isValid():
+            raise RuntimeError(
+                "인쇄조판 도곽의 좌표계를 확인할 수 없습니다."
+            )
 
         preservation = workflow == "preservation_area"
         width = float(
@@ -1378,15 +1407,14 @@ class ArchDistribution:
             raise RuntimeError("용지 크기와 축척은 0보다 커야 합니다.")
 
         project = QgsProject.instance()
-        map_geometry = QgsGeometry(extent_geom)
         project_crs = project.crs()
-        if extent_crs and extent_crs != project_crs:
-            map_geometry.transform(
-                QgsCoordinateTransform(
-                    extent_crs,
-                    project_crs,
-                    project,
-                )
+        layout_crs = extent_crs
+        map_geometry = QgsGeometry(extent_geom)
+        if layout_crs != project_crs:
+            self.log(
+                "인쇄조판 CRS를 도곽 CRS로 고정합니다: "
+                f"{layout_crs.authid()} "
+                f"(프로젝트 CRS: {project_crs.authid()})"
             )
 
         layout = QgsPrintLayout(project)
@@ -1418,7 +1446,10 @@ class ArchDistribution:
                 QgsUnitTypes.LayoutMillimeters,
             )
         )
-        map_item.setCrs(project_crs)
+        # The paper size, scale and extent were calculated in extent_crs.
+        # Keeping the map item in that same CRS prevents Web Mercator scale
+        # distortion from shrinking the printable footprint.
+        map_item.setCrs(layout_crs)
         map_item.setExtent(map_geometry.boundingBox())
         map_item.setScale(scale)
         map_item.setFrameEnabled(False)
@@ -3689,6 +3720,38 @@ class ArchDistribution:
         if transformed_buffers:
             limit_geom = transformed_buffers[-1]['geom']  # Last one is largest
 
+        # A previous numbering run may have applied our managed visibility
+        # filter. Clear only that filter so an expanded extent can reconsider
+        # records which were hidden by the earlier run. Preserve any filter
+        # which the user had already applied.
+        managed_subset = '"번호" IS NOT NULL'
+        base_subset_property = (
+            "ArchDistribution/renumber_base_subset"
+        )
+        initial_subset = layer.subsetString().strip()
+        stored_base_subset = layer.customProperty(
+            base_subset_property,
+            None,
+        )
+        if stored_base_subset is not None:
+            stored_base_subset = str(stored_base_subset).strip()
+            expected_subset = (
+                f"({stored_base_subset}) AND ({managed_subset})"
+                if stored_base_subset
+                else managed_subset
+            )
+            if initial_subset == expected_subset:
+                base_subset = stored_base_subset
+                layer.setSubsetString(base_subset)
+            else:
+                base_subset = initial_subset
+                layer.removeCustomProperty(base_subset_property)
+        elif initial_subset == managed_subset:
+            base_subset = ""
+            layer.setSubsetString("")
+        else:
+            base_subset = initial_subset
+
         layer.startEditing()
 
         # Collect all features
@@ -3701,10 +3764,30 @@ class ArchDistribution:
             if not geom.isGeosValid():
                 geom = geom.makeValid()
 
-            # [CHECK 1] Extent Intersection
-            if target_extent and not geom.intersects(target_extent):
+            # [CHECK 1] Extent Intersection. For polygon and line results,
+            # merely touching the frame at a point/edge is not a printable
+            # intersection and must not receive a number.
+            inside_extent = True
+            if target_extent:
+                inside_extent = geom.intersects(target_extent)
+                if inside_extent and layer.geometryType() in (1, 2):
+                    clipped_for_test = geom.intersection(target_extent)
+                    if layer.geometryType() == 2:
+                        inside_extent = (
+                            not clipped_for_test.isEmpty()
+                            and clipped_for_test.area() > 0
+                        )
+                    else:
+                        inside_extent = (
+                            not clipped_for_test.isEmpty()
+                            and clipped_for_test.length() > 0
+                        )
+            if not inside_extent:
                 layer.changeAttributeValue(feat.id(), idx, None)
                 layer.changeAttributeValue(feat.id(), dist_idx, None)
+                layer.changeAttributeValue(feat.id(), note_idx, "도곽_밖")
+                layer.changeAttributeValue(feat.id(), label_anchor_idx, 0)
+                ids_to_delete.append(feat.id())
                 continue
 
             # [CHECK 2] Limit Geometry (Max Buffer) Intersection
@@ -3713,6 +3796,12 @@ class ArchDistribution:
                 if not geom.intersects(limit_geom):
                     layer.changeAttributeValue(feat.id(), idx, None)
                     layer.changeAttributeValue(feat.id(), dist_idx, None)
+                    layer.changeAttributeValue(feat.id(), note_idx, "버퍼_밖")
+                    layer.changeAttributeValue(
+                        feat.id(),
+                        label_anchor_idx,
+                        0,
+                    )
                     ids_to_delete.append(feat.id())  # [FIX] Mark for deletion
                     continue
 
@@ -3908,16 +3997,22 @@ class ArchDistribution:
 
         # 2. Hide Outside Features (Non-Destructive for Human Verification)
         if ids_to_delete:
-            # removing 'delete logic'. Instead we apply filter.
-            # layer.deleteFeatures(ids_to_delete)
-
-            # Apply Filter to show only Numbered items
-            layer.setSubsetString('"번호" IS NOT NULL')
+            visible_subset = (
+                f"({base_subset}) AND ({managed_subset})"
+                if base_subset
+                else managed_subset
+            )
+            layer.setCustomProperty(
+                base_subset_property,
+                base_subset,
+            )
+            layer.setSubsetString(visible_subset)
 
             self.log(f"범위 밖 유적 {len(ids_to_delete)}개를 숨김 처리했습니다. (삭제 안함)")
             self.log(" -> 확인 방법: 레이어 우클릭 > 필터 설정 > 지우기")
         else:
-            layer.setSubsetString("")  # Clear any previous filter
+            layer.setSubsetString(base_subset)
+            layer.removeCustomProperty(base_subset_property)
 
         return {
             "number_group_count": len(number_by_key),
