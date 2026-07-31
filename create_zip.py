@@ -2,7 +2,6 @@ import os
 import zipfile
 import configparser
 import subprocess
-import sys
 from pathlib import Path
 
 def get_git_files():
@@ -48,9 +47,16 @@ def create_plugin_zip():
         "arch_distribution.py",
         "arch_distribution_dialog.py",
         "arch_distribution_dialog_base.ui",
+        "cartographic_filtering.py",
         "icon.png",
+        "heritage_grouping.py",
+        "heritage_identity_store.py",
+        "heritage_matching.py",
+        "heritage_matching_dialog.py",
         "metadata.txt",
+        "preservation_actions.py",
         "reference_data.json",
+        "run_artifacts.py",
         "smart_patterns.json",
     }
 
@@ -69,6 +75,11 @@ def create_plugin_zip():
                 basename = os.path.basename(f)
                 if basename in runtime_files:
                     files_to_zip.append(f)
+            # Include declared runtime modules that exist locally even before
+            # they are staged, so development builds cannot omit dependencies.
+            for runtime_file in runtime_files:
+                if os.path.isfile(runtime_file) and runtime_file not in files_to_zip:
+                    files_to_zip.append(runtime_file)
         else:
             print("Warning: git not found. Using manual file walking (fallback).")
             # Fallback logic (omitted for brevity as git is expected)

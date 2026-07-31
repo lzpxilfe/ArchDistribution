@@ -6,6 +6,7 @@ __pycache__
 xlsx/
 *.xlsx
 *.log
+latest_log.txt
 classification_terms*.txt
 analyze_artifacts.py
 analyze_artifacts_v2.py
