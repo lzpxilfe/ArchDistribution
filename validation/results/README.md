@@ -29,20 +29,20 @@ output golden suite.
 
 ## Current local integration check
 
-The current working tree was rerun on Windows with QGIS 3.40.5 and Python
-3.12.9 on 2026-08-13. `test_metric_context.py` plus every `test_qgis_*.py`
-module passed 84/84. This supersedes the earlier local counts because
+Commit `88c36d751ab79b1a551f80fed2632b582d9b77f2` was rerun from a clean
+working tree on Windows with QGIS 3.40.5 and Python 3.12.9 on 2026-08-13.
+`test_metric_context.py` plus all 11 root `test_qgis_*.py` modules passed
+84/84. This supersedes the earlier local counts because
 additional regressions were added, including cross-CRS measurement, terminal
 manifest, invalid pre-clip repair, contained-boundary distance, and protection
 code-collision, typed cross-family review, entity-versus-number cases,
-preservation-site identifier safety, and normalized geometry hashing. It
-is diagnostic local evidence. The pinned QGIS 3.44.13 workflow subsequently
+preservation-site identifier safety, and normalized geometry hashing. The
+pinned QGIS 3.44.13 workflow subsequently
 passed 84/84 tests, the indexed benchmark, and installable-ZIP import on GitHub
 Actions. Its machine-readable record is
 `qgis-3.44.13-github-2026-08-13.json`.
-The machine-readable local record is
-`qgis-3.40.5-windows-2026-08-13.json`; it explicitly marks the working tree as
-dirty and is therefore diagnostic rather than release evidence.
+The machine-readable clean local record is
+`qgis-3.40.5-windows-2026-08-13.json`.
 
 The rebuilt `ArchDistribution-1.0.5.zip` was also CRC-checked, inspected for
 its one-directory QGIS layout, extracted into a clean temporary plugin path,

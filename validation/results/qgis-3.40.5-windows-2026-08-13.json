@@ -7,7 +7,11 @@
   "failures": 0,
   "errors": 0,
   "skipped": 0,
-  "elapsed_seconds": 52.329,
+  "elapsed_seconds": 46.835,
+  "components": {
+    "metric_context_tests": 16,
+    "qgis_integration_tests": 68
+  },
   "runtime": {
     "qgis": "3.40.5-Bratislava",
     "python": "3.12.9",
@@ -19,9 +23,9 @@
     "test_qgis_*.py"
   ],
   "source": {
-    "base_git_commit": "c2b669692017cc14b9bcf14a6928cabf2b4c9040",
-    "working_tree_dirty": true,
+    "base_git_commit": "88c36d751ab79b1a551f80fed2632b582d9b77f2",
+    "working_tree_dirty": false,
     "ruleset_sha256": "418f3093d7fefb2527d64b12c989d2bcb72c1905ae775cfaa4f9500ebce34b1f"
   },
-  "release_gate_effect": "diagnostic_only_until_committed_ci_evidence_exists"
+  "release_gate_effect": "clean_committed_local_evidence"
 }
