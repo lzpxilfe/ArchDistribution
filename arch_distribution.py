@@ -10,6 +10,7 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling,
                        QgsCoordinateTransform, QgsWkbTypes, QgsRectangle,
                        QgsSpatialIndex, QgsDistanceArea, QgsVectorFileWriter,
+                       QgsApplication, Qgis,
                        QgsPrintLayout, QgsLayoutItemMap, QgsLayoutPoint,
                        QgsLayoutSize, QgsUnitTypes, QgsLayoutExporter)
 
@@ -18,11 +19,17 @@ import hashlib
 import os.path
 import processing
 import time
+from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 
 from .cartographic_filtering import is_insignificant_extent_fragment
 from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
-from .heritage_grouping import resolve_heritage_group
+from .heritage_grouping import (
+    canonical_heritage_text,
+    resolve_heritage_group,
+    strip_trailing_area_designator,
+)
 from .heritage_matching import (
     DECISION_KEEP,
     DECISION_LINK,
@@ -38,13 +45,18 @@ from .heritage_matching import (
     STATUS_UNIQUE,
     STATUS_USER_MERGED,
     detect_source_role,
+    canonical_name,
     evaluate_candidate,
     is_designated_role,
+    is_generic_name,
+    load_matching_rules,
+    matching_rules_metadata,
     selected_content_fingerprint,
     source_priority,
 )
 from .heritage_matching_dialog import DuplicateReviewDialog
 from .heritage_identity_store import DecisionStore, build_source_identity
+from .metric_context import MetricContext, MetricContextError
 from .preservation_actions import (
     PRESERVATION_ACTION_FIELD_CANDIDATES,
     PRESERVATION_ACTION_STYLES,
@@ -53,13 +65,19 @@ from .preservation_actions import (
 )
 from .run_artifacts import (
     build_run_manifest,
+    deterministic_content_hash,
     normalize_filename,
     prepare_artifact_paths,
     prepare_output_path,
+    python_runtime_environment,
+    read_build_info,
     save_manifest_atomic,
+    sha256_file,
+    sha256_file_bundle,
 )
 
-DEFAULT_ENCODING = "CP949"
+LEGACY_KOREAN_ENCODING = "CP949"
+ENCODING_OVERRIDE_PROPERTY = "ArchDistribution/encoding_override"
 DEFAULT_LABEL_FONT_FAMILY = "Malgun Gothic"
 DEFAULT_LABEL_FONT_SIZE = 10
 DEFAULT_ZOOM_PADDING_RATIO = 0.08
@@ -68,11 +86,10 @@ DEGENERATE_PAD_GEOGRAPHIC = 1
 DEGENERATE_PAD_PROJECTED = 10
 STUDY_BUFFER_SEGMENTS = 20
 PROCESSING_BUFFER_SEGMENTS = 50
-DEFAULT_EXTENT_FALLBACK_CRS = "EPSG:5186"
 TOPO_BOUNDARY_EXCLUDE_CODE = "H0017334"
 SAFE_BUFFER_DIST_GEOGRAPHIC = 0.000001
 SAFE_BUFFER_DIST_PROJECTED = 0.01
-MATCH_POLICY_VERSION = "source-aware-v1"
+MATCH_POLICY_VERSION = "source-aware-v2"
 
 
 class DuplicateReviewCancelled(Exception):
@@ -115,6 +132,53 @@ class ArchDistribution:
         self.actions = []
         self.menu = QCoreApplication.translate('ArchDistribution', '&ArchDistribution')
         self.toolbar = None
+        self._current_metric_context = None
+
+    def _user_data_directory(self):
+        """Return a writable profile directory for logs and runtime state."""
+        try:
+            base = Path(QgsApplication.qgisSettingsDirPath())
+        except (AttributeError, TypeError, ValueError):
+            base = Path(
+                QtCore.QStandardPaths.writableLocation(
+                    QtCore.QStandardPaths.AppDataLocation
+                )
+                or self.plugin_dir
+            )
+        target = base / "ArchDistribution"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _log_path(self):
+        return self._user_data_directory() / "latest_log.txt"
+
+    def _record_excluded_layer(self, layer, reason, *, role=None):
+        """Record a path-free partial-processing exclusion for manifest v2."""
+        statistics = getattr(self, "_current_processing_stats", None)
+        if not isinstance(statistics, dict):
+            statistics = {}
+            self._current_processing_stats = statistics
+        record = {
+            "name": layer.name() if layer is not None else "<missing-layer>",
+            "reason": str(reason),
+        }
+        if role:
+            record["role"] = role
+        statistics.setdefault("excluded_layers", []).append(record)
+
+    def _record_processing_warning(self, layer, reason, *, role=None):
+        """Record a recoverable issue that makes a run only partly successful."""
+        statistics = getattr(self, "_current_processing_stats", None)
+        if not isinstance(statistics, dict):
+            statistics = {}
+            self._current_processing_stats = statistics
+        record = {
+            "name": layer.name() if layer is not None else "<workflow>",
+            "reason": str(reason),
+        }
+        if role:
+            record["role"] = role
+        statistics.setdefault("processing_warnings", []).append(record)
 
     def initGui(self):
         # Create toolbar if it doesn't exist
@@ -183,11 +247,55 @@ class ArchDistribution:
 
         # 3. File Log (New)
         try:
-            log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
-            with open(log_path, 'a', encoding='utf-8') as f:
+            log_path = self._log_path()
+            with log_path.open('a', encoding='utf-8') as f:
                 f.write(full_msg + "\n")
         except Exception as e:
             print(f"Log file error: {e}")
+
+    def _build_metric_context(self, layer, settings):
+        """Create the single metric contract used by a workflow run.
+
+        Generated layers remain in the analysis CRS so every stored distance,
+        area, extent dimension, and buffer geometry is unambiguously metric.
+        The untouched input layer remains available in the hidden source group.
+        """
+        override = (settings or {}).get("analysis_crs_authid") or None
+        context = MetricContext.from_layer(layer, analysis_crs=override)
+        context = replace(context, output_crs=context.analysis_crs)
+        self._current_metric_context = context
+        provenance = context.provenance()
+        selection = provenance["analysis_selection"]
+        self.log(
+            "측정 CRS 준비 완료: "
+            f"원본={context.source_crs.authid() or '사용자정의'}, "
+            f"분석·출력={context.analysis_crs.authid() or '사용자정의'} "
+            f"({selection['method']}, 단위=metre)"
+        )
+        return context
+
+    def _copy_layer_to_analysis_crs(self, layer, metric_context, name):
+        """Return a memory copy in the run's projected-metre analysis CRS."""
+        try:
+            result = processing.run(
+                "native:reprojectlayer",
+                {
+                    "INPUT": layer,
+                    "TARGET_CRS": metric_context.analysis_crs,
+                    "OUTPUT": "memory:",
+                },
+            )
+            output = result["OUTPUT"]
+        except Exception as error:
+            raise MetricContextError(
+                f"분석 CRS로 레이어를 변환하지 못했습니다: {layer.name()}"
+            ) from error
+        if not output or not output.isValid():
+            raise MetricContextError(
+                f"분석 CRS 변환 결과가 유효하지 않습니다: {layer.name()}"
+            )
+        output.setName(name)
+        return output
 
     def zoom_canvas_to_extent(self, extent_geom, extent_crs=None, padding_ratio=DEFAULT_ZOOM_PADDING_RATIO):
         """Zoom map canvas to a geometry extent (CRS-aware) with a small padding."""
@@ -267,8 +375,8 @@ class ArchDistribution:
 
         # Initialize Log File
         try:
-            log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
-            with open(log_path, 'w', encoding='utf-8') as f:
+            log_path = self._log_path()
+            with log_path.open('w', encoding='utf-8') as f:
                 f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
         except OSError as exc:
             print(f"ArchDistribution: log file initialization failed: {exc}")
@@ -333,21 +441,19 @@ class ArchDistribution:
                 self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
                 return
 
-            # CRS Validation
-            if original_study_layer.crs().isGeographic():
-                self.log("경고: 지리좌표계(도 단위) 감지됨. 정밀 계산을 위해 투영좌표계 사용을 권장합니다.")
-
-            # Create a clone in memory for the results group
-            study_result_layer = QgsVectorLayer(f"{'Polygon' if original_study_layer.geometryType() == 2 else 'LineString'}?crs={original_study_layer.crs().toWkt()}", "00_조사구역", "memory")
-            study_result_pr = study_result_layer.dataProvider()
-
-            # Copy all features
-            new_feats = []
-            for f in original_study_layer.getFeatures():
-                nf = QgsFeature(f)
-                new_feats.append(nf)
-            study_result_pr.addFeatures(new_feats)
-            study_result_layer.updateExtents()
+            # Establish one explicit metric contract for the whole run.  A
+            # missing/invalid CRS or failed transform is fatal: silently
+            # labelling coordinates as EPSG:5186 would corrupt every result.
+            metric_context = self._build_metric_context(
+                original_study_layer,
+                settings,
+            )
+            study_result_layer = self._copy_layer_to_analysis_crs(
+                original_study_layer,
+                metric_context,
+                "00_조사구역",
+            )
+            analysis_study_layer = study_result_layer
 
             self.apply_study_style(study_result_layer, settings['study_style'])
             QgsProject.instance().addMapLayer(study_result_layer, False)
@@ -366,39 +472,49 @@ class ArchDistribution:
                     self.log("수치지형도 병합 및 스타일 적용 완료.")
                 except Exception as e:
                     self.log(f"경고: 지형도 병합 중 일부 데이터 건립 오류 발생 (계속 진행): {str(e)}")
+                    for layer_id in settings["topo_layer_ids"]:
+                        self._record_excluded_layer(
+                            QgsProject.instance().mapLayer(layer_id),
+                            "topographic_merge_failed",
+                            role="topographic_map",
+                        )
             current_step += 1
             progress.setValue(current_step)
 
             # Step 4: Centroid & Extent
             self.log("도곽(Extent) 영역 계산 중...")
-            centroid = self.get_study_area_centroid(original_study_layer)
+            centroid = self.get_study_area_centroid(analysis_study_layer)
             if not centroid:
                 self.log("오류: 조사지역의 데이터가 비어있거나 중심점을 계산할 수 없습니다.")
                 return
 
             self.log(f"중심점 기반 도곽 생성 중 (Scale 1:{settings['scale']})...")
-            extent_geom = self.create_extent_polygon(centroid, settings['paper_width'], settings['paper_height'], settings['scale'], ext_group, original_study_layer.crs())
-            extent_bounds = extent_geom.boundingBox()
-            extent_unit = QgsUnitTypes.toAbbreviatedString(
-                original_study_layer.crs().mapUnits()
+            extent_geom = self.create_extent_polygon(
+                centroid,
+                settings['paper_width'],
+                settings['paper_height'],
+                settings['scale'],
+                ext_group,
+                metric_context.analysis_crs,
             )
+            extent_bounds = extent_geom.boundingBox()
             self.log(
                 "도곽 생성 완료: "
                 f"{settings['paper_width']}x{settings['paper_height']} mm "
                 f"(1:{settings['scale']}) → "
                 f"{extent_bounds.width():,.1f}x"
-                f"{extent_bounds.height():,.1f} {extent_unit}, "
-                f"{original_study_layer.crs().authid()}"
+                f"{extent_bounds.height():,.1f} m, "
+                f"{metric_context.analysis_crs.authid()}"
             )
             project_crs = QgsProject.instance().crs()
-            if project_crs != original_study_layer.crs():
+            if project_crs != metric_context.analysis_crs:
                 self.log(
                     "안내: 프로젝트 화면 CRS와 도곽 CRS가 다릅니다. "
                     f"화면={project_crs.authid()}, "
-                    f"도곽·수집={original_study_layer.crs().authid()}. "
+                    f"도곽·수집={metric_context.analysis_crs.authid()}. "
                     "ArchDistribution 자동 인쇄조판은 도곽 CRS를 "
                     "사용합니다. 수동 인쇄조판도 지도 항목 CRS를 "
-                    f"{original_study_layer.crs().authid()}로 설정하세요."
+                    f"{metric_context.analysis_crs.authid()}로 설정하세요."
                 )
             current_step += 1
             progress.setValue(current_step)
@@ -409,7 +525,12 @@ class ArchDistribution:
                 for distance in settings['buffers']:
                     if progress.wasCanceled():
                         raise ProcessingCancelled()
-                    self.create_buffer(original_study_layer, distance, buf_group, settings['buffer_style'])
+                    self.create_buffer(
+                        analysis_study_layer,
+                        distance,
+                        buf_group,
+                        settings['buffer_style'],
+                    )
                     self.log(f"{distance}m 버퍼 생성 완료.")
                 current_step += 1
                 progress.setValue(current_step)
@@ -418,18 +539,18 @@ class ArchDistribution:
             if settings['heritage_layer_ids']:
                 self.log("주변 유적 데이터 수집 및 병합 시작...")
 
-                # [FIX] Pre-fetch Zone Layer and fix encoding (CP949 default)
-                # User reported that this layer often has encoding issues.
+                # Pre-fetch the Zone layer while preserving its current QGIS
+                # provider, subset, edits, and declared encoding.
                 zone_layer_obj = None
                 if settings.get('zone_layer_id'):
                     zone_layer_obj = QgsProject.instance().mapLayer(settings.get('zone_layer_id'))
                     if zone_layer_obj:
-                        self.fix_layer_encoding(zone_layer_obj, DEFAULT_ENCODING)
+                        self.fix_layer_encoding(zone_layer_obj)
 
                 consolidation = self.consolidate_heritage_layers(
                     settings['heritage_layer_ids'],
                     extent_geom,
-                    original_study_layer,
+                    analysis_study_layer,
                     src_group,
                     filter_categories=settings.get('filter_items', None),
                     exclusion_list=settings.get('exclusion_list', []),
@@ -443,6 +564,7 @@ class ArchDistribution:
                         settings["paper_height"],
                     ),
                     source_roles=settings.get("source_roles", {}),
+                    source_encodings=settings.get("source_encodings", {}),
                     match_preset=settings.get(
                         "match_preset",
                         PRESET_BALANCED,
@@ -455,14 +577,33 @@ class ArchDistribution:
 
                 if isinstance(consolidation, dict):
                     merged_heritage = consolidation.get("main")
-                    suppressed_layer = consolidation.get("suppressed")
-                    protection_layer = consolidation.get("protection")
-                    audit_layer = consolidation.get("audit")
+                    merged_heritage_layers = (
+                        consolidation.get("main_layers")
+                        or ([merged_heritage] if merged_heritage else [])
+                    )
+                    suppressed_layers = (
+                        consolidation.get("suppressed_layers")
+                        or ([consolidation.get("suppressed")]
+                            if consolidation.get("suppressed") else [])
+                    )
+                    protection_layers = (
+                        consolidation.get("protection_layers")
+                        or ([consolidation.get("protection")]
+                            if consolidation.get("protection") else [])
+                    )
+                    audit_layers = (
+                        consolidation.get("audit_layers")
+                        or ([consolidation.get("audit")]
+                            if consolidation.get("audit") else [])
+                    )
                 else:
                     merged_heritage = consolidation
-                    suppressed_layer = None
-                    protection_layer = None
-                    audit_layer = None
+                    merged_heritage_layers = (
+                        [merged_heritage] if merged_heritage else []
+                    )
+                    suppressed_layers = []
+                    protection_layers = []
+                    audit_layers = []
 
                 if merged_heritage:
                     self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
@@ -470,7 +611,7 @@ class ArchDistribution:
                     buffer_geoms = []
                     if settings.get('buffers'):
                         combined_study = QgsGeometry()
-                        for f in original_study_layer.getFeatures():
+                        for f in analysis_study_layer.getFeatures():
                             if not f.hasGeometry():
                                 continue
                             if combined_study.isNull():
@@ -488,31 +629,31 @@ class ArchDistribution:
                         if settings.get('sort_order') != 1:
                             self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
                     # [NEW] Pass restrict_to_buffer setting
-                    self.number_heritage_v4(
-                        merged_heritage,
-                        original_study_layer,
+                    self.number_heritage_layers_v4(
+                        merged_heritage_layers,
+                        analysis_study_layer,
                         settings['sort_order'],
                         extent_geom,
-                        original_study_layer.crs(),
+                        metric_context.analysis_crs,
                         buffer_geoms,
-                        restrict_to_buffer=settings.get('restrict_to_buffer', True)
+                        restrict_to_buffer=settings.get('restrict_to_buffer', True),
+                        metric_context=metric_context,
                     )
                     self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
-                    self.apply_heritage_style(
-                        merged_heritage,
-                        settings['heritage_style'],
-                        font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
-                        font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
-                    )
-
-                    QgsProject.instance().addMapLayer(merged_heritage, False)
-                    her_group.addLayer(merged_heritage)
+                    for result_layer in merged_heritage_layers:
+                        self.apply_heritage_style(
+                            result_layer,
+                            settings['heritage_style'],
+                            font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
+                            font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
+                        )
+                        QgsProject.instance().addMapLayer(result_layer, False)
+                        her_group.addLayer(result_layer)
                     self.log("최종 결과 유적 레이어 등록 완료.")
 
-                    if (
-                        protection_layer
-                        and protection_layer.featureCount() > 0
-                    ):
+                    for protection_layer in protection_layers:
+                        if protection_layer.featureCount() <= 0:
+                            continue
                         self.apply_protection_zone_style(protection_layer)
                         QgsProject.instance().addMapLayer(
                             protection_layer,
@@ -524,16 +665,17 @@ class ArchDistribution:
                             "등록했습니다."
                         )
 
-                    if (
-                        suppressed_layer
-                        and suppressed_layer.featureCount() > 0
-                    ):
+                    for suppressed_layer in suppressed_layers:
+                        if suppressed_layer.featureCount() <= 0:
+                            continue
                         QgsProject.instance().addMapLayer(
                             suppressed_layer,
                             False,
                         )
                         audit_group.addLayer(suppressed_layer)
-                    if audit_layer and audit_layer.featureCount() > 0:
+                    for audit_layer in audit_layers:
+                        if audit_layer.featureCount() <= 0:
+                            continue
                         QgsProject.instance().addMapLayer(
                             audit_layer,
                             False,
@@ -546,7 +688,10 @@ class ArchDistribution:
                     if zone_id:
                         z_layer = QgsProject.instance().mapLayer(zone_id)
                         if z_layer:
-                            self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중... (v1.2.0 Split Active)")
+                            self.log(
+                                "현상변경 허용구간 레이어 분할 및 "
+                                "스타일 적용 중..."
+                            )
 
                             buffer_limit_geom = None
                             if settings.get('clip_zone_to_buffer', False):
@@ -560,7 +705,7 @@ class ArchDistribution:
                                 zone_merged_group,
                                 extent_geom,
                                 buffer_limit_geom,
-                                source_crs=original_study_layer.crs()
+                                source_crs=metric_context.analysis_crs
                             )
 
                 else:
@@ -574,28 +719,49 @@ class ArchDistribution:
             # Zoom to extent (CRS-aware + padded) to avoid showing blank space
             self.zoom_canvas_to_extent(
                 extent_geom,
-                extent_crs=original_study_layer.crs(),
+                extent_crs=metric_context.analysis_crs,
                 padding_ratio=DEFAULT_ZOOM_PADDING_RATIO,
             )
             self._commit_output_transaction()
             transaction_committed = True
-            self._run_optional_outputs(
+            optional_result = self._run_optional_outputs(
                 settings,
                 out_group,
                 extent_geom,
-                original_study_layer.crs(),
+                metric_context.analysis_crs,
                 "distribution_map",
                 run_started_at,
             )
             self._save_pending_decision_store()
-            self.log("모든 작업이 성공적으로 완료되었습니다.")
+            optional_errors = optional_result.get("errors", [])
+            if optional_errors:
+                self.log(
+                    "지도 결과는 생성했지만 선택 출력 일부가 "
+                    "실패했습니다. 위 경고를 확인하세요."
+                )
+                completion_message = "작업 부분 완료 — 선택 출력 경고 확인"
+                completion_level = 1
+            else:
+                self.log("모든 작업이 성공적으로 완료되었습니다.")
+                completion_message = "작업 완료"
+                completion_level = 0
 
             # Notify Log File
-            self.log(f"로그 파일 저장됨: {os.path.join(self.plugin_dir, 'latest_log.txt')}")
-            self.iface.messageBar().pushMessage("ArchDistribution", "작업 완료", level=0)
+            self.log(f"로그 파일 저장됨: {self._log_path()}")
+            self.iface.messageBar().pushMessage(
+                "ArchDistribution",
+                completion_message,
+                level=completion_level,
+            )
 
         except DuplicateReviewCancelled:
             self.log("사용자가 실행 전 중복 검토를 취소했습니다.")
+            self._write_terminal_manifest(
+                settings,
+                "distribution_map",
+                run_started_at,
+                "cancelled",
+            )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
                 "중복 검토가 취소되어 결과를 만들지 않았습니다.",
@@ -603,6 +769,12 @@ class ArchDistribution:
             )
         except ProcessingCancelled:
             self.log("사용자가 데이터 처리를 중단했습니다.")
+            self._write_terminal_manifest(
+                settings,
+                "distribution_map",
+                run_started_at,
+                "cancelled",
+            )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
                 "작업이 중단되었습니다.",
@@ -613,6 +785,13 @@ class ArchDistribution:
             import traceback
             tb = traceback.format_exc()
             self.log(tb)
+            self._write_terminal_manifest(
+                settings,
+                "distribution_map",
+                run_started_at,
+                "failed",
+                error=e,
+            )
             QMessageBox.critical(self.dlg, "오류", f"작업 중 오류 발생: {str(e)}")
         finally:
             if not transaction_committed:
@@ -626,8 +805,8 @@ class ArchDistribution:
     def process_preservation_area_map(self, settings):
         """Create a numbered, categorized preservation-area result layer."""
         try:
-            log_path = os.path.join(self.plugin_dir, 'latest_log.txt')
-            with open(log_path, 'w', encoding='utf-8') as log_file:
+            log_path = self._log_path()
+            with log_path.open('w', encoding='utf-8') as log_file:
                 log_file.write(
                     "=== ArchDistribution Preservation Log Started: "
                     f"{QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} "
@@ -693,7 +872,13 @@ class ArchDistribution:
                 )
                 return
 
-            centroid = self.get_study_area_centroid(study_layer)
+            metric_context = self._build_metric_context(study_layer, settings)
+            analysis_study_layer = self._copy_layer_to_analysis_crs(
+                study_layer,
+                metric_context,
+                "매장유산_분석기준",
+            )
+            centroid = self.get_study_area_centroid(analysis_study_layer)
             if not centroid:
                 QMessageBox.warning(
                     self.dlg,
@@ -714,8 +899,8 @@ class ArchDistribution:
                 f"1:{settings.get('preservation_scale', 5000)} → "
                 f"{extent_geom.boundingBox().width():,.1f}×"
                 f"{extent_geom.boundingBox().height():,.1f} "
-                f"{QgsUnitTypes.toAbbreviatedString(study_layer.crs().mapUnits())}, "
-                f"{study_layer.crs().authid()}"
+                "m, "
+                f"{metric_context.analysis_crs.authid()}"
             )
 
             requested_field = settings.get("preservation_action_field")
@@ -770,11 +955,16 @@ class ArchDistribution:
             output = self.consolidate_heritage_layers(
                 [source_layer.id()],
                 extent_geom,
-                study_layer,
+                analysis_study_layer,
                 src_group,
                 preservation_only=True,
                 preservation_action_fields={
                     source_layer.id(): action_field,
+                },
+                source_encodings={
+                    source_layer.id(): settings.get(
+                        "preservation_encoding", ""
+                    ),
                 },
                 exclude_extent_slivers=settings.get(
                     "preservation_exclude_extent_slivers",
@@ -798,12 +988,13 @@ class ArchDistribution:
 
             self.number_heritage_v4(
                 output,
-                study_layer,
+                analysis_study_layer,
                 settings.get("preservation_sort_order", 0),
                 extent_geom=extent_geom,
-                extent_crs=study_layer.crs(),
+                extent_crs=metric_context.analysis_crs,
                 buffer_geoms=[],
                 restrict_to_buffer=False,
+                metric_context=metric_context,
             )
 
             self.apply_heritage_style(
@@ -850,7 +1041,7 @@ class ArchDistribution:
             )
             self.zoom_canvas_to_extent(
                 extent_geom,
-                extent_crs=study_layer.crs(),
+                extent_crs=metric_context.analysis_crs,
                 padding_ratio=DEFAULT_ZOOM_PADDING_RATIO,
             )
             progress.setValue(5)
@@ -858,22 +1049,37 @@ class ArchDistribution:
                 raise ProcessingCancelled()
             self._commit_output_transaction()
             transaction_committed = True
-            self._run_optional_outputs(
+            optional_result = self._run_optional_outputs(
                 settings,
                 out_group,
                 extent_geom,
-                study_layer.crs(),
+                metric_context.analysis_crs,
                 "preservation_area",
                 run_started_at,
             )
+            optional_errors = optional_result.get("errors", [])
+            if optional_errors:
+                completion_message = (
+                    "매장유산 유존지역 부분 완료 — 선택 출력 경고 확인"
+                )
+                completion_level = 1
+            else:
+                completion_message = "매장유산 유존지역 생성 완료"
+                completion_level = 0
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
-                "매장유산 유존지역 생성 완료",
-                level=0,
+                completion_message,
+                level=completion_level,
             )
         except ProcessingCancelled:
             self.log(
                 "사용자가 매장유산 유존지역 처리를 중단했습니다."
+            )
+            self._write_terminal_manifest(
+                settings,
+                "preservation_area",
+                run_started_at,
+                "cancelled",
             )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
@@ -884,6 +1090,13 @@ class ArchDistribution:
             self.log(f"치명적 오류 발생: {exc}")
             import traceback
             self.log(traceback.format_exc())
+            self._write_terminal_manifest(
+                settings,
+                "preservation_area",
+                run_started_at,
+                "failed",
+                error=exc,
+            )
             QMessageBox.critical(
                 self.dlg,
                 "오류",
@@ -905,19 +1118,33 @@ class ArchDistribution:
             settings = self.dlg.get_settings()
             sort_order = settings['sort_order']
 
-            # 2. Get Centroid (if needed)
+            # 2. Get a metric centroid and optional analysis-CRS study copy.
             centroid = None
             study_layer = None
+            analysis_study_layer = None
             if settings['study_area_id']:
                 study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
-                if study_layer:
-                    centroid = self.get_study_area_centroid(study_layer)
+            metric_basis = study_layer or layer
+            metric_context = self._build_metric_context(metric_basis, settings)
+            if study_layer:
+                analysis_study_layer = self._copy_layer_to_analysis_crs(
+                    study_layer,
+                    metric_context,
+                    "재번호_분석기준",
+                )
+                centroid = self.get_study_area_centroid(
+                    analysis_study_layer
+                )
 
             # [FIX] If no study layer, use layer's own extent center as centroid for extent calculation
             if not centroid:
                 layer_extent = layer.extent()
                 if not layer_extent.isEmpty():
-                    centroid = layer_extent.center()
+                    centroid = metric_context.transform_point(
+                        layer_extent.center(),
+                        layer.crs(),
+                        metric_context.analysis_crs,
+                    )
                     self.log("조사지역 미선택 - 현재 레이어 범위 중심 사용")
 
             if sort_order == 1 and not centroid:
@@ -934,9 +1161,9 @@ class ArchDistribution:
 
             # [NEW] Calculate Buffer Geometries (Renumbering context)
             buffer_geoms = []
-            if settings.get('buffers') and study_layer:
+            if settings.get('buffers') and analysis_study_layer:
                 combined_study = QgsGeometry()
-                for f in study_layer.getFeatures():
+                for f in analysis_study_layer.getFeatures():
                     if combined_study.isNull():
                         combined_study = f.geometry()
                     else:
@@ -950,17 +1177,16 @@ class ArchDistribution:
                     self.log(f"버퍼 구간 적용 ({len(buffer_geoms)}단계).")
 
             # 3. Call Numbering Logic
-            # Pass study_layer.crs() if available, else layer.crs()
-            extent_crs = study_layer.crs() if study_layer else layer.crs()
-            # If study_layer is missing, pass centroid as fallback
+            extent_crs = metric_context.analysis_crs
             numbering_summary = self.number_heritage_v4(
                 layer,
-                study_layer if study_layer else centroid,
+                analysis_study_layer if analysis_study_layer else centroid,
                 sort_order,
                 extent_geom,
                 extent_crs,
                 buffer_geoms,
-                restrict_to_buffer=settings.get('restrict_to_buffer', True)
+                restrict_to_buffer=settings.get('restrict_to_buffer', True),
+                metric_context=metric_context,
             )
 
             # 4. Refresh & Re-Apply Style (to update font/labels)
@@ -1194,6 +1420,20 @@ class ArchDistribution:
         self._pending_decision_store_path = None
         self._pending_decision_store_dirty = False
 
+    def _decision_cache_provenance(self):
+        """Return a path-free fingerprint of the reusable review cache."""
+        path = Path(self._review_decision_store_path())
+        if not path.exists() or not path.is_file():
+            return {"present": False, "sha256": None}
+        try:
+            return {
+                "present": True,
+                "sha256": sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+        except OSError:
+            return {"present": True, "sha256": "unreadable"}
+
     def _save_pending_decision_store(self):
         """Persist reviewed decisions only after the map output commits."""
         store = getattr(self, "_pending_decision_store", None)
@@ -1217,8 +1457,8 @@ class ArchDistribution:
         finally:
             self._clear_pending_decision_store()
 
-    @staticmethod
-    def _artifact_layer_summary(layer, *, role=None, kind=None):
+    def _artifact_layer_summary(self, layer, *, role=None, kind=None):
+        encoding, encoding_basis = self._declared_layer_encoding(layer)
         summary = {
             "name": layer.name(),
             "layer_id": layer.id(),
@@ -1227,6 +1467,8 @@ class ArchDistribution:
             "crs": layer.crs().authid() or layer.crs().toWkt(),
             "geometry_type": QgsWkbTypes.displayString(layer.wkbType()),
             "feature_count": layer.featureCount(),
+            "encoding": encoding,
+            "encoding_basis": encoding_basis,
         }
         if role is not None:
             summary["role"] = role
@@ -1266,16 +1508,173 @@ class ArchDistribution:
         summaries = []
         seen = set()
         project = QgsProject.instance()
+        scans_by_layer = {}
+        statistics = getattr(self, "_current_processing_stats", {})
+        if isinstance(statistics, dict):
+            for scan in statistics.get("source_scans", []):
+                if not isinstance(scan, dict) or not scan.get("layer"):
+                    continue
+                scans_by_layer.setdefault(str(scan["layer"]), []).append(scan)
         for layer_id, role in entries:
             if not layer_id or layer_id in seen:
                 continue
             seen.add(layer_id)
             layer = project.mapLayer(layer_id)
             if layer is not None and layer.type() == 0:
-                summaries.append(
-                    self._artifact_layer_summary(layer, role=role)
-                )
+                summary = self._artifact_layer_summary(layer, role=role)
+                scans = scans_by_layer.get(layer.name(), [])
+                if scans:
+                    summary["geometry_repairs"] = sum(
+                        int(scan.get("geometry_repairs", 0) or 0)
+                        for scan in scans
+                    )
+                    summary["invalid_geometry_exclusions"] = sum(
+                        int(
+                            scan.get(
+                                "invalid_geometry_exclusions", 0
+                            ) or 0
+                        )
+                        for scan in scans
+                    )
+                summaries.append(summary)
         return summaries
+
+    @staticmethod
+    def _shapefile_bundle_paths(source_path):
+        """Return same-basename Shapefile components on any case-sensitive OS."""
+        source_path = Path(source_path)
+        suffix_order = (
+            ".shp", ".shx", ".dbf", ".prj", ".qpj", ".cpg", ".qmd",
+        )
+        wanted = set(suffix_order)
+        try:
+            siblings = sorted(
+                (
+                    candidate
+                    for candidate in source_path.parent.iterdir()
+                    if candidate.is_file()
+                    and candidate.stem.casefold() == source_path.stem.casefold()
+                    and candidate.suffix.casefold() in wanted
+                ),
+                key=lambda candidate: candidate.name.casefold(),
+            )
+        except OSError:
+            siblings = []
+        by_suffix = {}
+        for candidate in siblings:
+            by_suffix.setdefault(candidate.suffix.casefold(), candidate)
+        return [
+            by_suffix[suffix]
+            for suffix in suffix_order
+            if suffix in by_suffix
+        ]
+
+    @classmethod
+    def _artifact_input_checksums(cls, input_summaries):
+        """Hash local input datasets without exposing their directories."""
+        results = []
+        seen_paths = set()
+        for summary in input_summaries:
+            source = str(summary.get("source") or "").split("|", 1)[0]
+            if source.casefold().startswith("file://"):
+                source = source[7:]
+            source_path = Path(source)
+            if not source_path.exists() or not source_path.is_file():
+                continue
+            resolved = str(source_path.resolve(strict=True)).casefold()
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            if source_path.suffix.casefold() == ".shp":
+                bundle_paths = cls._shapefile_bundle_paths(source_path)
+            else:
+                bundle_paths = [source_path]
+            try:
+                fingerprint = sha256_file_bundle(bundle_paths)
+            except (OSError, ValueError):
+                continue
+            fingerprint["layer"] = summary.get("name")
+            results.append(fingerprint)
+        return results
+
+    @staticmethod
+    def _artifact_layer_content_hash(layer):
+        """Hash normalized feature content independently of transient IDs."""
+        field_names = [field.name() for field in layer.fields()]
+        records = []
+        for feature in layer.getFeatures():
+            attributes = {
+                name: _json_safe_attribute(feature[name])
+                for name in field_names
+            }
+            try:
+                normalized_geometry = QgsGeometry(feature.geometry())
+                # GEOS normalization canonicalizes ring direction, ring start,
+                # and multipart order so equivalent geometry has one content
+                # digest even when a provider serializes its WKB differently.
+                normalized_geometry.normalize()
+                geometry_hash = hashlib.sha256(
+                    bytes(normalized_geometry.asWkb())
+                ).hexdigest()
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                geometry_hash = hashlib.sha256(
+                    feature.geometry().asWkt().encode("utf-8")
+                ).hexdigest()
+            stable_key = (
+                attributes.get("SRC_UID")
+                or attributes.get("NUMBER_KEY")
+            )
+            if not stable_key:
+                stable_key = deterministic_content_hash(
+                    {
+                        "geometry_sha256": geometry_hash,
+                        "attributes": attributes,
+                    },
+                    ignored_keys=(),
+                )
+            records.append({
+                "key": str(stable_key),
+                "geometry_sha256": geometry_hash,
+                "attributes": attributes,
+            })
+        records.sort(key=lambda record: (
+            record["key"],
+            record["geometry_sha256"],
+            json.dumps(
+                record["attributes"],
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ),
+        ))
+        return deterministic_content_hash(records, ignored_keys=())
+
+    @staticmethod
+    def _artifact_runtime_environment():
+        extra = {
+            "qgis": getattr(Qgis, "QGIS_VERSION", "unknown"),
+            "qgis_version_int": getattr(Qgis, "QGIS_VERSION_INT", None),
+            "qt": getattr(QtCore, "QT_VERSION_STR", "unknown"),
+        }
+        try:
+            from osgeo import gdal, ogr, osr
+
+            extra["gdal"] = gdal.VersionInfo("RELEASE_NAME")
+            extra["geos"] = "{}.{}.{}".format(
+                ogr.GetGEOSVersionMajor(),
+                ogr.GetGEOSVersionMinor(),
+                ogr.GetGEOSVersionMicro(),
+            )
+            extra["proj"] = "{}.{}.{}".format(
+                osr.GetPROJVersionMajor(),
+                osr.GetPROJVersionMinor(),
+                osr.GetPROJVersionMicro(),
+            )
+        except (ImportError, AttributeError, RuntimeError):
+            extra.setdefault("gdal", "unknown")
+            extra.setdefault("geos", "unknown")
+            extra.setdefault("proj", "unknown")
+        return python_runtime_environment(extra)
 
     def _artifact_output_layers(self, output_group):
         layers = []
@@ -1525,14 +1924,15 @@ class ArchDistribution:
         export_jpg = bool(settings.get("export_layout_jpg", False))
         export_pdf = bool(settings.get("export_layout_pdf", False))
         if not any((save_archive, export_jpg, export_pdf)):
-            return {}
+            return {"paths": [], "errors": []}
 
         output_directory = str(
             settings.get("output_directory") or ""
         ).strip()
         if not output_directory:
-            self.log("⚠️ 선택 출력이 켜졌지만 저장 폴더가 비어 있습니다.")
-            return {}
+            message = "선택 출력이 켜졌지만 저장 폴더가 비어 있습니다."
+            self.log(f"⚠️ {message}")
+            return {"paths": [], "errors": [message]}
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
         workflow_label = (
@@ -1552,6 +1952,7 @@ class ArchDistribution:
             settings,
             workflow,
         )
+        input_checksums = self._artifact_input_checksums(input_summaries)
         artifact_paths = []
         artifact_errors = []
         gpkg_layers = []
@@ -1628,27 +2029,89 @@ class ArchDistribution:
                 processing_stats = dict(
                     getattr(self, "_current_processing_stats", {})
                 )
+                public_artifacts = []
+                output_hashes = []
+                for artifact_path in artifact_paths:
+                    path = Path(artifact_path)
+                    if not path.exists() or not path.is_file():
+                        continue
+                    try:
+                        digest = sha256_file(path)
+                    except OSError:
+                        continue
+                    record = {
+                        "filename": path.name,
+                        "sha256": digest,
+                        "size_bytes": path.stat().st_size,
+                    }
+                    public_artifacts.append(record)
+                    output_hashes.append(record)
+                layer_hashes = [
+                    {
+                        "layer": layer.name(),
+                        "content_sha256": self._artifact_layer_content_hash(
+                            layer
+                        ),
+                    }
+                    for layer, _kind in output_layers
+                ]
+                output_hashes.extend(layer_hashes)
                 processing_stats.update({
-                    "artifacts": artifact_paths,
+                    # Runtime callers retain usable artifact paths; manifest
+                    # schema v2 strips them to public-safe filename/hash rows.
+                    "artifacts": list(artifact_paths),
                     "artifact_errors": artifact_errors,
                     "gpkg_layers": gpkg_layers,
                 })
+                manifest_processing_stats = dict(processing_stats)
+                manifest_processing_stats["artifacts"] = public_artifacts
+                build_info = read_build_info(self.plugin_dir)
+                metric_context = getattr(
+                    self,
+                    "_current_metric_context",
+                    None,
+                )
                 manifest = build_run_manifest(
                     plugin_version=get_plugin_version(),
+                    git_commit=build_info.get("git_commit"),
                     workflow=workflow,
                     settings=settings,
                     input_layers=input_summaries,
                     output_layers=output_summaries,
-                    processing_stats=processing_stats,
+                    processing_stats=manifest_processing_stats,
                     decision_reuse_count=int(
                         processing_stats.get(
                             "decision_reuse_count",
                             0,
                         )
                     ),
-                    status="success",
+                    status=(
+                        "partial_success"
+                        if (
+                            artifact_errors
+                            or processing_stats.get("excluded_layers")
+                            or processing_stats.get("processing_warnings")
+                        )
+                        else "success"
+                    ),
                     started_at=run_started_at,
                     finished_at=datetime.now().astimezone(),
+                    ruleset=matching_rules_metadata(),
+                    runtime_environment=(
+                        self._artifact_runtime_environment()
+                    ),
+                    crs_context=(
+                        metric_context.provenance()
+                        if metric_context is not None else None
+                    ),
+                    input_checksums=input_checksums,
+                    output_hashes=output_hashes,
+                    decision_cache=self._decision_cache_provenance(),
+                    excluded_layers=processing_stats.get(
+                        "excluded_layers",
+                        [],
+                    ),
+                    public_manifest=True,
                 )
                 save_manifest_atomic(manifest, manifest_path)
                 artifact_paths.append(str(manifest_path))
@@ -1657,6 +2120,7 @@ class ArchDistribution:
             # These are optional post-commit artifacts. The successful QGIS
             # result group must remain available even if a filesystem or
             # exporter error occurs.
+            artifact_errors.append(f"선택 결과 저장: {exc}")
             self.log(f"⚠️ 선택 결과 저장 중 오류: {exc}")
 
         if artifact_errors:
@@ -1669,15 +2133,268 @@ class ArchDistribution:
             "errors": artifact_errors,
         }
 
-    def fix_layer_encoding(self, layer, encoding=DEFAULT_ENCODING):
-        """Force specific encoding to fix broken Korean characters."""
-        if layer and layer.type() == 0:  # VectorLayer
-            layer.setProviderEncoding(encoding)
-            layer.dataProvider().setEncoding(encoding)
-            # Reload to apply
-            layer.dataProvider().reloadData()
-            layer.updateFields()
-            layer.triggerRepaint()
+    def _write_terminal_manifest(
+        self,
+        settings,
+        workflow,
+        run_started_at,
+        status,
+        error=None,
+    ):
+        """Persist cancelled/failed run evidence without creating map output."""
+        if not settings.get("save_gpkg_manifest", False):
+            return None
+        output_directory = str(settings.get("output_directory") or "").strip()
+        if not output_directory:
+            return None
+        try:
+            label = (
+                "매장유산유존지역"
+                if workflow == "preservation_area"
+                else "문화유적분포지도"
+            )
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            path = prepare_output_path(
+                output_directory,
+                f"ArchDistribution_{label}_{status}_{timestamp}_run",
+                extension="json",
+                unique=True,
+            )
+            inputs = self._artifact_input_summaries(settings, workflow)
+            statistics = dict(
+                getattr(self, "_current_processing_stats", {})
+            )
+            metric_context = getattr(
+                self, "_current_metric_context", None
+            )
+            build_info = read_build_info(self.plugin_dir)
+            manifest = build_run_manifest(
+                plugin_version=get_plugin_version(),
+                git_commit=build_info.get("git_commit"),
+                workflow=workflow,
+                settings=settings,
+                input_layers=inputs,
+                output_layers=[],
+                processing_stats=statistics,
+                decision_reuse_count=int(
+                    statistics.get("decision_reuse_count", 0)
+                ),
+                status=status,
+                error=error,
+                started_at=run_started_at,
+                finished_at=datetime.now().astimezone(),
+                ruleset=matching_rules_metadata(),
+                runtime_environment=self._artifact_runtime_environment(),
+                crs_context=(
+                    metric_context.provenance()
+                    if metric_context is not None else None
+                ),
+                input_checksums=self._artifact_input_checksums(inputs),
+                output_hashes=[],
+                decision_cache=self._decision_cache_provenance(),
+                excluded_layers=statistics.get("excluded_layers", []),
+                public_manifest=True,
+            )
+            save_manifest_atomic(manifest, path)
+            self.log(f"{status} 실행정보 저장 완료: {path}")
+            return path
+        except Exception as manifest_error:
+            self.log(f"⚠️ 종료 실행정보 저장 실패: {manifest_error}")
+            return None
+
+    @classmethod
+    def _layer_file_path(cls, layer):
+        if not layer:
+            return None
+        source = str(layer.source() or "").split("|", 1)[0]
+        if source.casefold().startswith("file://"):
+            source = source[7:]
+        if not source:
+            return None
+        path = Path(source)
+        if path.suffix.casefold() in {".shx", ".dbf"}:
+            path = next(
+                (
+                    candidate
+                    for candidate in cls._shapefile_bundle_paths(path)
+                    if candidate.suffix.casefold() == ".shp"
+                ),
+                path.with_suffix(".shp"),
+            )
+        return path if path.exists() else None
+
+    @classmethod
+    def _declared_layer_encoding(cls, layer):
+        """Respect an explicit override, .cpg, then the provider setting."""
+        override = str(
+            layer.customProperty(ENCODING_OVERRIDE_PROPERTY, "") or ""
+        ).strip()
+        if override:
+            return override, "layer_override"
+
+        source_path = cls._layer_file_path(layer)
+        if source_path and source_path.suffix.casefold() == ".shp":
+            cpg_path = next(
+                (
+                    candidate
+                    for candidate in cls._shapefile_bundle_paths(source_path)
+                    if candidate.suffix.casefold() == ".cpg"
+                ),
+                None,
+            )
+            if cpg_path is not None:
+                try:
+                    declared = cpg_path.read_text(
+                        encoding="ascii",
+                        errors="ignore",
+                    ).strip()
+                except OSError:
+                    declared = ""
+                if declared:
+                    aliases = {
+                        "949": LEGACY_KOREAN_ENCODING,
+                        "CP-949": LEGACY_KOREAN_ENCODING,
+                        "EUC_KR": "EUC-KR",
+                        "UTF8": "UTF-8",
+                    }
+                    return aliases.get(declared.upper(), declared), ".cpg"
+
+        try:
+            provider_encoding = str(layer.dataProvider().encoding() or "").strip()
+        except (AttributeError, RuntimeError):
+            provider_encoding = ""
+        return (provider_encoding, "provider") if provider_encoding else (None, "default")
+
+    @classmethod
+    def _preservation_number_scope(
+        cls,
+        layer,
+        *,
+        supplier_site_id=None,
+        supplier_id_field=None,
+        site_name=None,
+        heritage_name=None,
+        address=None,
+    ):
+        """Build a conservative map-number identity for preservation areas.
+
+        Only a field whose *exact schema name* denotes a site identifier may
+        supply the primary key.  A generic ``CODE`` column is deliberately not
+        accepted because it is commonly an action/category code.  When no such
+        identifier exists, both a non-generic site name and a meaningful exact
+        address are required.  The scope controls only the displayed number;
+        it never asserts archaeological identity or dissolves source geometry.
+        """
+        supplier_key = canonical_heritage_text(supplier_site_id)
+        field_key = cls._preservation_site_id_field_token(supplier_id_field)
+        if supplier_key and field_key in cls._preservation_site_id_tokens():
+            return f"supplier:{field_key}:{supplier_key}"
+
+        display_name = heritage_name or site_name
+        site_family, _has_area = strip_trailing_area_designator(display_name)
+        site_key = canonical_heritage_text(site_family)
+        address_key = canonical_heritage_text(address)
+        if (
+            len(site_key) < 3
+            or is_generic_name(site_family)
+            or not cls._is_meaningful_preservation_address(address_key)
+        ):
+            return None
+        return f"name_address:{site_key}|{address_key}"
+
+    @staticmethod
+    def _preservation_site_id_field_token(field_name):
+        """Normalize a field name without turning substrings into matches."""
+        return (
+            canonical_heritage_text(field_name)
+            .replace("_", "")
+            .replace("-", "")
+        )
+
+    @staticmethod
+    def _preservation_site_id_tokens():
+        """Exact supplier fields accepted as preservation-site identifiers."""
+        return {
+            "유산코드",
+            "문화유산코드",
+            "유적코드",
+            "유적id",
+            "유적아이디",
+            "heritagecode",
+            "heritageid",
+            "heritagecd",
+            "sitecode",
+            "siteid",
+            "sitecd",
+        }
+
+    @classmethod
+    def find_preservation_site_id_field(cls, layer):
+        """Return an exact semantic site-ID field, never a generic CODE field."""
+        if not layer or layer.type() != 0:
+            return None
+        accepted = cls._preservation_site_id_tokens()
+        for field in layer.fields():
+            if cls._preservation_site_id_field_token(field.name()) in accepted:
+                return field.name()
+        return None
+
+    @staticmethod
+    def _is_meaningful_preservation_address(address_key):
+        """Reject missing and low-information address placeholders."""
+        if not address_key:
+            return False
+        if address_key in {
+            "0",
+            "00",
+            "불명",
+            "주소불명",
+            "주소미상",
+            "해당없음",
+            "미입력",
+        }:
+            return False
+        informative = [char for char in address_key if char.isalnum()]
+        return len(informative) >= 2 and len(set(informative)) >= 2
+
+    def fix_layer_encoding(self, layer, encoding=None):
+        """Apply only an explicit or source-declared encoding.
+
+        Earlier releases forced CP949 onto every vector source.  That corrupted
+        UTF-8/GPKG inputs and discarded in-memory provider state.  This helper
+        now honours QGIS, .cpg, or an explicit per-layer override.
+        """
+        if not layer or layer.type() != 0:
+            return None
+        selected = str(encoding or "").strip()
+        basis = "explicit"
+        if not selected:
+            selected, basis = self._declared_layer_encoding(layer)
+        if not selected:
+            self.log(f"  -> 인코딩은 공급자 기본값 유지: {layer.name()}")
+            return None
+        try:
+            current = str(layer.dataProvider().encoding() or "").strip()
+            if current.casefold() != selected.casefold():
+                layer.setProviderEncoding(selected)
+                layer.dataProvider().setEncoding(selected)
+                layer.dataProvider().reloadData()
+                layer.updateFields()
+                layer.triggerRepaint()
+            self.log(
+                f"  -> 인코딩: {selected} ({basis}, {layer.name()})"
+            )
+            return selected
+        except (AttributeError, RuntimeError) as exc:
+            self.log(
+                f"⚠️ 인코딩 적용 실패, 기존 공급자 상태 유지: "
+                f"{layer.name()} ({exc})"
+            )
+            self._record_processing_warning(
+                layer,
+                "encoding_application_failed_provider_retained",
+            )
+            return None
 
     def merge_and_style_topo(self, layer_ids, target_group, src_group, style):
         """Merge selected topo layers and apply custom style."""
@@ -1688,6 +2405,11 @@ class ArchDistribution:
                 # [FIX] Filter for Line Layers Only (Topo is usually lines)
                 if layer.geometryType() != 1:  # 0:Point, 1:Line, 2:Polygon
                     self.log(f"  ⚠️ 지형도 병합 제외 (라인 레이어 아님): {layer.name()}")
+                    self._record_excluded_layer(
+                        layer,
+                        "topographic_non_line_geometry",
+                        role="topographic_map",
+                    )
                     continue
 
                 self.fix_layer_encoding(layer)
@@ -1739,6 +2461,16 @@ class ArchDistribution:
         target_group.addLayer(merged_layer)
 
     def create_buffer(self, layer, distance, group, style):
+        crs = layer.crs() if layer else None
+        if (
+            not crs
+            or not crs.isValid()
+            or crs.isGeographic()
+            or crs.mapUnits() != QgsUnitTypes.DistanceMeters
+        ):
+            raise MetricContextError(
+                "버퍼 입력은 미터 단위 분석 CRS 레이어여야 합니다."
+            )
         params = {
             'INPUT': layer,
             'DISTANCE': distance,
@@ -1861,10 +2593,22 @@ class ArchDistribution:
         if not rect_geom:
             return None
 
-        # Create a memory layer for the extent using the study layer's CRS (use WKT for maximum compatibility)
+        if not crs or not crs.isValid():
+            raise MetricContextError(
+                "도곽을 만들 수 없습니다. 분석 CRS가 없거나 유효하지 않습니다."
+            )
+        if crs.isGeographic() or crs.mapUnits() != QgsUnitTypes.DistanceMeters:
+            raise MetricContextError(
+                "도곽 CRS는 미터 단위 투영좌표계여야 합니다."
+            )
+
+        # The geometry was calculated in metres, so its layer must use the
+        # exact analysis CRS.  Never relabel coordinates with a fallback CRS.
         vl = QgsVectorLayer(f"Polygon?crs={crs.toWkt()}", "도곽_Extent", "memory")
         if not vl.isValid():
-            vl = QgsVectorLayer(f"Polygon?crs={DEFAULT_EXTENT_FALLBACK_CRS}", "도곽_Extent", "memory")
+            raise MetricContextError(
+                "분석 CRS로 도곽 레이어를 만들지 못했습니다."
+            )
 
         # Explicit outline-only styling
         symbol = QgsFillSymbol.createSimple({
@@ -1945,6 +2689,26 @@ class ArchDistribution:
                 return field_name
         return None
 
+    @staticmethod
+    def _canonical_source_records(records):
+        """Deduplicate and order source records for deterministic provenance."""
+        keyed = {}
+        for record in records:
+            safe_record = (
+                record
+                if isinstance(record, dict)
+                else {"unparsed_source": str(record)}
+            )
+            canonical = json.dumps(
+                safe_record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            keyed[canonical] = safe_record
+        return [keyed[key] for key in sorted(keyed)]
+
     def aggregate_source_metadata(self, layer):
         """Attach every source record in a numbering group to each styled part."""
         number_key_idx = layer.fields().indexFromName("NUMBER_KEY")
@@ -1969,10 +2733,13 @@ class ArchDistribution:
 
         layer.startEditing()
         for key, feature_ids in group_feature_ids.items():
-            records = group_records.get(key, [])
+            records = self._canonical_source_records(
+                group_records.get(key, [])
+            )
             payload = json.dumps(
                 records,
                 ensure_ascii=False,
+                sort_keys=True,
                 separators=(",", ":"),
                 default=str,
             )
@@ -1980,6 +2747,73 @@ class ArchDistribution:
                 layer.changeAttributeValue(feature_id, count_idx, len(records))
                 layer.changeAttributeValue(feature_id, json_idx, payload)
         layer.commitChanges()
+
+    def aggregate_source_metadata_layers(self, layers):
+        """Aggregate provenance across geometry families sharing a number."""
+        groups = {}
+        members = {}
+        for layer in layers:
+            number_idx = layer.fields().indexFromName("NUMBER_KEY")
+            count_idx = layer.fields().indexFromName("SRC_COUNT")
+            json_idx = layer.fields().indexFromName("SRC_JSON")
+            if min(number_idx, count_idx, json_idx) < 0:
+                continue
+            for feature in layer.getFeatures():
+                key = str(
+                    feature[number_idx]
+                    or f"{layer.id()}:feature:{feature.id()}"
+                )
+                members.setdefault(key, []).append((
+                    layer,
+                    feature.id(),
+                    count_idx,
+                    json_idx,
+                ))
+                raw_payload = feature[json_idx]
+                try:
+                    records = json.loads(raw_payload) if raw_payload else []
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    records = [{"unparsed_source": str(raw_payload)}]
+                if isinstance(records, dict):
+                    records = [records]
+                groups.setdefault(key, []).extend(records)
+
+        updates = {}
+        for key, feature_members in members.items():
+            records = self._canonical_source_records(groups.get(key, []))
+            payload = json.dumps(
+                records,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            for layer, feature_id, count_idx, json_idx in feature_members:
+                state = updates.setdefault(layer.id(), {
+                    "layer": layer,
+                    "values": [],
+                })
+                state["values"].append((
+                    feature_id,
+                    count_idx,
+                    json_idx,
+                    len(records),
+                    payload,
+                ))
+
+        for state in updates.values():
+            layer = state["layer"]
+            layer.startEditing()
+            for (
+                feature_id,
+                count_idx,
+                json_idx,
+                record_count,
+                payload,
+            ) in state["values"]:
+                layer.changeAttributeValue(feature_id, count_idx, record_count)
+                layer.changeAttributeValue(feature_id, json_idx, payload)
+            layer.commitChanges()
 
     def load_reference_data(self):
         """Load reference data for filtering."""
@@ -2142,7 +2976,15 @@ class ArchDistribution:
             QgsField("CONFIDENCE", QVariant.String),
             QgsField("SCORE", QVariant.Double),
             QgsField("OVERLAP", QVariant.Double),
+            QgsField("COVER_A", QVariant.Double),
+            QgsField("COVER_B", QVariant.Double),
+            QgsField("IOU", QVariant.Double),
+            QgsField("AREA_RATIO", QVariant.Double),
             QgsField("DIST_M", QVariant.Double),
+            QgsField("CENTROID_M", QVariant.Double),
+            QgsField("BOUNDARY_M", QVariant.Double),
+            QgsField("GEOM_PAIR", QVariant.String),
+            QgsField("REL_TYPE", QVariant.String),
             QgsField("RULE", QVariant.String),
             QgsField("DECISION", QVariant.String),
             QgsField("DEC_SOURCE", QVariant.String),
@@ -2165,7 +3007,15 @@ class ArchDistribution:
             feature["CONFIDENCE"] = candidate.get("confidence")
             feature["SCORE"] = candidate.get("score")
             feature["OVERLAP"] = candidate.get("overlap_ratio")
+            feature["COVER_A"] = candidate.get("coverage_left")
+            feature["COVER_B"] = candidate.get("coverage_right")
+            feature["IOU"] = candidate.get("iou")
+            feature["AREA_RATIO"] = candidate.get("area_ratio")
             feature["DIST_M"] = candidate.get("distance")
+            feature["CENTROID_M"] = candidate.get("centroid_distance")
+            feature["BOUNDARY_M"] = candidate.get("boundary_distance")
+            feature["GEOM_PAIR"] = candidate.get("geometry_pair")
+            feature["REL_TYPE"] = candidate.get("relation_type")
             feature["RULE"] = candidate.get("rule")
             feature["DECISION"] = candidate.get("decision")
             feature["DEC_SOURCE"] = candidate.get("decision_source")
@@ -2181,6 +3031,82 @@ class ArchDistribution:
         digest = hashlib.sha1(pair.encode("utf-8")).hexdigest()[:16]
         return f"rel:{digest}"
 
+    @staticmethod
+    def _geometry_boundary_distance(left_geometry, right_geometry):
+        """Measure boundary-to-boundary distance on QGIS 3.28+.
+
+        ``QgsGeometry.boundary()`` was added after some supported QGIS
+        releases.  The abstract geometry API exposes the same operation on
+        older LTR builds, so contained polygons no longer collapse to a
+        misleading zero geometry distance.
+        """
+        try:
+            left_boundary = left_geometry.boundary()
+            right_boundary = right_geometry.boundary()
+        except AttributeError:
+            left_raw = left_geometry.constGet().boundary()
+            right_raw = right_geometry.constGet().boundary()
+            if left_raw is None or right_raw is None:
+                return left_geometry.distance(right_geometry)
+            left_boundary = QgsGeometry(left_raw.clone())
+            right_boundary = QgsGeometry(right_raw.clone())
+        if left_boundary.isEmpty() or right_boundary.isEmpty():
+            return left_geometry.distance(right_geometry)
+        return left_boundary.distance(right_boundary)
+
+    @staticmethod
+    def _protection_name_key(value):
+        name = canonical_name(value)
+        for suffix in (
+            "국가유산보호구역",
+            "문화유산보호구역",
+            "문화재보호구역",
+            "보호구역",
+        ):
+            suffix_key = canonical_name(suffix)
+            if name.endswith(suffix_key):
+                name = name[:-len(suffix_key)]
+                break
+        return name
+
+    @staticmethod
+    def _designation_family_hint(source_name):
+        text = str(source_name or "").replace(" ", "").replace("·", "")
+        if "국가지정" in text or "국가등록" in text:
+            return "national"
+        if "시도지정" in text or "시도등록" in text:
+            return "local"
+        return None
+
+    @classmethod
+    def _protection_link_compatible(cls, protection, designated):
+        """Require evidence beyond a code before linking a legal boundary."""
+        protection_name = cls._protection_name_key(protection.get("name"))
+        designated_name = cls._protection_name_key(designated.get("name"))
+        if protection_name and protection_name == designated_name:
+            return True
+        family_hint = cls._designation_family_hint(
+            protection.get("source")
+        )
+        target_family = (
+            "national"
+            if str(designated.get("role", "")).startswith("national_")
+            else "local"
+            if str(designated.get("role", "")).startswith("local_")
+            else None
+        )
+        return bool(family_hint and family_hint == target_family)
+
+    @staticmethod
+    def _matching_policy_key(preset):
+        metadata = matching_rules_metadata()
+        return ":".join((
+            MATCH_POLICY_VERSION,
+            str(preset),
+            str(metadata.get("ruleset_version") or "unknown"),
+            str(metadata.get("sha256") or "unknown"),
+        ))
+
     def apply_source_aware_matching(
         self,
         layer,
@@ -2194,13 +3120,37 @@ class ArchDistribution:
         policy_version = (
             str(policy_version)
             if policy_version
-            else f"{MATCH_POLICY_VERSION}:{preset}"
+            else self._matching_policy_key(preset)
         )
+        # Migrate 1.0.5 result layers created before the research schema was
+        # introduced.  ENTITY_KEY remains the source of the compatibility
+        # alias; no identity decision is inferred here.
+        entity_index = layer.fields().indexFromName("ENTITY_KEY")
+        if layer.fields().indexFromName("SITE_ENTITY_KEY") < 0:
+            layer.dataProvider().addAttributes([
+                QgsField("SITE_ENTITY_KEY", QVariant.String)
+            ])
+            layer.updateFields()
+            site_index = layer.fields().indexFromName("SITE_ENTITY_KEY")
+            if entity_index >= 0:
+                layer.startEditing()
+                for feature in layer.getFeatures():
+                    layer.changeAttributeValue(
+                        feature.id(), site_index, feature[entity_index]
+                    )
+                layer.commitChanges()
+        if layer.fields().indexFromName("RELATION_TYPE") < 0:
+            layer.dataProvider().addAttributes([
+                QgsField("RELATION_TYPE", QVariant.String)
+            ])
+            layer.updateFields()
         required = (
             "SRC_UID",
             "SOURCE_ROLE",
+            "SITE_ENTITY_KEY",
             "ENTITY_KEY",
             "RELATION_KEY",
+            "RELATION_TYPE",
             "MATCH_STATUS",
             "MATCH_SCORE",
             "MATCH_RULE",
@@ -2240,6 +3190,7 @@ class ArchDistribution:
         geometries = {}
         spatial_index = QgsSpatialIndex()
         invalid_fixed = 0
+        matching_context = MetricContext.from_layer(layer)
 
         layer.startEditing()
         for scan_index, feature in enumerate(layer.getFeatures()):
@@ -2265,7 +3216,11 @@ class ArchDistribution:
                     invalid_fixed += 1
 
             features[feature.id()] = feature
-            geometries[feature.id()] = geom
+            metric_geom = matching_context.to_analysis_geometry(
+                geom,
+                layer.crs(),
+            )
+            geometries[feature.id()] = metric_geom
             record = {
                 "uid": uid,
                 "role": role,
@@ -2320,7 +3275,9 @@ class ArchDistribution:
                 ).content_fingerprint
             record["fingerprint"] = stored_fingerprint
             records[feature.id()] = record
-            spatial_index.addFeature(feature)
+            indexed_feature = QgsFeature(feature)
+            indexed_feature.setGeometry(metric_geom)
+            spatial_index.addFeature(indexed_feature)
         layer.commitChanges()
 
         if invalid_fixed:
@@ -2328,16 +3285,10 @@ class ArchDistribution:
                 f"중복 판정 전 잘못된 도형 {invalid_fixed}건을 복구했습니다."
             )
 
-        is_geographic = layer.crs().isGeographic()
-        tolerance = 0.0007 if is_geographic else 50.0
-        distance_measure = None
-        if is_geographic:
-            distance_measure = QgsDistanceArea()
-            distance_measure.setSourceCrs(
-                layer.crs(),
-                QgsProject.instance().transformContext(),
-            )
-            distance_measure.setEllipsoid(layer.crs().ellipsoidAcronym())
+        ruleset = load_matching_rules()
+        tolerance = float(
+            ruleset["thresholds"]["exact_name_distance_m"]
+        )
         candidate_pairs = set()
         candidates = []
 
@@ -2370,30 +3321,62 @@ class ArchDistribution:
                 other_geom = geometries[other_id]
                 try:
                     intersects = geom.intersects(other_geom)
-                    if intersects:
-                        distance = 0.0
-                    elif distance_measure:
-                        point_a = geom.nearestPoint(other_geom).asPoint()
-                        point_b = other_geom.nearestPoint(geom).asPoint()
-                        distance = distance_measure.measureLine(
-                            point_a,
-                            point_b,
+                    distance = 0.0 if intersects else geom.distance(other_geom)
+                    centroid_distance = geom.centroid().distance(
+                        other_geom.centroid()
+                    )
+                    try:
+                        boundary_distance = (
+                            self._geometry_boundary_distance(
+                                geom, other_geom
+                            )
                         )
-                    else:
-                        distance = geom.distance(other_geom)
+                    except RuntimeError:
+                        boundary_distance = distance
+                    left_family = QgsWkbTypes.geometryType(geom.wkbType())
+                    right_family = QgsWkbTypes.geometryType(
+                        other_geom.wkbType()
+                    )
+                    family_names = {
+                        QgsWkbTypes.PointGeometry: "point",
+                        QgsWkbTypes.LineGeometry: "line",
+                        QgsWkbTypes.PolygonGeometry: "polygon",
+                    }
+                    geometry_pair = "_".join((
+                        family_names.get(left_family, "unknown"),
+                        family_names.get(right_family, "unknown"),
+                    ))
                     overlap_ratio = 0.0
+                    coverage_left = 0.0
+                    coverage_right = 0.0
+                    iou = 0.0
+                    area_ratio = 0.0
                     if intersects:
                         intersection = geom.intersection(other_geom)
                         if (
                             intersection
                             and not intersection.isEmpty()
                         ):
-                            min_area = min(geom.area(), other_geom.area())
-                            if min_area > 0:
-                                overlap_ratio = (
-                                    intersection.area() / min_area
+                            left_area = geom.area()
+                            right_area = other_geom.area()
+                            intersection_area = intersection.area()
+                            min_area = min(left_area, right_area)
+                            max_area = max(left_area, right_area)
+                            if min_area > 0 and intersection_area > 0:
+                                coverage_left = intersection_area / left_area
+                                coverage_right = intersection_area / right_area
+                                overlap_ratio = intersection_area / min_area
+                                union_area = (
+                                    left_area + right_area - intersection_area
                                 )
+                                iou = (
+                                    intersection_area / union_area
+                                    if union_area > 0 else 0.0
+                                )
+                                area_ratio = min_area / max_area
                             else:
+                                # Point/line candidates remain reviewable but
+                                # the ruleset forbids their automatic merge.
                                 overlap_ratio = 1.0
                 except Exception as exc:
                     self.log(
@@ -2409,6 +3392,14 @@ class ArchDistribution:
                     overlap_ratio=overlap_ratio,
                     distance=distance,
                     preset=preset,
+                    coverage_left=coverage_left,
+                    coverage_right=coverage_right,
+                    iou=iou,
+                    area_ratio=area_ratio,
+                    centroid_distance=centroid_distance,
+                    boundary_distance=boundary_distance,
+                    geometry_pair=geometry_pair,
+                    rules=ruleset,
                 )
                 if not evaluated:
                     continue
@@ -2554,6 +3545,7 @@ class ArchDistribution:
         }
         linked_ids = {uid: set() for uid in uid_to_feature_id}
         relation_keys = {uid: set() for uid in uid_to_feature_id}
+        relation_types = {uid: set() for uid in uid_to_feature_id}
         rules = {uid: set() for uid in uid_to_feature_id}
         max_scores = {uid: 0.0 for uid in uid_to_feature_id}
         statuses = {uid: STATUS_UNIQUE for uid in uid_to_feature_id}
@@ -2567,11 +3559,22 @@ class ArchDistribution:
                 designated_by_code.setdefault(
                     record["code"],
                     [],
-                ).append(record["uid"])
+                ).append(record)
         for feature_id, record in records.items():
             if record["role"] != ROLE_PROTECTION_ZONE or not record["code"]:
                 continue
-            for target_uid in designated_by_code.get(record["code"], []):
+            targets = [
+                target
+                for target in designated_by_code.get(record["code"], [])
+                if self._protection_link_compatible(record, target)
+            ]
+            # A protection layer does not reliably encode national/provincial
+            # family.  Code-only linkage is therefore accepted only when the
+            # target is unique; collisions remain unlinked for human review.
+            if len(targets) != 1:
+                continue
+            for target in targets:
+                target_uid = target["uid"]
                 relation_key = self._relation_key(record["uid"], target_uid)
                 linked_ids.setdefault(record["uid"], set()).add(target_uid)
                 linked_ids.setdefault(target_uid, set()).add(record["uid"])
@@ -2583,6 +3586,12 @@ class ArchDistribution:
                     target_uid,
                     set(),
                 ).add(relation_key)
+                relation_types.setdefault(record["uid"], set()).add(
+                    "legal_boundary_site"
+                )
+                relation_types.setdefault(target_uid, set()).add(
+                    "legal_boundary_site"
+                )
 
         # One lower-priority record may be near several excavation projects or
         # parent/child designated assets.  Never use it to fuse those separate
@@ -2606,6 +3615,11 @@ class ArchDistribution:
             ),
         )
         for item in merge_decisions:
+            if item.get("pair_kind") == "excavation_area_parts":
+                # Confirmed parts of one excavation site must remain visible;
+                # they are dissolved later through their shared geometry key
+                # instead of suppressing one part as a duplicate source.
+                continue
             representative_uid = str(item["representative_uid"])
             other_uid = (
                 str(item["right_uid"])
@@ -2621,18 +3635,56 @@ class ArchDistribution:
                 continue
             suppressed_by[other_uid] = representative_uid
 
+        # Confirmed I/II excavation parts form a true equivalence component.
+        # Resolve the whole component once so three or more pair decisions do
+        # not depend on candidate iteration order or stale cached attributes.
+        area_parent = {}
+
+        def area_find(uid):
+            area_parent.setdefault(uid, uid)
+            while area_parent[uid] != uid:
+                area_parent[uid] = area_parent[area_parent[uid]]
+                uid = area_parent[uid]
+            return uid
+
+        def area_union(left_uid, right_uid):
+            left_root = area_find(left_uid)
+            right_root = area_find(right_uid)
+            if left_root != right_root:
+                area_parent[max(left_root, right_root)] = min(
+                    left_root, right_root
+                )
+
+        for item in decisions:
+            if (
+                item.get("decision") == DECISION_MERGE
+                and item.get("pair_kind") == "excavation_area_parts"
+                and item.get("relation_type") == "same_entity"
+            ):
+                area_union(
+                    str(item["left_uid"]),
+                    str(item["right_uid"]),
+                )
+
         layer.startEditing()
         for item in decisions:
             left_uid = str(item["left_uid"])
             right_uid = str(item["right_uid"])
             decision = item.get("decision", DECISION_KEEP)
             relation_key = self._relation_key(left_uid, right_uid)
+            relation_type = str(
+                item.get("relation_type") or "uncertain"
+            )
             for uid, other_uid in (
                 (left_uid, right_uid),
                 (right_uid, left_uid),
             ):
-                linked_ids.setdefault(uid, set()).add(other_uid)
-                relation_keys.setdefault(uid, set()).add(relation_key)
+                if decision in {DECISION_LINK, DECISION_MERGE}:
+                    linked_ids.setdefault(uid, set()).add(other_uid)
+                    relation_keys.setdefault(uid, set()).add(relation_key)
+                    relation_types.setdefault(uid, set()).add(
+                        relation_type
+                    )
                 rules.setdefault(uid, set()).add(str(item.get("rule", "")))
                 max_scores[uid] = max(
                     max_scores.get(uid, 0.0),
@@ -2650,7 +3702,7 @@ class ArchDistribution:
                 suppressed_id = uid_to_feature_id[suppressed_uid]
                 representative = features[representative_id]
 
-                entity_key = representative[indexes["ENTITY_KEY"]]
+                entity_key = representative[indexes["SITE_ENTITY_KEY"]]
                 number_key = representative[indexes["NUMBER_KEY"]]
                 representative_role = representative[
                     indexes["SOURCE_ROLE"]
@@ -2662,11 +3714,28 @@ class ArchDistribution:
                 )
                 statuses[representative_uid] = status
                 statuses[suppressed_uid] = status
-                layer.changeAttributeValue(
-                    suppressed_id,
-                    indexes["ENTITY_KEY"],
-                    entity_key,
+                area_parts_merge = (
+                    item.get("pair_kind") == "excavation_area_parts"
                 )
+                if area_parts_merge:
+                    # Component keys are applied in one deterministic pass
+                    # after every pair has been reviewed.
+                    continue
+                # Only an explicit same-entity decision is an identity
+                # equivalence.  Parent/child, investigation/site, and
+                # uncertain relationships may share a cartographic number,
+                # but must retain their distinct archaeological entities.
+                if relation_type == "same_entity":
+                    layer.changeAttributeValue(
+                        suppressed_id,
+                        indexes["SITE_ENTITY_KEY"],
+                        entity_key,
+                    )
+                    layer.changeAttributeValue(
+                        suppressed_id,
+                        indexes["ENTITY_KEY"],
+                        entity_key,
+                    )
                 layer.changeAttributeValue(
                     suppressed_id,
                     indexes["NUMBER_KEY"],
@@ -2695,6 +3764,50 @@ class ArchDistribution:
                 if statuses.get(right_uid) == STATUS_UNIQUE:
                     statuses[right_uid] = STATUS_KEPT_SEPARATE
 
+        area_components = {}
+        for uid in area_parent:
+            area_components.setdefault(area_find(uid), []).append(uid)
+        geometry_group_index = layer.fields().indexFromName(
+            "GEOMETRY_GROUP_KEY"
+        )
+        group_index = layer.fields().indexFromName("GROUP_KEY")
+        for component in area_components.values():
+            representative_uid = min(
+                component,
+                key=lambda uid: (
+                    -source_priority(records[uid_to_feature_id[uid]]["role"]),
+                    uid,
+                ),
+            )
+            representative_id = uid_to_feature_id[representative_uid]
+            representative = features[representative_id]
+            for uid in component:
+                feature_id = uid_to_feature_id[uid]
+                for field_name in (
+                    "SITE_ENTITY_KEY", "ENTITY_KEY", "NUMBER_KEY",
+                    "REP_SOURCE",
+                ):
+                    layer.changeAttributeValue(
+                        feature_id,
+                        indexes[field_name],
+                        representative[indexes[field_name]],
+                    )
+                if geometry_group_index >= 0:
+                    layer.changeAttributeValue(
+                        feature_id,
+                        geometry_group_index,
+                        representative[geometry_group_index],
+                    )
+                if group_index >= 0:
+                    layer.changeAttributeValue(
+                        feature_id,
+                        group_index,
+                        representative[group_index],
+                    )
+                layer.changeAttributeValue(
+                    feature_id, indexes["IS_REP"], 1
+                )
+
         for uid, feature_id in uid_to_feature_id.items():
             role = records[feature_id]["role"]
             if role == ROLE_PROTECTION_ZONE:
@@ -2713,6 +3826,11 @@ class ArchDistribution:
                 feature_id,
                 indexes["RELATION_KEY"],
                 ",".join(sorted(relation_keys.get(uid, set()))) or None,
+            )
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["RELATION_TYPE"],
+                ",".join(sorted(relation_types.get(uid, set()))) or None,
             )
             layer.changeAttributeValue(
                 feature_id,
@@ -2774,6 +3892,599 @@ class ArchDistribution:
             "decision_store_dirty": decision_store_dirty,
             "candidate_count": len(candidates),
             "decision_reuse_count": len(reused_decisions),
+        }
+
+    @staticmethod
+    def _split_relation_values(value):
+        return {
+            item.strip()
+            for item in str(value or "").split(",")
+            if item.strip()
+        }
+
+    def _zoom_cross_family_candidate(self, layers_by_id, candidate):
+        """Zoom a review pair whose features live in separate layers."""
+        combined = QgsGeometry()
+        combined_crs = None
+        flash_items = []
+        for prefix in ("left", "right"):
+            layer = layers_by_id.get(candidate.get(f"{prefix}_layer_id"))
+            feature_id = candidate.get(f"{prefix}_feature_id")
+            if layer is None or feature_id is None:
+                continue
+            feature = next(
+                layer.getFeatures(
+                    QgsFeatureRequest().setFilterFid(int(feature_id))
+                ),
+                None,
+            )
+            if feature is None or not feature.hasGeometry():
+                continue
+            geometry = QgsGeometry(feature.geometry())
+            if combined_crs is None:
+                combined_crs = layer.crs()
+            elif layer.crs() != combined_crs:
+                geometry.transform(QgsCoordinateTransform(
+                    layer.crs(),
+                    combined_crs,
+                    QgsProject.instance(),
+                ))
+            combined = (
+                geometry
+                if combined.isNull()
+                else combined.combine(geometry)
+            )
+            flash_items.append((layer, int(feature_id)))
+        if combined.isNull() or combined.isEmpty() or combined_crs is None:
+            return
+        self.zoom_canvas_to_extent(
+            combined,
+            extent_crs=combined_crs,
+            padding_ratio=0.25,
+        )
+        if self.iface is None:
+            return
+        canvas = self.iface.mapCanvas()
+        if hasattr(canvas, "flashFeatureIds"):
+            for layer, feature_id in flash_items:
+                try:
+                    canvas.flashFeatureIds(layer, [feature_id])
+                except Exception:
+                    pass
+
+    def apply_cross_family_matching(
+        self,
+        layers,
+        *,
+        preset=PRESET_BALANCED,
+        decision_provider=None,
+        decision_store=None,
+        reuse_saved_decisions=True,
+        policy_version=None,
+    ):
+        """Review cross-family candidates without coercing their geometries.
+
+        Geometry families stay in separate layers.  Accepted merge decisions
+        unify only logical/cartographic keys; no feature is deleted or moved to
+        the suppressed layer by this pass.
+        """
+        layers = [layer for layer in (layers or []) if layer is not None]
+        families = {layer.geometryType() for layer in layers}
+        if len(families) < 2:
+            return {
+                "audit": None,
+                "candidate_count": 0,
+                "decision_reuse_count": 0,
+                "decision_store_dirty": False,
+            }
+
+        policy_version = (
+            str(policy_version)
+            if policy_version
+            else f"{self._matching_policy_key(preset)}:cross-family-v1"
+        )
+        required = (
+            "SRC_UID", "SRC_FP", "SOURCE_ROLE", "SITE_ENTITY_KEY",
+            "ENTITY_KEY", "RELATION_KEY", "RELATION_TYPE", "MATCH_STATUS",
+            "MATCH_SCORE", "MATCH_RULE", "REP_SOURCE", "LINKED_IDS",
+            "IS_REP", "NUMBER_KEY",
+        )
+        layer_indexes = {}
+        layer_records = {}
+        layers_by_id = {layer.id(): layer for layer in layers}
+        metric_context = MetricContext.from_layer(layers[0])
+        family_names = {
+            QgsWkbTypes.PointGeometry: "point",
+            QgsWkbTypes.LineGeometry: "line",
+            QgsWkbTypes.PolygonGeometry: "polygon",
+        }
+
+        for layer in layers:
+            indexes = {
+                name: layer.fields().indexFromName(name)
+                for name in required
+            }
+            if any(indexes[name] < 0 for name in required):
+                self.log(
+                    "⚠️ 형상 계열 간 판정 필드가 부족해 건너뜁니다: "
+                    f"{layer.name()}"
+                )
+                continue
+            layer_indexes[layer.id()] = indexes
+            optional = {
+                name: layer.fields().indexFromName(name)
+                for name in (
+                    "유적명", "SRC_NAME", "주소", "사업명", "원본레이어",
+                    "HERITAGE_CODE",
+                )
+            }
+            records = {}
+            layer.startEditing()
+            for feature in layer.getFeatures():
+                if not feature.hasGeometry():
+                    continue
+                geometry = QgsGeometry(feature.geometry())
+                if not geometry.isGeosValid():
+                    fixed = geometry.makeValid()
+                    if fixed and not fixed.isEmpty():
+                        geometry = fixed
+                        layer.changeGeometry(feature.id(), geometry)
+                metric_geometry = metric_context.to_analysis_geometry(
+                    geometry,
+                    layer.crs(),
+                )
+                uid = str(
+                    feature[indexes["SRC_UID"]]
+                    or f"{layer.id()}:feature:{feature.id()}"
+                )
+                site_name = (
+                    feature[optional["SRC_NAME"]]
+                    if optional["SRC_NAME"] >= 0
+                    else feature[optional["유적명"]]
+                    if optional["유적명"] >= 0
+                    else ""
+                )
+                role = str(feature[indexes["SOURCE_ROLE"]] or ROLE_OTHER)
+                source = (
+                    feature[optional["원본레이어"]]
+                    if optional["원본레이어"] >= 0 else layer.name()
+                )
+                project_name = (
+                    feature[optional["사업명"]]
+                    if optional["사업명"] >= 0 else ""
+                )
+                address = (
+                    feature[optional["주소"]]
+                    if optional["주소"] >= 0 else ""
+                )
+                code = (
+                    str(feature[optional["HERITAGE_CODE"]] or "")
+                    if optional["HERITAGE_CODE"] >= 0 else ""
+                )
+                fingerprint = str(feature[indexes["SRC_FP"]] or "").strip()
+                if not fingerprint:
+                    try:
+                        geometry_payload = bytes(geometry.asWkb())
+                    except (TypeError, ValueError):
+                        geometry_payload = geometry.asWkt()
+                    fingerprint = build_source_identity(
+                        role,
+                        native_code=code,
+                        name=site_name,
+                        project_name=project_name,
+                        address=address,
+                        geometry=geometry_payload,
+                        extra_content={"source": _json_safe_attribute(source)},
+                    ).content_fingerprint
+                records[feature.id()] = {
+                    "uid": uid,
+                    "fingerprint": fingerprint,
+                    "role": role,
+                    "name": site_name,
+                    "site_name": site_name,
+                    "source": source,
+                    "project_name": project_name,
+                    "address": address,
+                    "code": code,
+                    "feature_id": feature.id(),
+                    "layer_id": layer.id(),
+                    "geometry": metric_geometry,
+                }
+            layer.commitChanges()
+            layer_records[layer.id()] = records
+
+        ruleset = load_matching_rules()
+        tolerance = float(ruleset["thresholds"]["exact_name_distance_m"])
+        candidates = []
+        usable_layers = [
+            layer for layer in layers if layer.id() in layer_records
+        ]
+        for left_pos, left_layer in enumerate(usable_layers):
+            left_family = left_layer.geometryType()
+            for right_layer in usable_layers[left_pos + 1:]:
+                right_family = right_layer.geometryType()
+                if left_family == right_family:
+                    continue
+                right_index = QgsSpatialIndex()
+                for right_id, right in layer_records[right_layer.id()].items():
+                    indexed = QgsFeature()
+                    indexed.setId(right_id)
+                    indexed.setGeometry(right["geometry"])
+                    right_index.addFeature(indexed)
+                for left_id, left in layer_records[left_layer.id()].items():
+                    left_geometry = left["geometry"]
+                    search_rect = QgsRectangle(left_geometry.boundingBox())
+                    search_rect.grow(tolerance)
+                    for right_id in right_index.intersects(search_rect):
+                        right = layer_records[right_layer.id()].get(right_id)
+                        if right is None:
+                            continue
+                        right_geometry = right["geometry"]
+                        try:
+                            intersects = left_geometry.intersects(right_geometry)
+                            distance = (
+                                0.0 if intersects
+                                else left_geometry.distance(right_geometry)
+                            )
+                            centroid_distance = left_geometry.centroid().distance(
+                                right_geometry.centroid()
+                            )
+                            boundary_distance = self._geometry_boundary_distance(
+                                left_geometry,
+                                right_geometry,
+                            )
+                        except Exception as exc:
+                            self.log(
+                                "⚠️ 형상 계열 간 후보 비교 실패: "
+                                f"{left['name']} ↔ {right['name']} ({exc})"
+                            )
+                            continue
+                        # Intersection area has no comparable denominator across
+                        # unlike dimensions.  A binary topological intersection
+                        # keeps the pair reviewable, while evaluate_candidate's
+                        # geometry gate prevents automatic action.
+                        overlap_ratio = 1.0 if intersects else 0.0
+                        geometry_pair = "_".join((
+                            family_names.get(left_family, "unknown"),
+                            family_names.get(right_family, "unknown"),
+                        ))
+                        evaluated = evaluate_candidate(
+                            left,
+                            right,
+                            intersects=intersects,
+                            overlap_ratio=overlap_ratio,
+                            distance=distance,
+                            preset=preset,
+                            coverage_left=0.0,
+                            coverage_right=0.0,
+                            iou=0.0,
+                            area_ratio=0.0,
+                            centroid_distance=centroid_distance,
+                            boundary_distance=boundary_distance,
+                            geometry_pair=geometry_pair,
+                            rules=ruleset,
+                        )
+                        if not evaluated:
+                            continue
+                        item = evaluated.as_dict()
+                        # Cross-family evidence always requires an explicit
+                        # human decision, regardless of preset or score.
+                        item["auto_apply"] = False
+                        item.update({
+                            "left_role": left["role"],
+                            "left_source": left["source"],
+                            "left_name": left["name"],
+                            "left_address": left["address"],
+                            "left_fingerprint": left["fingerprint"],
+                            "left_feature_id": left_id,
+                            "left_layer_id": left_layer.id(),
+                            "right_role": right["role"],
+                            "right_source": right["source"],
+                            "right_name": right["name"],
+                            "right_address": right["address"],
+                            "right_fingerprint": right["fingerprint"],
+                            "right_feature_id": right_id,
+                            "right_layer_id": right_layer.id(),
+                        })
+                        candidates.append(item)
+
+        candidates.sort(key=lambda item: (
+            -float(item.get("score", 0)),
+            str(item.get("left_uid", "")),
+            str(item.get("right_uid", "")),
+        ))
+        self.log(
+            "형상 계열 간 중복 후보 검토 준비 완료: "
+            f"{len(candidates)}쌍 (자동 처리 없음)"
+        )
+        reused_decisions = []
+        pending = []
+        if decision_store is not None and reuse_saved_decisions:
+            for candidate in candidates:
+                try:
+                    lookup = decision_store.lookup(
+                        candidate["left_uid"],
+                        candidate["left_fingerprint"],
+                        candidate["right_uid"],
+                        candidate["right_fingerprint"],
+                        policy_version=policy_version,
+                    )
+                except (TypeError, ValueError):
+                    pending.append(candidate)
+                    continue
+                if lookup.reusable:
+                    reused = dict(candidate)
+                    reused["decision"] = lookup.decision
+                    reused["decision_source"] = "reused"
+                    reused_decisions.append(reused)
+                else:
+                    pending.append(candidate)
+        else:
+            pending = list(candidates)
+
+        if pending and decision_provider is not None:
+            reviewed = decision_provider(pending)
+            if reviewed is None:
+                raise DuplicateReviewCancelled()
+        elif pending:
+            dialog = DuplicateReviewDialog(
+                pending,
+                parent=self.dlg,
+                ui_lang=getattr(self.dlg, "ui_lang", "ko"),
+                zoom_callback=lambda candidate: self._zoom_cross_family_candidate(
+                    layers_by_id,
+                    candidate,
+                ),
+            )
+            if dialog.exec_() != dialog.Accepted:
+                raise DuplicateReviewCancelled()
+            reviewed = dialog.decisions()
+        else:
+            reviewed = []
+
+        by_pair = {
+            tuple(sorted((
+                str(candidate["left_uid"]),
+                str(candidate["right_uid"]),
+            ))): candidate
+            for candidate in pending
+        }
+        normalized_reviewed = []
+        for decision in reviewed:
+            item = dict(decision)
+            pair = tuple(sorted((
+                str(item.get("left_uid", "")),
+                str(item.get("right_uid", "")),
+            )))
+            for key, value in by_pair.get(pair, {}).items():
+                item.setdefault(key, value)
+            if item.get("decision_source") == "auto":
+                item["decision_source"] = "human_review"
+            else:
+                item.setdefault("decision_source", "human_review")
+            normalized_reviewed.append(item)
+        reviewed = normalized_reviewed
+        decisions = reused_decisions + reviewed
+
+        decision_store_dirty = False
+        if decision_store is not None:
+            for item in reviewed:
+                decision = item.get("decision")
+                if decision not in {
+                    DECISION_KEEP, DECISION_LINK, DECISION_MERGE,
+                }:
+                    continue
+                decision_store.record(
+                    item["left_uid"],
+                    item["left_fingerprint"],
+                    item["right_uid"],
+                    item["right_fingerprint"],
+                    decision=decision,
+                    policy_version=policy_version,
+                )
+                decision_store_dirty = True
+
+        entries = {}
+        for layer in usable_layers:
+            indexes = layer_indexes[layer.id()]
+            for feature in layer.getFeatures():
+                uid = str(feature[indexes["SRC_UID"]])
+                entries[uid] = {
+                    "layer": layer,
+                    "feature": feature,
+                    "indexes": indexes,
+                    "role": str(feature[indexes["SOURCE_ROLE"]] or ROLE_OTHER),
+                }
+
+        parent = {uid: uid for uid in entries}
+        entity_parent = {uid: uid for uid in entries}
+
+        def find(mapping, uid):
+            while mapping[uid] != uid:
+                mapping[uid] = mapping[mapping[uid]]
+                uid = mapping[uid]
+            return uid
+
+        def union(mapping, left_uid, right_uid):
+            left_root = find(mapping, left_uid)
+            right_root = find(mapping, right_uid)
+            if left_root != right_root:
+                mapping[max(left_root, right_root)] = min(left_root, right_root)
+
+        relations = {uid: set() for uid in entries}
+        relation_types = {uid: set() for uid in entries}
+        links = {uid: set() for uid in entries}
+        rules = {uid: set() for uid in entries}
+        scores = {uid: 0.0 for uid in entries}
+        statuses = {}
+        for uid, entry in entries.items():
+            feature = entry["feature"]
+            indexes = entry["indexes"]
+            relations[uid] = self._split_relation_values(
+                feature[indexes["RELATION_KEY"]]
+            )
+            relation_types[uid] = self._split_relation_values(
+                feature[indexes["RELATION_TYPE"]]
+            )
+            links[uid] = self._split_relation_values(
+                feature[indexes["LINKED_IDS"]]
+            )
+            rules[uid] = self._split_relation_values(
+                feature[indexes["MATCH_RULE"]]
+            )
+            scores[uid] = float(feature[indexes["MATCH_SCORE"]] or 0.0)
+            statuses[uid] = str(
+                feature[indexes["MATCH_STATUS"]] or STATUS_UNIQUE
+            )
+
+        for item in decisions:
+            left_uid = str(item.get("left_uid", ""))
+            right_uid = str(item.get("right_uid", ""))
+            if left_uid not in entries or right_uid not in entries:
+                continue
+            decision = item.get("decision", DECISION_KEEP)
+            relation_type = str(item.get("relation_type") or "uncertain")
+            rule = str(item.get("rule") or "")
+            score = float(item.get("score") or 0.0)
+            for uid in (left_uid, right_uid):
+                if rule:
+                    rules[uid].add(rule)
+                scores[uid] = max(scores[uid], score)
+            if decision == DECISION_KEEP:
+                for uid in (left_uid, right_uid):
+                    if statuses[uid] == STATUS_UNIQUE:
+                        statuses[uid] = STATUS_KEPT_SEPARATE
+                continue
+
+            relation_key = self._relation_key(left_uid, right_uid)
+            for uid, other_uid in (
+                (left_uid, right_uid),
+                (right_uid, left_uid),
+            ):
+                relations[uid].add(relation_key)
+                relation_types[uid].add(relation_type)
+                links[uid].add(other_uid)
+            if decision == DECISION_LINK:
+                for uid in (left_uid, right_uid):
+                    if statuses[uid] not in {
+                        STATUS_AUTO_MERGED, STATUS_USER_MERGED,
+                    }:
+                        statuses[uid] = STATUS_LINKED
+                continue
+
+            union(parent, left_uid, right_uid)
+            if relation_type == "same_entity":
+                union(entity_parent, left_uid, right_uid)
+            statuses[left_uid] = STATUS_USER_MERGED
+            statuses[right_uid] = STATUS_USER_MERGED
+
+        def representative(component):
+            return min(
+                component,
+                key=lambda uid: (
+                    -source_priority(entries[uid]["role"]),
+                    uid,
+                ),
+            )
+
+        number_components = {}
+        entity_components = {}
+        for uid in entries:
+            number_components.setdefault(find(parent, uid), []).append(uid)
+            entity_components.setdefault(find(entity_parent, uid), []).append(uid)
+
+        for layer in usable_layers:
+            layer.startEditing()
+
+        for component in number_components.values():
+            if len(component) < 2:
+                continue
+            rep_uid = representative(component)
+            rep_entry = entries[rep_uid]
+            rep_feature = rep_entry["feature"]
+            rep_indexes = rep_entry["indexes"]
+            number_key = str(
+                rep_feature[rep_indexes["NUMBER_KEY"]] or rep_uid
+            )
+            rep_role = rep_entry["role"]
+            for uid in component:
+                entry = entries[uid]
+                layer = entry["layer"]
+                indexes = entry["indexes"]
+                layer.changeAttributeValue(
+                    entry["feature"].id(), indexes["NUMBER_KEY"], number_key
+                )
+                layer.changeAttributeValue(
+                    entry["feature"].id(), indexes["REP_SOURCE"], rep_role
+                )
+                layer.changeAttributeValue(
+                    entry["feature"].id(), indexes["IS_REP"],
+                    1 if uid == rep_uid else 0,
+                )
+
+        for component in entity_components.values():
+            if len(component) < 2:
+                continue
+            rep_uid = representative(component)
+            rep_entry = entries[rep_uid]
+            rep_feature = rep_entry["feature"]
+            rep_indexes = rep_entry["indexes"]
+            entity_key = str(
+                rep_feature[rep_indexes["SITE_ENTITY_KEY"]] or rep_uid
+            )
+            for uid in component:
+                entry = entries[uid]
+                layer = entry["layer"]
+                indexes = entry["indexes"]
+                layer.changeAttributeValue(
+                    entry["feature"].id(),
+                    indexes["SITE_ENTITY_KEY"],
+                    entity_key,
+                )
+                layer.changeAttributeValue(
+                    entry["feature"].id(), indexes["ENTITY_KEY"], entity_key
+                )
+
+        for uid, entry in entries.items():
+            layer = entry["layer"]
+            feature_id = entry["feature"].id()
+            indexes = entry["indexes"]
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["RELATION_KEY"],
+                ",".join(sorted(relations[uid])) or None,
+            )
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["RELATION_TYPE"],
+                ",".join(sorted(relation_types[uid])) or None,
+            )
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["LINKED_IDS"],
+                ",".join(sorted(links[uid])) or None,
+            )
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["MATCH_RULE"],
+                ",".join(sorted(rules[uid])) or None,
+            )
+            layer.changeAttributeValue(
+                feature_id, indexes["MATCH_SCORE"], scores[uid]
+            )
+            layer.changeAttributeValue(
+                feature_id, indexes["MATCH_STATUS"], statuses[uid]
+            )
+        for layer in usable_layers:
+            if layer.isEditable():
+                layer.commitChanges()
+
+        self.aggregate_source_metadata_layers(usable_layers)
+        return {
+            "audit": self._create_match_audit_layer(decisions),
+            "candidate_count": len(candidates),
+            "decision_reuse_count": len(reused_decisions),
+            "decision_store_dirty": decision_store_dirty,
         }
 
     def _feature_request_for_extent(
@@ -2874,6 +4585,7 @@ class ArchDistribution:
         exclude_extent_slivers=False,
         paper_size_mm=None,
         source_roles=None,
+        source_encodings=None,
         match_preset=PRESET_BALANCED,
         matching_decision_provider=None,
         reuse_review_decisions=False,
@@ -2886,6 +4598,8 @@ class ArchDistribution:
             preservation_action_fields = {}
         if source_roles is None:
             source_roles = {}
+        if source_encodings is None:
+            source_encodings = {}
         temp_layers = []
         selected_fingerprints = {}
         clip_filter_context = None
@@ -2965,16 +4679,27 @@ class ArchDistribution:
         for lid in heritage_layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
             if not layer or layer.type() != 0:
+                self._record_excluded_layer(
+                    layer,
+                    "missing_or_non_vector_layer",
+                )
                 continue
             if preservation_only and layer.geometryType() != 2:
                 self.log(
                     f"  ⚠️ 폴리곤이 아니므로 유존지역 처리에서 제외: "
                     f"{layer.name()}"
                 )
+                self._record_excluded_layer(
+                    layer,
+                    "preservation_requires_polygon",
+                )
                 continue
 
             self.log(f"데이터 수취 및 필드 맵핑 중: {layer.name()}")
-            self.fix_layer_encoding(layer)
+            self.fix_layer_encoding(
+                layer,
+                source_encodings.get(lid),
+            )
             source_role = (
                 source_roles.get(lid)
                 or detect_source_role(
@@ -3020,6 +4745,11 @@ class ArchDistribution:
                     f"  ⚠️ 네 가지 보존조치 값이 확인되지 않아 제외: "
                     f"{layer.name()}"
                 )
+                self._record_excluded_layer(
+                    layer,
+                    "preservation_action_not_recognized",
+                    role=source_role,
+                )
                 continue
 
             # [FIX] Skip invalid layers (e.g. Topo maps selected as Heritage)
@@ -3031,11 +4761,15 @@ class ArchDistribution:
                     )
                 else:
                     self.log(f"  ⚠️ 명칭 필드({name_keywords}) 미확인으로 병합 제외: {layer.name()}")
+                    self._record_excluded_layer(
+                        layer,
+                        "heritage_name_field_not_found",
+                        role=source_role,
+                    )
                     continue
 
             heritage_name_field = self.find_field(layer, ['국가유산명', '문화재명', '지정명칭'])  # Keep specific for attribute extraction
             addr_field = self.find_field(layer, ['주소', '지번', '소재지', 'ADDR', 'LOC'])
-            area_field = self.find_field(layer, ['면적', 'AREA', 'SHAPE_AREA'])
             if preservation_action_field:
                 action_idx = layer.fields().indexFromName(
                     preservation_action_field
@@ -3073,6 +4807,7 @@ class ArchDistribution:
                 QgsField("유적명", QVariant.String),
                 QgsField("주소", QVariant.String),
                 QgsField("면적_m2", QVariant.Double),
+                QgsField("DIST_M", QVariant.Double),
                 QgsField("국가유산명", QVariant.String),  # [NEW]
                 QgsField("사업명", QVariant.String),     # [NEW]
                 QgsField("허용기준", QVariant.String),   # [NEW] Zone Info
@@ -3081,8 +4816,12 @@ class ArchDistribution:
                 QgsField("SRC_UID", QVariant.String),
                 QgsField("SRC_FP", QVariant.String),
                 QgsField("SOURCE_ROLE", QVariant.String),
+                QgsField("INVESTIGATION_KEY", QVariant.String),
+                QgsField("SITE_ENTITY_KEY", QVariant.String),
                 QgsField("ENTITY_KEY", QVariant.String),
+                QgsField("GEOMETRY_GROUP_KEY", QVariant.String),
                 QgsField("RELATION_KEY", QVariant.String),
+                QgsField("RELATION_TYPE", QVariant.String),
                 QgsField("MATCH_STATUS", QVariant.String),
                 QgsField("MATCH_SCORE", QVariant.Double),
                 QgsField("MATCH_RULE", QVariant.String),
@@ -3123,12 +4862,18 @@ class ArchDistribution:
             new_features = []
             fingerprint_records = []
             excluded_extent_slivers = 0
+            geometry_repairs = 0
+            invalid_geometry_exclusions = 0
             source_feature_count = layer.featureCount()
             candidate_feature_count = 0
             scan_started = time.perf_counter()
             code_field = self.find_field(
                 layer,
                 ["유산코드", "HERITAGE_CODE", "CODE"],
+            )
+            preservation_site_id_field = (
+                self.find_preservation_site_id_field(layer)
+                if preservation_only else None
             )
             feature_request, used_extent_filter = (
                 self._feature_request_for_extent(
@@ -3151,6 +4896,7 @@ class ArchDistribution:
                         if progress.wasCanceled():
                             raise ProcessingCancelled()
                 if not feat.hasGeometry():
+                    invalid_geometry_exclusions += 1
                     continue
 
                 source_geometry = QgsGeometry(feat.geometry())
@@ -3159,8 +4905,27 @@ class ArchDistribution:
                 except (TypeError, ValueError):
                     source_geometry_payload = source_geometry.asWkt()
                 geom = QgsGeometry(source_geometry)
-                if do_reproject:
-                    geom.transform(transform)
+                try:
+                    if do_reproject:
+                        geom.transform(transform)
+                except Exception as error:
+                    raise MetricContextError(
+                        f"좌표 변환 실패: {layer.name()} 객체 {feat.id()}"
+                    ) from error
+                if geom.isNull() or geom.isEmpty():
+                    invalid_geometry_exclusions += 1
+                    continue
+                if not geom.isGeosValid():
+                    repaired = geom.makeValid()
+                    if repaired and not repaired.isEmpty():
+                        geom = repaired
+                        geometry_repairs += 1
+                    else:
+                        invalid_geometry_exclusions += 1
+                        continue
+                if QgsWkbTypes.geometryType(geom.wkbType()) != layer.geometryType():
+                    invalid_geometry_exclusions += 1
+                    continue
 
                 # Retrieve Attributes for filtering
                 val_name = feat[name_field] if name_field else ""
@@ -3228,6 +4993,13 @@ class ArchDistribution:
                             if code_field and feat[code_field] is not None
                             else None
                         )
+                        preservation_site_id = (
+                            feat[preservation_site_id_field]
+                            if (
+                                preservation_site_id_field
+                                and feat[preservation_site_id_field] is not None
+                            ) else None
+                        )
                         source_attributes = {
                             source_field.name(): _json_safe_attribute(
                                 feat[source_field.name()]
@@ -3265,13 +5037,34 @@ class ArchDistribution:
                             val_heritage,
                             fallback_key=source_identity.uid,
                             preservation_action=preservation_action,
+                            preservation_number_scope=(
+                                self._preservation_number_scope(
+                                    layer,
+                                    supplier_site_id=preservation_site_id,
+                                    supplier_id_field=(
+                                        preservation_site_id_field
+                                    ),
+                                    site_name=val_name,
+                                    heritage_name=val_heritage,
+                                    address=val_address,
+                                )
+                                if preservation_only else None
+                            ),
                         )
                         display_name = grouping["display_name"]
-                        entity_key = (
+                        investigation_key = (
+                            f"{source_role}:{grouping['investigation_key']}"
+                            if grouping.get("investigation_key")
+                            else None
+                        )
+                        site_entity_key = (
+                            f"{source_role}:{grouping['site_entity_key']}"
+                        )
+                        number_key = (
                             f"{source_role}:{grouping['number_key']}"
                         )
                         geometry_group_key = (
-                            f"{source_role}:{grouping['dissolve_key']}"
+                            f"{source_role}:{grouping['geometry_group_key']}"
                         )
 
                         # Map attributes
@@ -3308,13 +5101,11 @@ class ArchDistribution:
                         new_feat["보존조치"] = preservation_action or None
                         new_feat["SRC_NAME"] = val_name
                         new_feat["SRC_ACTION"] = raw_preservation_action
-                        new_feat["NUMBER_KEY"] = grouping["number_key"]
-                        new_feat["GROUP_KEY"] = grouping["dissolve_key"]
                         new_feat["SRC_COUNT"] = 1
 
                         source_record = dict(source_attributes)
                         source_record["_source_layer"] = layer.name()
-                        source_record["_source_feature_id"] = feat.id()
+                        source_record["_source_uid"] = source_identity.uid
                         new_feat["SRC_JSON"] = json.dumps(
                             [source_record],
                             ensure_ascii=False,
@@ -3325,14 +5116,13 @@ class ArchDistribution:
                         for source_name in copied_source_fields:
                             new_feat[source_name] = feat[source_name]
 
-                        # Area logic
-                        if area_field and feat[area_field]:
-                            try:
-                                new_feat["면적_m2"] = float(feat[area_field])
-                            except (TypeError, ValueError):
-                                new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
-                        else:
-                            new_feat["면적_m2"] = geom.area() if layer.geometryType() == 2 else 0.0
+                        # This public field is a measurement, never an alias
+                        # for an unverified supplier AREA column.  The original
+                        # value is still preserved in its source field/SRC_JSON.
+                        new_feat["면적_m2"] = (
+                            clipped_geom.area()
+                            if layer.geometryType() == 2 else 0.0
+                        )
 
                         new_feat["원본레이어"] = layer.name()
                         new_feat["HERITAGE_CODE"] = (
@@ -3345,8 +5135,17 @@ class ArchDistribution:
                             source_identity.content_fingerprint
                         )
                         new_feat["SOURCE_ROLE"] = source_role
-                        new_feat["ENTITY_KEY"] = entity_key
+                        new_feat["INVESTIGATION_KEY"] = investigation_key
+                        new_feat["SITE_ENTITY_KEY"] = site_entity_key
+                        # ENTITY_KEY remains a documented compatibility alias.
+                        new_feat["ENTITY_KEY"] = site_entity_key
+                        new_feat["GEOMETRY_GROUP_KEY"] = geometry_group_key
                         new_feat["RELATION_KEY"] = None
+                        new_feat["RELATION_TYPE"] = (
+                            "legal_boundary_site"
+                            if source_role == ROLE_PROTECTION_ZONE
+                            else None
+                        )
                         new_feat["MATCH_STATUS"] = (
                             STATUS_PROTECTION_ZONE
                             if source_role == ROLE_PROTECTION_ZONE
@@ -3364,29 +5163,22 @@ class ArchDistribution:
                         new_feat["NUMBER_KEY"] = (
                             ""
                             if source_role == ROLE_PROTECTION_ZONE
-                            else entity_key
+                            else number_key
                         )
                         new_feat["GROUP_KEY"] = geometry_group_key
                         new_features.append(new_feat)
-                        try:
-                            geometry_key = bytes(
-                                clipped_geom.asWkb()
-                            ).hex()
-                        except (TypeError, ValueError):
-                            geometry_key = clipped_geom.asWkt()
                         fingerprint_records.append({
-                            "code": (
-                                feat[code_field] if code_field else ""
+                            "role": source_role,
+                            "content_fingerprint": (
+                                source_identity.content_fingerprint
                             ),
-                            "name": val_name,
-                            "geometry_key": geometry_key,
                         })
 
             if new_features:
                 fingerprint = selected_content_fingerprint(
                     fingerprint_records
                 )
-                duplicate_key = (source_role, fingerprint)
+                duplicate_key = fingerprint
                 previous = selected_fingerprints.get(duplicate_key)
                 if previous:
                     previous_name = previous["name"]
@@ -3401,6 +5193,11 @@ class ArchDistribution:
                         f"'{layer.name()}'과 '{previous_name}'의 도곽 내 "
                         "내용이 동일합니다.\n중복 번호를 막기 위해 "
                         f"'{layer.name()}'은 처리에서 제외합니다.",
+                    )
+                    self._record_excluded_layer(
+                        layer,
+                        "duplicate_content",
+                        role=source_role,
                     )
                     self.move_layer_to_group(layer, src_group)
                     continue
@@ -3428,6 +5225,10 @@ class ArchDistribution:
                         "collected_count": len(new_features),
                         "extent_prefilter": used_extent_filter,
                         "elapsed_seconds": round(elapsed_seconds, 6),
+                        "geometry_repairs": geometry_repairs,
+                        "invalid_geometry_exclusions": (
+                            invalid_geometry_exclusions
+                        ),
                     })
                 self.log(
                     f"  -> {filter_label}: 전체 {source_feature_count}건 중 "
@@ -3453,6 +5254,10 @@ class ArchDistribution:
                         "collected_count": 0,
                         "extent_prefilter": used_extent_filter,
                         "elapsed_seconds": round(elapsed_seconds, 6),
+                        "geometry_repairs": geometry_repairs,
+                        "invalid_geometry_exclusions": (
+                            invalid_geometry_exclusions
+                        ),
                     })
                 self.log(
                     "  -> 영역 내 수집된 유적 없음. "
@@ -3480,26 +5285,167 @@ class ArchDistribution:
                     f"  -> 도곽 경계 미세 절단 조각 "
                     f"{excluded_extent_slivers}건 제외"
                 )
+            if geometry_repairs or invalid_geometry_exclusions:
+                processing_stats = getattr(
+                    self, "_current_processing_stats", None
+                )
+                if isinstance(processing_stats, dict):
+                    processing_stats["geometry_repairs"] = int(
+                        processing_stats.get("geometry_repairs", 0)
+                    ) + geometry_repairs
+                    processing_stats["invalid_geometry_exclusions"] = int(
+                        processing_stats.get(
+                            "invalid_geometry_exclusions", 0
+                        )
+                    ) + invalid_geometry_exclusions
+                    if invalid_geometry_exclusions:
+                        processing_stats.setdefault(
+                            "excluded_layers", []
+                        ).append({
+                            "name": layer.name(),
+                            "role": source_role,
+                            "reason": "irreparable_geometry_features",
+                            "excluded_feature_count": (
+                                invalid_geometry_exclusions
+                            ),
+                        })
+                self.log(
+                    f"  -> 도형 복구 {geometry_repairs}건, "
+                    f"복구 불가 제외 {invalid_geometry_exclusions}건"
+                )
 
             self.move_layer_to_group(layer, src_group)
 
         if not temp_layers:
             return None
 
-        # Merge subsets grouped by geometry type (native:mergevectorlayers prefers uniform types)
-        # We'll merge everything into one if possible, but separate results are safer for display
-        # For simplicity and export-readiness, we'll try to merge all, but warn if mixed.
+        # A QGIS vector layer has one geometry family.  Mixing point, line,
+        # and polygon inputs in a single native:mergevectorlayers call can
+        # silently coerce/drop geometries according to the first input layer.
+        # Process each family independently and expose all resulting layers.
+        family_inputs = {}
+        for prepared_layer in temp_layers:
+            family_inputs.setdefault(
+                prepared_layer.geometryType(),
+                [],
+            ).append(prepared_layer)
 
-        self.log("최종 데이터 병합 처리 중...")
-        params = {
-            'LAYERS': temp_layers,
-            'CRS': target_crs,
-            'OUTPUT': 'memory:Consolidated_Heritage'
+        decision_store = None
+        decision_store_path = None
+        if not preservation_only and reuse_review_decisions:
+            decision_store_path = self._review_decision_store_path()
+            decision_store = DecisionStore.load(decision_store_path)
+            if decision_store.load_status == "loaded":
+                self.log(
+                    "이전 검토 결정 불러오기 완료: "
+                    f"{len(decision_store)}건"
+                )
+            elif decision_store.load_status in {
+                "malformed",
+                "unsupported_schema",
+            }:
+                self.log(
+                    "⚠️ 기존 검토 결정 파일을 안전하게 무시하고 "
+                    "새 검토로 진행합니다."
+                )
+
+        family_labels = {0: "점", 1: "선", 2: "면"}
+        results = []
+        for family in (2, 1, 0):
+            inputs = family_inputs.get(family, [])
+            if not inputs:
+                continue
+            results.append(self._finalize_prepared_geometry_family(
+                inputs,
+                target_crs=target_crs,
+                preservation_only=preservation_only,
+                match_preset=match_preset,
+                matching_decision_provider=matching_decision_provider,
+                reuse_review_decisions=reuse_review_decisions,
+                decision_store=decision_store,
+                decision_store_path=decision_store_path,
+                family_label=(
+                    family_labels[family]
+                    if len(family_inputs) > 1 else ""
+                ),
+            ))
+
+        if preservation_only:
+            # The preservation workflow rejects non-polygons above.
+            return results[0]["main"] if results else None
+
+        main_layers = [item["main"] for item in results if item.get("main")]
+        auxiliary = {}
+        for key in ("suppressed", "protection", "audit"):
+            auxiliary[f"{key}_layers"] = [
+                item[key] for item in results if item.get(key)
+            ]
+            auxiliary[key] = (
+                auxiliary[f"{key}_layers"][0]
+                if auxiliary[f"{key}_layers"] else None
+            )
+        cross_family_result = self.apply_cross_family_matching(
+            main_layers,
+            preset=match_preset,
+            decision_provider=matching_decision_provider,
+            decision_store=decision_store,
+            reuse_saved_decisions=reuse_review_decisions,
+            policy_version=(
+                f"{self._matching_policy_key(match_preset)}:cross-family-v1"
+            ),
+        )
+        cross_audit = cross_family_result.get("audit")
+        if cross_audit is not None:
+            cross_audit.setName("중복_판정_검수표_형상계열간")
+            auxiliary["audit_layers"].append(cross_audit)
+            if auxiliary["audit"] is None:
+                auxiliary["audit"] = cross_audit
+
+        statistics = getattr(self, "_current_processing_stats", None)
+        if not isinstance(statistics, dict):
+            statistics = {}
+            self._current_processing_stats = statistics
+        statistics["duplicate_candidate_count"] = int(
+            statistics.get("duplicate_candidate_count", 0)
+        ) + int(cross_family_result.get("candidate_count", 0))
+        statistics["decision_reuse_count"] = int(
+            statistics.get("decision_reuse_count", 0)
+        ) + int(cross_family_result.get("decision_reuse_count", 0))
+        if (
+            decision_store is not None
+            and cross_family_result.get("decision_store_dirty")
+        ):
+            self._pending_decision_store = decision_store
+            self._pending_decision_store_path = decision_store_path
+            self._pending_decision_store_dirty = True
+        return {
+            "main": main_layers[0] if main_layers else None,
+            "main_layers": main_layers,
+            **auxiliary,
         }
-        # In QGIS 3, this creates a layer with the type of the first layer.
-        # To be safe, we'll just use it and rely on the fact that most are Polygons.
-        result = processing.run("native:mergevectorlayers", params)
-        merged_layer = result['OUTPUT']
+
+    def _finalize_prepared_geometry_family(
+        self,
+        prepared_layers,
+        *,
+        target_crs,
+        preservation_only,
+        match_preset,
+        matching_decision_provider,
+        reuse_review_decisions,
+        decision_store,
+        decision_store_path,
+        family_label="",
+    ):
+        """Merge, match, and dissolve one homogeneous geometry family."""
+        suffix = f"_{family_label}" if family_label else ""
+        self.log(f"최종 데이터 병합 처리 중{suffix}...")
+        result = processing.run("native:mergevectorlayers", {
+            "LAYERS": prepared_layers,
+            "CRS": target_crs,
+            "OUTPUT": "memory:Consolidated_Heritage",
+        })
+        merged_layer = result["OUTPUT"]
         auxiliary_layers = {
             "suppressed": None,
             "protection": None,
@@ -3508,52 +5454,24 @@ class ArchDistribution:
         if preservation_only:
             self.aggregate_source_metadata(merged_layer)
         else:
-            decision_store = None
-            decision_store_path = None
-            if reuse_review_decisions:
-                decision_store_path = self._review_decision_store_path()
-                decision_store = DecisionStore.load(decision_store_path)
-                if decision_store.load_status == "loaded":
-                    self.log(
-                        "이전 검토 결정 불러오기 완료: "
-                        f"{len(decision_store)}건"
-                    )
-                elif decision_store.load_status in {
-                    "malformed",
-                    "unsupported_schema",
-                }:
-                    self.log(
-                        "⚠️ 기존 검토 결정 파일을 안전하게 무시하고 "
-                        "새 검토로 진행합니다."
-                    )
             match_result = self.apply_source_aware_matching(
                 merged_layer,
                 preset=match_preset,
                 decision_provider=matching_decision_provider,
                 decision_store=decision_store,
                 reuse_saved_decisions=reuse_review_decisions,
-                policy_version=(
-                    f"{MATCH_POLICY_VERSION}:{match_preset}"
-                ),
+                policy_version=self._matching_policy_key(match_preset),
             )
-            processing_stats = getattr(
-                self,
-                "_current_processing_stats",
-                None,
-            )
-            if not isinstance(processing_stats, dict):
-                processing_stats = {}
-                self._current_processing_stats = processing_stats
-            processing_stats.update({
-                "duplicate_candidate_count": match_result.get(
-                    "candidate_count",
-                    0,
-                ),
-                "decision_reuse_count": match_result.get(
-                    "decision_reuse_count",
-                    0,
-                ),
-            })
+            statistics = getattr(self, "_current_processing_stats", None)
+            if not isinstance(statistics, dict):
+                statistics = {}
+                self._current_processing_stats = statistics
+            statistics["duplicate_candidate_count"] = int(
+                statistics.get("duplicate_candidate_count", 0)
+            ) + int(match_result.get("candidate_count", 0))
+            statistics["decision_reuse_count"] = int(
+                statistics.get("decision_reuse_count", 0)
+            ) + int(match_result.get("decision_reuse_count", 0))
             if (
                 decision_store is not None
                 and match_result.get("decision_store_dirty")
@@ -3568,72 +5486,361 @@ class ArchDistribution:
                 "audit": match_result.get("audit"),
             }
 
-        # Dissolve multipart areas before numbering so one excavation project
-        # receives one number even when its geometry is split into several zones.
-        self.log("동일 사업·유적의 분할 구역 병합 처리 중...")
-
-        # Prefer the explicit grouping key created above. Keep the old name
-        # lookup as a compatibility fallback for previously generated layers.
-        fields = [f.name() for f in merged_layer.fields()]
+        self.log(f"동일 형상 그룹의 분할 구역 병합 처리 중{suffix}...")
+        fields = [field.name() for field in merged_layer.fields()]
         dissolve_field = "GROUP_KEY" if "GROUP_KEY" in fields else None
         if not dissolve_field:
-            keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
-            for f in fields:
-                for k in keywords:
-                    if k in f.upper():
-                        dissolve_field = f
-                        break
-                if dissolve_field:
-                    break
-
-        if not dissolve_field:
-            self.log("  ⚠️ 병합 레이어에서 명칭 필드를 찾을 수 없어 Dissolve를 건너뜁니다.")
-            if preservation_only:
-                return merged_layer
-            return {
-                "main": merged_layer,
-                **auxiliary_layers,
-            }
-
-        self.log(f"  - Dissolve 기준 필드: {dissolve_field}")
-        before_dissolve_count = merged_layer.featureCount()
-
-        try:
-            dissolve_params = {
-                'INPUT': merged_layer,
-                'FIELD': [dissolve_field],
-                'OUTPUT': 'memory:Dissolved_Heritage'
-            }
-            dissolve_result = processing.run("native:dissolve", dissolve_params)
-            final_layer = dissolve_result['OUTPUT']
-            final_layer.setName(
-                "매장유산_유존지역"
-                if preservation_only
-                else "수집_및_병합된_주변유적"
-            )
-            after_dissolve_count = final_layer.featureCount()
-            grouped_count = before_dissolve_count - after_dissolve_count
-            self.log(
-                f"Dissolve 완료: {before_dissolve_count} -> "
-                f"{after_dissolve_count}개 유적 (분할 구역 {grouped_count}건 통합)"
-            )
-        except Exception as e:
-            self.log(f"Dissolve 실패 (원본 사용): {e}")
+            self.log("  ⚠️ GROUP_KEY가 없어 Dissolve를 건너뜁니다.")
             final_layer = merged_layer
-            final_layer.setName(
-                "매장유산_유존지역"
-                if preservation_only
-                else "수집_및_병합된_주변유적"
+        else:
+            before_count = merged_layer.featureCount()
+            try:
+                dissolve_result = processing.run("native:dissolve", {
+                    "INPUT": merged_layer,
+                    "FIELD": [dissolve_field],
+                    "OUTPUT": "memory:Dissolved_Heritage",
+                })
+                final_layer = dissolve_result["OUTPUT"]
+                after_count = final_layer.featureCount()
+                self.log(
+                    f"Dissolve 완료{suffix}: {before_count} -> "
+                    f"{after_count}개 (분할 {before_count - after_count}건 통합)"
+                )
+            except Exception as error:
+                self.log(f"Dissolve 실패{suffix} (원본 사용): {error}")
+                final_layer = merged_layer
+
+        final_layer.setName(
+            ("매장유산_유존지역" if preservation_only
+             else "수집_및_병합된_주변유적") + suffix
+        )
+        for key, layer in auxiliary_layers.items():
+            if layer is not None and suffix:
+                layer.setName(f"{layer.name()}{suffix}")
+        return {"main": final_layer, **auxiliary_layers}
+
+    def number_heritage_layers_v4(
+        self,
+        layers,
+        study_layer_or_centroid,
+        sort_order,
+        extent_geom=None,
+        extent_crs=None,
+        buffer_geoms=None,
+        restrict_to_buffer=True,
+        metric_context=None,
+    ):
+        """Assign one continuous number sequence across geometry families."""
+        layers = [layer for layer in (layers or []) if layer is not None]
+        if not layers:
+            return {
+                "number_group_count": 0,
+                "numbered_feature_count": 0,
+                "total_feature_count": 0,
+            }
+        if len(layers) == 1:
+            return self.number_heritage_v4(
+                layers[0],
+                study_layer_or_centroid,
+                sort_order,
+                extent_geom,
+                extent_crs,
+                buffer_geoms,
+                restrict_to_buffer,
+                metric_context,
+            )
+        if metric_context is None:
+            metric_context = self._build_metric_context(layers[0], {})
+        buffer_geoms = list(buffer_geoms or [])
+
+        base_analysis = None
+        if isinstance(study_layer_or_centroid, QgsVectorLayer):
+            combined = QgsGeometry()
+            for feature in study_layer_or_centroid.getFeatures():
+                if not feature.hasGeometry():
+                    continue
+                combined = (
+                    QgsGeometry(feature.geometry())
+                    if combined.isNull()
+                    else combined.combine(feature.geometry())
+                )
+            if not combined.isNull():
+                base_analysis = metric_context.to_analysis_geometry(
+                    combined,
+                    study_layer_or_centroid.crs(),
+                )
+
+        records = []
+        layer_states = []
+        for layer_index, layer in enumerate(layers):
+            for field in (
+                QgsField("이격거리(m)", QVariant.String),
+                QgsField("DIST_M", QVariant.Double),
+                QgsField("비고", QVariant.String),
+                QgsField("LABEL_OK", QVariant.Int),
+            ):
+                if layer.fields().indexFromName(field.name()) < 0:
+                    layer.dataProvider().addAttributes([field])
+            layer.updateFields()
+            indexes = {
+                name: layer.fields().indexFromName(name)
+                for name in (
+                    "번호", "이격거리(m)", "비고", "LABEL_OK",
+                    "NUMBER_KEY", "유적명", "SRC_UID", "DIST_M",
+                )
+            }
+            target_extent = QgsGeometry(extent_geom) if extent_geom else None
+            transformed_buffers = []
+            if extent_crs and layer.crs() != extent_crs:
+                transform = QgsCoordinateTransform(
+                    extent_crs,
+                    layer.crs(),
+                    QgsProject.instance(),
+                )
+                if target_extent:
+                    target_extent.transform(transform)
+                for item in buffer_geoms:
+                    geometry = QgsGeometry(item["geom"])
+                    geometry.transform(transform)
+                    transformed_buffers.append({
+                        "dist": item["dist"],
+                        "geom": geometry,
+                    })
+            else:
+                transformed_buffers = [
+                    {"dist": item["dist"], "geom": QgsGeometry(item["geom"])}
+                    for item in buffer_geoms
+                ]
+
+            managed_subset = '"번호" IS NOT NULL'
+            property_name = "ArchDistribution/renumber_base_subset"
+            current_subset = layer.subsetString().strip()
+            stored_subset = layer.customProperty(property_name, None)
+            if stored_subset is not None:
+                stored_subset = str(stored_subset).strip()
+                expected = (
+                    f"({stored_subset}) AND ({managed_subset})"
+                    if stored_subset else managed_subset
+                )
+                if current_subset == expected:
+                    base_subset = stored_subset
+                    layer.setSubsetString(base_subset)
+                else:
+                    base_subset = current_subset
+                    layer.removeCustomProperty(property_name)
+            elif current_subset == managed_subset:
+                base_subset = ""
+                layer.setSubsetString("")
+            else:
+                base_subset = current_subset
+
+            layer.startEditing()
+            outside_ids = []
+            for feature in layer.getFeatures():
+                geometry = QgsGeometry(feature.geometry())
+                if not geometry.isGeosValid():
+                    fixed = geometry.makeValid()
+                    if fixed and not fixed.isEmpty():
+                        geometry = fixed
+                        layer.changeGeometry(feature.id(), geometry)
+                inside = True
+                if target_extent:
+                    inside = geometry.intersects(target_extent)
+                    if inside and layer.geometryType() in (1, 2):
+                        clipped = geometry.intersection(target_extent)
+                        inside = (
+                            not clipped.isEmpty()
+                            and (
+                                clipped.area() > 0
+                                if layer.geometryType() == 2
+                                else clipped.length() > 0
+                            )
+                        )
+                if (
+                    inside
+                    and transformed_buffers
+                    and restrict_to_buffer
+                    and not geometry.intersects(
+                        transformed_buffers[-1]["geom"]
+                    )
+                ):
+                    inside = False
+                if not inside:
+                    layer.changeAttributeValue(
+                        feature.id(), indexes["번호"], None
+                    )
+                    layer.changeAttributeValue(
+                        feature.id(), indexes["이격거리(m)"], None
+                    )
+                    layer.changeAttributeValue(
+                        feature.id(), indexes["DIST_M"], None
+                    )
+                    layer.changeAttributeValue(
+                        feature.id(), indexes["비고"], "범위_밖"
+                    )
+                    layer.changeAttributeValue(
+                        feature.id(), indexes["LABEL_OK"], 0
+                    )
+                    outside_ids.append(feature.id())
+                    continue
+
+                analysis_geometry = metric_context.to_analysis_geometry(
+                    geometry,
+                    layer.crs(),
+                )
+                distance = (
+                    analysis_geometry.distance(base_analysis)
+                    if base_analysis is not None else 0.0
+                )
+                tier = 0
+                if transformed_buffers:
+                    tier = len(transformed_buffers)
+                    for tier_index, buffer_item in enumerate(
+                        transformed_buffers
+                    ):
+                        if geometry.intersects(buffer_item["geom"]):
+                            tier = tier_index
+                            break
+                name = str(
+                    feature[indexes["유적명"]]
+                    if indexes["유적명"] >= 0 else ""
+                )
+                raw_key = (
+                    feature[indexes["NUMBER_KEY"]]
+                    if indexes["NUMBER_KEY"] >= 0 else None
+                )
+                uid = (
+                    feature[indexes["SRC_UID"]]
+                    if indexes["SRC_UID"] >= 0 else None
+                )
+                number_key = str(
+                    raw_key or uid or f"layer:{layer_index}:feature:{feature.id()}"
+                )
+                centroid = analysis_geometry.centroid().asPoint()
+                if sort_order == 1:
+                    sort_key = (
+                        tier, distance, name.casefold(), layer_index,
+                        feature.id(),
+                    )
+                    distance_text = f"{distance:.1f}m"
+                elif sort_order == 0:
+                    sort_key = (
+                        -centroid.y(), centroid.x(), name.casefold(),
+                        layer_index, feature.id(),
+                    )
+                    distance_text = None
+                else:
+                    sort_key = (
+                        name.casefold(), -centroid.y(), centroid.x(),
+                        layer_index, feature.id(),
+                    )
+                    distance_text = None
+                weight = (
+                    analysis_geometry.area()
+                    if layer.geometryType() == 2
+                    else analysis_geometry.length()
+                    if layer.geometryType() == 1
+                    else 0.0
+                )
+                records.append({
+                    "layer": layer,
+                    "feature_id": feature.id(),
+                    "indexes": indexes,
+                    "number_key": number_key,
+                    "sort_key": sort_key,
+                    "distance_text": distance_text,
+                    "distance_m": distance,
+                    "anchor_weight": weight,
+                    "anchor_tiebreak": (layer_index, feature.id()),
+                })
+            layer_states.append({
+                "layer": layer,
+                "outside_ids": outside_ids,
+                "base_subset": base_subset,
+                "managed_subset": managed_subset,
+                "property_name": property_name,
+            })
+
+        records.sort(key=lambda item: item["sort_key"])
+        numbers = {}
+        anchors = {}
+        for record in records:
+            key = record["number_key"]
+            if key not in numbers:
+                numbers[key] = len(numbers) + 1
+            layer = record["layer"]
+            indexes = record["indexes"]
+            feature_id = record["feature_id"]
+            layer.changeAttributeValue(
+                feature_id, indexes["번호"], numbers[key]
+            )
+            layer.changeAttributeValue(feature_id, indexes["비고"], None)
+            layer.changeAttributeValue(feature_id, indexes["LABEL_OK"], 0)
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["이격거리(m)"],
+                record["distance_text"],
+            )
+            layer.changeAttributeValue(
+                feature_id,
+                indexes["DIST_M"],
+                record["distance_m"],
+            )
+            anchor_score = (
+                record["anchor_weight"],
+                tuple(-value for value in record["anchor_tiebreak"]),
+            )
+            if key not in anchors or anchor_score > anchors[key][0]:
+                anchors[key] = (anchor_score, record)
+
+        for _score, record in anchors.values():
+            record["layer"].changeAttributeValue(
+                record["feature_id"],
+                record["indexes"]["LABEL_OK"],
+                1,
             )
 
-        if preservation_only:
-            return final_layer
+        for state in layer_states:
+            layer = state["layer"]
+            layer.commitChanges()
+            if state["outside_ids"]:
+                visible = (
+                    f"({state['base_subset']}) AND "
+                    f"({state['managed_subset']})"
+                    if state["base_subset"]
+                    else state["managed_subset"]
+                )
+                layer.setCustomProperty(
+                    state["property_name"], state["base_subset"]
+                )
+                layer.setSubsetString(visible)
+            else:
+                layer.setSubsetString(state["base_subset"])
+                layer.removeCustomProperty(state["property_name"])
+
+        self.log(
+            f"  -> {len(numbers)}개 번호를 {len(layers)}개 형상 "
+            f"레이어의 {len(records)}개 레코드에 연속 부여했습니다."
+        )
         return {
-            "main": final_layer,
-            **auxiliary_layers,
+            "number_group_count": len(numbers),
+            "numbered_feature_count": len(records),
+            "total_feature_count": sum(
+                layer.featureCount() for layer in layers
+            ),
         }
 
-    def number_heritage_v4(self, layer, study_layer_or_centroid, sort_order, extent_geom=None, extent_crs=None, buffer_geoms=None, restrict_to_buffer=True):
+    def number_heritage_v4(
+        self,
+        layer,
+        study_layer_or_centroid,
+        sort_order,
+        extent_geom=None,
+        extent_crs=None,
+        buffer_geoms=None,
+        restrict_to_buffer=True,
+        metric_context=None,
+    ):
         """
         Sort features and assign numbers to '번호' field with Buffer Tiers.
 
@@ -3645,12 +5852,20 @@ class ArchDistribution:
         """
         if buffer_geoms is None:
             buffer_geoms = []
+        if metric_context is None:
+            # Backward-compatible direct calls still receive metric distance
+            # calculations.  Main workflows pass their already-fixed context.
+            metric_context = self._build_metric_context(layer, {})
         idx = layer.fields().indexFromName("번호")
 
         # [NEW] Check/Add Distance Field
         dist_field_name = "이격거리(m)"
         if layer.fields().indexFromName(dist_field_name) == -1:
             layer.dataProvider().addAttributes([QgsField(dist_field_name, QVariant.String)])
+        if layer.fields().indexFromName("DIST_M") == -1:
+            layer.dataProvider().addAttributes([
+                QgsField("DIST_M", QVariant.Double)
+            ])
 
         # [NEW] Check/Add Note Field (For Human Verification)
         note_field_name = "비고"
@@ -3665,6 +5880,7 @@ class ArchDistribution:
 
         layer.updateFields()
         dist_idx = layer.fields().indexFromName(dist_field_name)
+        numeric_dist_idx = layer.fields().indexFromName("DIST_M")
         note_idx = layer.fields().indexFromName(note_field_name)
         label_anchor_idx = layer.fields().indexFromName(label_anchor_field_name)
         number_key_idx = layer.fields().indexFromName("NUMBER_KEY")
@@ -3710,8 +5926,10 @@ class ArchDistribution:
                     base_geom.transform(tr)
 
                 self.log(f"좌표 변환 적용됨: {extent_crs.authid()} -> {layer.crs().authid()}")
-            except Exception as e:
-                self.log(f"좌표 변환 오류 (무시됨): {e}")
+            except Exception as error:
+                raise MetricContextError(
+                    "재번호 작업의 도곽·버퍼 좌표 변환에 실패했습니다."
+                ) from error
         else:
             transformed_buffers = buffer_geoms  # No transform needed
 
@@ -3785,6 +6003,7 @@ class ArchDistribution:
             if not inside_extent:
                 layer.changeAttributeValue(feat.id(), idx, None)
                 layer.changeAttributeValue(feat.id(), dist_idx, None)
+                layer.changeAttributeValue(feat.id(), numeric_dist_idx, None)
                 layer.changeAttributeValue(feat.id(), note_idx, "도곽_밖")
                 layer.changeAttributeValue(feat.id(), label_anchor_idx, 0)
                 ids_to_delete.append(feat.id())
@@ -3796,6 +6015,9 @@ class ArchDistribution:
                 if not geom.intersects(limit_geom):
                     layer.changeAttributeValue(feat.id(), idx, None)
                     layer.changeAttributeValue(feat.id(), dist_idx, None)
+                    layer.changeAttributeValue(
+                        feat.id(), numeric_dist_idx, None
+                    )
                     layer.changeAttributeValue(feat.id(), note_idx, "버퍼_밖")
                     layer.changeAttributeValue(
                         feat.id(),
@@ -3817,19 +6039,35 @@ class ArchDistribution:
         # Sorting Logic
         sorted_features = []
 
+        measurement_base_geom = None
+        if base_geom:
+            measurement_base_geom = metric_context.to_analysis_geometry(
+                base_geom,
+                layer.crs(),
+            )
+        measurement_origin = None
+        if isinstance(study_layer_or_centroid, QgsPointXY):
+            measurement_origin = metric_context.transform_point(
+                study_layer_or_centroid,
+                extent_crs or layer.crs(),
+                metric_context.analysis_crs,
+            )
+
+        def get_dist(feat_geom):
+            metric_geom = metric_context.to_analysis_geometry(
+                feat_geom,
+                layer.crs(),
+            )
+            if measurement_base_geom:
+                return metric_geom.distance(measurement_base_geom)
+            if measurement_origin is not None:
+                point = metric_geom.centroid().asPoint()
+                return ((point.x() - measurement_origin.x()) ** 2 +
+                        (point.y() - measurement_origin.y()) ** 2) ** 0.5
+            return 0.0
+
         if sort_order == 1:  # Closest to Study Area (Buffer Tiered)
             # We will process in Tiers if buffers exist
-
-            # Helper to calc distance
-            def get_dist(feat_geom):
-                if base_geom:
-                    return feat_geom.distance(base_geom)
-                elif isinstance(study_layer_or_centroid, QgsPointXY):
-                    pt = feat_geom.centroid().asPoint()
-                    dx = pt.x() - study_layer_or_centroid.x()
-                    dy = pt.y() - study_layer_or_centroid.y()
-                    return (dx * dx + dy * dy) ** 0.5
-                return 0
 
             # Calculate distances for ALL valid features first
             feat_dists = []
@@ -3884,13 +6122,32 @@ class ArchDistribution:
                 feat_dists.sort(key=lambda x: x['dist'])
                 sorted_features = feat_dists
 
-        elif sort_order == 0:  # Top-to-Bottom
-            temp = [{'feat': f, 'sort_val': -f.geometry().centroid().asPoint().y(), 'dist_str': None} for f in all_features]
+        elif sort_order == 0:  # Top-to-Bottom in the analysis CRS
+            temp = [
+                {
+                    'feat': f,
+                    'sort_val': -metric_context.to_analysis_geometry(
+                        f.geometry(),
+                        layer.crs(),
+                    ).centroid().asPoint().y(),
+                    'dist_str': None,
+                    'dist': get_dist(f.geometry()),
+                }
+                for f in all_features
+            ]
             temp.sort(key=lambda x: x['sort_val'])
             sorted_features = temp
 
         else:  # Alphabetical
-            temp = [{'feat': f, 'sort_val': f["유적명"], 'dist_str': None} for f in all_features]
+            temp = [
+                {
+                    'feat': f,
+                    'sort_val': f["유적명"],
+                    'dist_str': None,
+                    'dist': get_dist(f.geometry()),
+                }
+                for f in all_features
+            ]
             temp.sort(key=lambda x: x['sort_val'])
             sorted_features = temp
 
@@ -3985,6 +6242,11 @@ class ArchDistribution:
                 layer.changeAttributeValue(feat.id(), dist_idx, item['dist_str'])
             else:
                 layer.changeAttributeValue(feat.id(), dist_idx, None)
+            layer.changeAttributeValue(
+                feat.id(),
+                numeric_dist_idx,
+                float(item.get('dist', get_dist(feat.geometry()))),
+            )
 
         for feature_id in label_anchor_by_key.values():
             layer.changeAttributeValue(feature_id, label_anchor_idx, 1)
@@ -4214,31 +6476,10 @@ class ArchDistribution:
         layer_name = layer.name()
         self.log(f"DEBUG: Zone Layer '{layer_name}' Processing Started.")
 
-        # [FIX] Robust Reload: Ignore UI layer instance, reload effectively from source file
-        source_path = layer.source().split("|")[0]
-
-        # [FIX] Handle QGIS oddities (file.shx|layername=...) or wrong extensions
-        if source_path:
-            base, ext = os.path.splitext(source_path)
-            if ext.lower() in ['.shx', '.dbf']:
-                source_path = base + '.shp'
-
-        new_layer = None
-        if source_path and os.path.exists(source_path):
-            self.log(f"DEBUG: 원본 파일 경로 확인됨: {source_path}")
-            # Create new layer instance strictly for processing
-            layer_uri = f"{source_path}|encoding={DEFAULT_ENCODING}"
-            new_layer = QgsVectorLayer(layer_uri, layer_name, "ogr")
-
-            if new_layer.isValid():
-                self.log(f"DEBUG: 파일 재로딩 성공 ({DEFAULT_ENCODING}). 객체 수: {new_layer.featureCount()}")
-                layer = new_layer  # Replace variable
-            else:
-                self.log(f"⚠️ 경고: {DEFAULT_ENCODING} 옵션으로 불러오기 실패. 원본 레이어로 진행합니다.")
-        else:
-            self.log(f"⚠️ 경고: 원본 파일 경로를 찾을 수 없습니다 (Path: {source_path}). 메모리 레이어이거나 임시 파일일 수 있습니다.")
-            self.log(" -> 기존 레이어에 인코딩 설정을 시도합니다.")
-            self.fix_layer_encoding(layer, DEFAULT_ENCODING)
+        # Work from the selected layer instance.  Reloading from disk used to
+        # lose pending edits, subset filters, memory sources, and user-selected
+        # encodings.  A declared .cpg or explicit layer override is sufficient.
+        self.fix_layer_encoding(layer)
 
         # 1. Identify Field
         field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])

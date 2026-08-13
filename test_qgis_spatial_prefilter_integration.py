@@ -92,6 +92,7 @@ class QgisSpatialPrefilterIntegrationTests(unittest.TestCase):
     def make_plugin(self):
         plugin = self.plugin_class.__new__(self.plugin_class)
         plugin.log = lambda _message: None
+        plugin._current_processing_stats = {}
         return plugin
 
     @staticmethod
@@ -155,7 +156,9 @@ class QgisSpatialPrefilterIntegrationTests(unittest.TestCase):
             f"source_{source.id()}"
         )
 
-        result = self.make_plugin().consolidate_heritage_layers(
+        plugin = self.make_plugin()
+        self._last_plugin = plugin
+        result = plugin.consolidate_heritage_layers(
             [source.id()],
             extent,
             study,
@@ -166,6 +169,26 @@ class QgisSpatialPrefilterIntegrationTests(unittest.TestCase):
         )
         self.assertIsNotNone(result)
         return result["main"]
+
+    def test_invalid_polygon_is_repaired_before_extent_clip(self):
+        source = self.make_source([{
+            "name": "invalid-bow-tie",
+            "wkt": "POLYGON((10 10,30 30,10 30,30 10,10 10))",
+        }])
+        study = self.make_study("EPSG:3857", (40, 40, 60, 60))
+        extent = QgsGeometry.fromRect(QgsRectangle(0, 0, 100, 100))
+
+        output = self.consolidate(source, extent, study)
+
+        self.assertEqual(output.featureCount(), 1)
+        geometry = next(output.getFeatures()).geometry()
+        self.assertFalse(geometry.isEmpty())
+        self.assertTrue(geometry.isGeosValid())
+        scans = self._last_plugin._current_processing_stats.get(
+            "source_scans", []
+        )
+        self.assertEqual(len(scans), 1)
+        self.assertGreaterEqual(scans[0]["geometry_repairs"], 1)
 
     def test_extent_prefilter_excludes_many_outside_features(self):
         rows = [
@@ -339,9 +362,8 @@ class QgisSpatialPrefilterIntegrationTests(unittest.TestCase):
 
         output = self.consolidate(source, extent, study, zone=zone)
 
-        zone_field = output.fields().at(6).name()
         values_by_name = {
-            feature["SRC_NAME"]: feature[zone_field]
+            feature["SRC_NAME"]: feature["허용기준"]
             for feature in output.getFeatures()
         }
         self.assertEqual(values_by_name["site-a"], "A, B")

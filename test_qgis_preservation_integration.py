@@ -461,6 +461,127 @@ class QgisPreservationIntegrationTests(unittest.TestCase):
             self.make_plugin().find_preservation_action_field(unrelated)
         )
 
+    def test_preservation_site_id_field_requires_exact_semantics(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "identifier-policy",
+            "memory",
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("CODE", QVariant.String),
+            QgsField("ACTION_CODE", QVariant.String),
+            QgsField("SITE_ID", QVariant.String),
+        ])
+        layer.updateFields()
+
+        plugin = self.make_plugin()
+        self.assertEqual(
+            plugin.find_preservation_site_id_field(layer),
+            "SITE_ID",
+        )
+
+        generic_only = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "generic-code-only",
+            "memory",
+        )
+        generic_only.dataProvider().addAttributes([
+            QgsField("CODE", QVariant.String),
+            QgsField("ACTION_CODE", QVariant.String),
+        ])
+        generic_only.updateFields()
+        self.assertIsNone(
+            plugin.find_preservation_site_id_field(generic_only)
+        )
+
+    def test_preservation_number_scope_rejects_unsafe_fallbacks(self):
+        first = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "renamed-a",
+            "memory",
+        )
+        second = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "renamed-b",
+            "memory",
+        )
+        plugin = self.make_plugin()
+
+        self.assertEqual(
+            plugin._preservation_number_scope(
+                first,
+                supplier_site_id="SITE-42",
+                supplier_id_field="SITE_ID",
+                site_name="유적",
+                address="",
+            ),
+            "supplier:siteid:site-42",
+        )
+        self.assertIsNone(
+            plugin._preservation_number_scope(
+                first,
+                supplier_site_id="ACTION-1",
+                supplier_id_field="CODE",
+                site_name="유적",
+                address="공주시 가상동 1-1",
+            )
+        )
+        self.assertIsNone(
+            plugin._preservation_number_scope(
+                first,
+                site_name="공주 신관동 유적",
+                address="미상",
+            )
+        )
+        self.assertIsNone(
+            plugin._preservation_number_scope(
+                first,
+                site_name="유적",
+                address="공주시 가상동 1-1",
+            )
+        )
+
+        first_scope = plugin._preservation_number_scope(
+            first,
+            site_name="공주 신관동 유적",
+            address="공주시 가상동 1-1",
+        )
+        second_scope = plugin._preservation_number_scope(
+            second,
+            site_name="공주 신관동 유적",
+            address="공주시 가상동 1-1",
+        )
+        self.assertEqual(first_scope, second_scope)
+        self.assertTrue(first_scope.startswith("name_address:"))
+
+    def test_result_content_hash_normalizes_equivalent_polygon_rings(self):
+        layers = []
+        wkts = (
+            "POLYGON((0 0,10 0,10 10,0 10,0 0))",
+            "POLYGON((10 10,10 0,0 0,0 10,10 10))",
+        )
+        for index, wkt in enumerate(wkts):
+            layer = QgsVectorLayer(
+                "Polygon?crs=EPSG:5186",
+                f"normalized-{index}",
+                "memory",
+            )
+            layer.dataProvider().addAttributes([
+                QgsField("VALUE", QVariant.String),
+            ])
+            layer.updateFields()
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+            feature["VALUE"] = "same"
+            layer.dataProvider().addFeature(feature)
+            layers.append(layer)
+
+        plugin = self.make_plugin()
+        self.assertEqual(
+            plugin._artifact_layer_content_hash(layers[0]),
+            plugin._artifact_layer_content_hash(layers[1]),
+        )
+
     def test_dedicated_workflow_keeps_all_features_and_custom_styles(self):
         source = QgsVectorLayer(
             "Polygon?crs=EPSG:5186",

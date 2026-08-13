@@ -5,8 +5,16 @@ import os
 from qgis.PyQt import uic, QtCore, QtGui
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QListWidgetItem, QColorDialog
-from qgis.core import QgsProject, QgsMapLayerProxyModel
-from qgis.gui import QgsMapLayerComboBox  # [NEW] Import
+from qgis.core import (
+    QgsCoordinateReferenceSystem,
+    QgsMapLayerProxyModel,
+    QgsProject,
+    QgsUnitTypes,
+)
+from qgis.gui import (
+    QgsMapLayerComboBox,
+    QgsProjectionSelectionWidget,
+)  # [NEW] Import
 from qgis.utils import iface  # [CRITICAL FIX] Import global iface
 
 from .preservation_actions import (
@@ -97,6 +105,8 @@ OUTPUT_DIRECTORY_PREF_KEY = "ArchDistribution/output_directory"
 SAVE_GPKG_PREF_KEY = "ArchDistribution/save_gpkg_manifest"
 EXPORT_JPG_PREF_KEY = "ArchDistribution/export_layout_jpg"
 EXPORT_PDF_PREF_KEY = "ArchDistribution/export_layout_pdf"
+ANALYSIS_CRS_OVERRIDE_PREF_KEY = "ArchDistribution/analysis_crs_override"
+ANALYSIS_CRS_DEFINITION_PREF_KEY = "ArchDistribution/analysis_crs_definition"
 PRESERVATION_STYLE_ORDER = tuple(PRESERVATION_ACTION_STYLES)
 
 
@@ -240,6 +250,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self._build_duplicate_policy_controls()
         self._build_previous_result_controls()
         self._build_output_artifact_controls()
+        self._build_metric_crs_controls()
 
         # Default colors (Matching professional archaeological standards)
         self.heritage_stroke_color = QtGui.QColor(DEFAULT_COLORS["heritage_stroke"])
@@ -523,7 +534,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblRoleHelp.setStyleSheet("color:#555; font-size:10px;")
         duplicate_layout.addWidget(self.lblRoleHelp)
 
-        self.tableLayerRoles = QtWidgets.QTableWidget(0, 2)
+        self.tableLayerRoles = QtWidgets.QTableWidget(0, 3)
         self.tableLayerRoles.verticalHeader().setVisible(False)
         self.tableLayerRoles.setAlternatingRowColors(True)
         self.tableLayerRoles.setMinimumHeight(150)
@@ -536,9 +547,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             1,
             QtWidgets.QHeaderView.ResizeToContents,
         )
+        role_header.setSectionResizeMode(
+            2,
+            QtWidgets.QHeaderView.ResizeToContents,
+        )
         duplicate_layout.addWidget(self.tableLayerRoles)
         self.groupDuplicatePolicy.setLayout(duplicate_layout)
         self.layerRoleCombos = {}
+        self.layerEncodingCombos = {}
         self.listHeritageLayers.itemChanged.connect(
             self._update_previous_result_guidance
         )
@@ -702,6 +718,125 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lineOutputDirectory.setText(selected)
         QtCore.QSettings().setValue(OUTPUT_DIRECTORY_PREF_KEY, selected)
 
+    def _build_metric_crs_controls(self):
+        """Add one metric-analysis CRS control shared by both workflows."""
+        self.groupMetricCrs = QtWidgets.QGroupBox()
+        layout = QtWidgets.QVBoxLayout()
+
+        self.lblMetricCrsHelp = QtWidgets.QLabel()
+        self.lblMetricCrsHelp.setWordWrap(True)
+        self.lblMetricCrsHelp.setTextFormat(QtCore.Qt.RichText)
+        self.lblMetricCrsHelp.setStyleSheet(
+            "background:#f4f8fb; border:1px solid #b8cad8; "
+            "padding:7px; color:#234;"
+        )
+        layout.addWidget(self.lblMetricCrsHelp)
+
+        self.chkOverrideAnalysisCrs = QtWidgets.QCheckBox()
+        layout.addWidget(self.chkOverrideAnalysisCrs)
+
+        selector_row = QtWidgets.QHBoxLayout()
+        self.lblAnalysisCrs = QtWidgets.QLabel()
+        self.projectionAnalysisCrs = QgsProjectionSelectionWidget()
+        selector_row.addWidget(self.lblAnalysisCrs)
+        selector_row.addWidget(self.projectionAnalysisCrs, 1)
+        layout.addLayout(selector_row)
+        self.groupMetricCrs.setLayout(layout)
+
+        saved_definition = str(
+            QtCore.QSettings().value(
+                ANALYSIS_CRS_DEFINITION_PREF_KEY,
+                "",
+            )
+            or ""
+        ).strip()
+        saved_crs = QgsCoordinateReferenceSystem()
+        if saved_definition:
+            saved_crs.createFromString(saved_definition)
+        if not saved_crs.isValid():
+            project_crs = QgsProject.instance().crs()
+            saved_crs = (
+                QgsCoordinateReferenceSystem(project_crs)
+                if project_crs.isValid()
+                else QgsCoordinateReferenceSystem("EPSG:5186")
+            )
+        self.projectionAnalysisCrs.setCrs(saved_crs)
+
+        override_enabled = self._saved_bool(
+            ANALYSIS_CRS_OVERRIDE_PREF_KEY,
+            False,
+        )
+        self.chkOverrideAnalysisCrs.setChecked(override_enabled)
+        self.projectionAnalysisCrs.setEnabled(override_enabled)
+        self.lblAnalysisCrs.setEnabled(override_enabled)
+        self.chkOverrideAnalysisCrs.toggled.connect(
+            self._set_analysis_crs_override_enabled
+        )
+        self.projectionAnalysisCrs.crsChanged.connect(
+            self._save_analysis_crs_definition
+        )
+
+        if hasattr(self, "vMain") and hasattr(self, "groupOutputArtifacts"):
+            output_index = self.vMain.indexOf(self.groupOutputArtifacts)
+            self.vMain.insertWidget(
+                max(0, output_index),
+                self.groupMetricCrs,
+            )
+
+    def _set_analysis_crs_override_enabled(self, enabled):
+        """Toggle and persist the optional advanced CRS override."""
+        enabled = bool(enabled)
+        self.projectionAnalysisCrs.setEnabled(enabled)
+        self.lblAnalysisCrs.setEnabled(enabled)
+        QtCore.QSettings().setValue(
+            ANALYSIS_CRS_OVERRIDE_PREF_KEY,
+            enabled,
+        )
+        if enabled:
+            self._save_analysis_crs_definition(
+                self.projectionAnalysisCrs.crs()
+            )
+
+    @staticmethod
+    def _crs_definition(crs):
+        """Return a stable authority id, or WKT for a valid custom CRS."""
+        if crs is None or not crs.isValid():
+            return None
+        return crs.authid() or crs.toWkt()
+
+    def _save_analysis_crs_definition(self, crs):
+        definition = self._crs_definition(crs)
+        if definition:
+            QtCore.QSettings().setValue(
+                ANALYSIS_CRS_DEFINITION_PREF_KEY,
+                definition,
+            )
+
+    def _analysis_crs_override_definition(self):
+        """Return ``None`` for automatic selection, otherwise auth id/WKT."""
+        if not self.chkOverrideAnalysisCrs.isChecked():
+            return None
+        return self._crs_definition(self.projectionAnalysisCrs.crs())
+
+    def _analysis_crs_override_error(self):
+        """Validate that an explicit analysis CRS measures in metres."""
+        if not self.chkOverrideAnalysisCrs.isChecked():
+            return None
+        crs = self.projectionAnalysisCrs.crs()
+        if crs is None or not crs.isValid():
+            return self._t(
+                "고급 분석 좌표계를 선택해 주세요.",
+                "Select an advanced analysis CRS.",
+            )
+        if crs.isGeographic() or crs.mapUnits() != QgsUnitTypes.DistanceMeters:
+            return self._t(
+                "분석 좌표계는 미터 단위의 투영좌표계여야 합니다. "
+                "잘 모르겠으면 고급 설정을 해제해 자동 선택을 사용하세요.",
+                "The analysis CRS must be a projected CRS measured in metres. "
+                "If unsure, disable the override and use automatic selection.",
+            )
+        return None
+
     def _load_preservation_style_preferences(self):
         """Load saved preservation-action colors without changing defaults on errors."""
         raw = QtCore.QSettings().value(PRESERVATION_STYLE_PREF_KEY, "")
@@ -803,6 +938,22 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         preservation_input_layout.addRow(
             self.lblPreservationLayer,
             self.comboPreservationLayer,
+        )
+
+        self.lblPreservationEncoding = QtWidgets.QLabel()
+        self.comboPreservationEncoding = QtWidgets.QComboBox()
+        self.comboPreservationEncoding.addItem(
+            self._t("자동(.cpg/공급자)", "Automatic (.cpg/provider)"),
+            "",
+        )
+        self.comboPreservationEncoding.addItem("UTF-8", "UTF-8")
+        self.comboPreservationEncoding.addItem("CP949 (EUC-KR)", "CP949")
+        self.comboPreservationEncoding.currentIndexChanged.connect(
+            self._save_preservation_encoding_override
+        )
+        preservation_input_layout.addRow(
+            self.lblPreservationEncoding,
+            self.comboPreservationEncoding,
         )
 
         self.comboPreservationActionField = QtWidgets.QComboBox()
@@ -1066,6 +1217,18 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         """Populate the explicit field picker and preselect a verified field."""
         if not hasattr(self, "comboPreservationActionField"):
             return
+        self.comboPreservationEncoding.blockSignals(True)
+        selected_encoding = (
+            str(layer.customProperty(
+                "ArchDistribution/encoding_override", ""
+            ) or "").strip()
+            if layer else ""
+        )
+        self.comboPreservationEncoding.setCurrentIndex(max(
+            0,
+            self.comboPreservationEncoding.findData(selected_encoding),
+        ))
+        self.comboPreservationEncoding.blockSignals(False)
         self.comboPreservationActionField.blockSignals(True)
         self.comboPreservationActionField.clear()
         self.comboPreservationActionField.addItem(
@@ -1117,6 +1280,22 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             self.lblPreservationDetection.setStyleSheet("color:#666;")
         self.comboPreservationActionField.blockSignals(False)
+
+    def _save_preservation_encoding_override(self, _index):
+        layer = self.comboPreservationLayer.currentLayer()
+        if not layer:
+            return
+        selected = str(
+            self.comboPreservationEncoding.currentData() or ""
+        ).strip()
+        if selected:
+            layer.setCustomProperty(
+                "ArchDistribution/encoding_override", selected
+            )
+        else:
+            layer.removeCustomProperty(
+                "ArchDistribution/encoding_override"
+            )
 
     def pick_preservation_color(self, action, key):
         current = self.preservation_action_colors[action][key]
@@ -1191,6 +1370,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         )
         self.lblPreservationLayer.setText(
             self._t("유존지역 폴리곤:", "Preservation polygon:")
+        )
+        self.lblPreservationEncoding.setText(
+            self._t("문자 인코딩:", "Text encoding:")
         )
         self.lblPreservationActionField.setText(
             self._t("보존조치 필드:", "Action field:")
@@ -1339,6 +1521,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         )
         self.vMain.removeWidget(content_tabs)
         container_layout.addWidget(content_tabs)
+
+        if hasattr(self, "groupMetricCrs"):
+            self.vMain.removeWidget(self.groupMetricCrs)
+            container_layout.addWidget(self.groupMetricCrs)
 
         if hasattr(self, "groupOutputArtifacts"):
             self.vMain.removeWidget(self.groupOutputArtifacts)
@@ -1772,6 +1958,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.tableLayerRoles.setHorizontalHeaderLabels([
                 self._t("레이어", "Layer"),
                 self._t("자료 역할", "Source role"),
+                self._t("문자 인코딩", "Text encoding"),
             ])
             preset_value = self.comboMatchPreset.currentData()
             self.comboMatchPreset.blockSignals(True)
@@ -1886,6 +2073,42 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     "Disabled by default. Selected outputs use the current "
                     "extent, paper size, and scale without modifying sources.",
                 )
+            )
+
+        if hasattr(self, "groupMetricCrs"):
+            self.groupMetricCrs.setTitle(
+                self._t(
+                    "고급 측정 좌표계 (두 작업 공통)",
+                    "Advanced Measurement CRS (Both Workflows)",
+                )
+            )
+            self.lblMetricCrsHelp.setText(
+                self._t(
+                    "<b>기본값: 자동 선택.</b> 미터 투영 원본은 그대로 쓰고, "
+                    "경위도·피트 자료는 조사 중심의 지역 UTM으로 측정합니다. "
+                    "도곽·버퍼·거리·면적·미세조각 기준에 공통 적용됩니다.",
+                    "<b>Default: automatic.</b> A projected-metre source is kept; "
+                    "geographic or foot-based data use local UTM at the study "
+                    "centroid. This applies to extent, buffer, distance, area, "
+                    "and micro-fragment measurements.",
+                )
+            )
+            self.chkOverrideAnalysisCrs.setText(
+                self._t(
+                    "전문가용: 분석 좌표계를 직접 지정",
+                    "Expert: choose the analysis CRS manually",
+                )
+            )
+            self.chkOverrideAnalysisCrs.setToolTip(
+                self._t(
+                    "특별한 투영이 필요한 경우에만 사용합니다. 선택 좌표계는 "
+                    "미터 단위 투영좌표계여야 합니다.",
+                    "Use only when a specific projection is required. The "
+                    "selected CRS must be projected and measured in metres.",
+                )
+            )
+            self.lblAnalysisCrs.setText(
+                self._t("분석 좌표계:", "Analysis CRS:")
             )
 
         if hasattr(self, "groupSmartFilter"):
@@ -2021,6 +2244,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
     def emit_run_requested(self):
         """Validates settings and emits the run signal."""
         settings = self.get_settings()
+        analysis_crs_error = self._analysis_crs_override_error()
+        if analysis_crs_error:
+            QtWidgets.QMessageBox.warning(
+                self,
+                self._t("좌표계 오류", "CRS Error"),
+                analysis_crs_error,
+            )
+            return
         if settings["workflow_mode"] == "preservation":
             if not settings["preservation_layer_id"]:
                 QtWidgets.QMessageBox.warning(
@@ -2600,6 +2831,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             return
         self.tableLayerRoles.setRowCount(0)
         self.layerRoleCombos = {}
+        self.layerEncodingCombos = {}
 
         heritage_ids = {
             self.listHeritageLayers.item(index).data(QtCore.Qt.UserRole)
@@ -2641,6 +2873,43 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             self.tableLayerRoles.setCellWidget(row, 1, combo)
             self.layerRoleCombos[layer_id] = combo
+
+            encoding_combo = QtWidgets.QComboBox()
+            encoding_combo.addItem(
+                self._t("자동(.cpg/공급자)", "Automatic (.cpg/provider)"),
+                "",
+            )
+            encoding_combo.addItem("UTF-8", "UTF-8")
+            encoding_combo.addItem("CP949 (EUC-KR)", "CP949")
+            saved_encoding = str(
+                layer.customProperty(
+                    "ArchDistribution/encoding_override", ""
+                ) or ""
+            ).strip()
+            encoding_combo.setCurrentIndex(
+                max(0, encoding_combo.findData(saved_encoding))
+            )
+
+            def save_encoding(_index, target_layer=layer, widget=encoding_combo):
+                selected = str(widget.currentData() or "").strip()
+                if selected:
+                    target_layer.setCustomProperty(
+                        "ArchDistribution/encoding_override", selected
+                    )
+                else:
+                    target_layer.removeCustomProperty(
+                        "ArchDistribution/encoding_override"
+                    )
+
+            encoding_combo.currentIndexChanged.connect(save_encoding)
+            encoding_combo.setToolTip(self._t(
+                "글자가 깨질 때만 이 레이어의 UTF-8 또는 CP949를 "
+                "직접 선택하세요. 자동은 .cpg와 공급자 설정을 따릅니다.",
+                "Choose UTF-8 or CP949 for this layer only when text is "
+                "misread. Automatic follows .cpg and provider settings.",
+            ))
+            self.tableLayerRoles.setCellWidget(row, 2, encoding_combo)
+            self.layerEncodingCombos[layer_id] = encoding_combo
 
     def get_settings(self):
         """Returns the current settings from the dialog."""
@@ -2694,6 +2963,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         return {
             "workflow_mode": workflow_mode,
+            # None means MetricContext chooses a safe projected-metre CRS:
+            # retain a metric source, otherwise derive local UTM at the study
+            # centroid.  This one global setting applies to both workflows.
+            "analysis_crs_authid": self._analysis_crs_override_definition(),
             "topo_layer_ids": topo_layer_ids,
             "heritage_layer_ids": heritage_layer_ids,
             "source_roles": {
@@ -2703,6 +2976,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     else None
                 )
                 for layer_id in heritage_layer_ids
+            },
+            "source_encodings": {
+                layer_id: str(
+                    self.layerEncodingCombos[layer_id].currentData() or ""
+                )
+                for layer_id in heritage_layer_ids
+                if layer_id in self.layerEncodingCombos
             },
             "match_preset": (
                 self.comboMatchPreset.currentData()
@@ -2780,6 +3060,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "label_font_family": self.comboLabelFont.currentFont().family(),
             "preservation_layer_id": (
                 preservation_layer.id() if preservation_layer else None
+            ),
+            "preservation_encoding": str(
+                self.comboPreservationEncoding.currentData() or ""
             ),
             "preservation_study_area_id": (
                 preservation_study_area.id()
@@ -2919,18 +3202,24 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             self.log(self._t(f"레이어 스캔 중: {layer.name()}", f"Scanning layer: {layer.name()}"))
 
-            # [Auto-Fix] Check for Encoding Issues (Mojibake)
+            # Detect damage but never mutate the provider implicitly.  The
+            # per-layer selector above gives the operator an auditable choice.
             fields = [f.name() for f in layer.fields()]
             needs_encoding_fix = any('\ufffd' in f for f in fields)
 
             if needs_encoding_fix:
-                self.log(self._t("  ⚠️ 인코딩 깨짐 감지됨. CP949(EUC-KR)로 자동 변환을 시도합니다.", "  ⚠️ Encoding issue detected. Trying CP949(EUC-KR)."))
-                layer.setProviderEncoding("CP949")
-                layer.dataProvider().reloadData()
-                fields = [f.name() for f in layer.fields()]
-                self.log(self._t(f"  - 변환 후 필드 목록: {', '.join(fields)}", f"  - Fields after conversion: {', '.join(fields)}"))
-            else:
-                self.log(self._t(f"  - 필드 목록: {', '.join(fields)}", f"  - Fields: {', '.join(fields)}"))
+                self.log(self._t(
+                    "  ⚠️ 인코딩 깨짐이 감지되었습니다. 자료 역할 표의 "
+                    "문자 인코딩에서 이 레이어만 UTF-8 또는 CP949로 "
+                    "지정한 뒤 다시 스캔하세요.",
+                    "  ⚠️ Text decoding damage was detected. Choose UTF-8 "
+                    "or CP949 for this layer in the source-role table, then "
+                    "scan again.",
+                ))
+            self.log(self._t(
+                f"  - 필드 목록: {', '.join(fields)}",
+                f"  - Fields: {', '.join(fields)}",
+            ))
 
             name_field = None
             keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
@@ -3332,7 +3621,9 @@ Action boundaries remain separate, while records with the same project name shar
 </ul>
 <br>
 <b>[Suggested Exclusions]</b><br>
-Exclusion suggestions are generated from <code>smart_patterns.json</code> <code>noise</code> keywords.<br>
+When an approved user-supplied <code>smart_patterns.json</code> is installed,
+exclusion suggestions use its <code>noise</code> keywords; otherwise conservative
+built-in examples are shown.<br>
 Example: {noise_examples}<br>
 These are suggestions only. You can uncheck to include features.<br><br>
 <b>[Export tip]</b><br>
@@ -3392,7 +3683,9 @@ If updates are not reflected, disable/enable the plugin or restart QGIS.<br>
 </ul>
 <br>
 <b>[제외 제안 목록 안내]</b><br>
-제외 제안 목록은 <code>smart_patterns.json</code>의 <code>noise</code> 키워드를 기준으로 자동 표시됩니다.<br>
+출처·라이선스가 확인된 사용자 공급 <code>smart_patterns.json</code>이 설치된
+경우에만 그 파일의 <code>noise</code> 키워드로 제외 제안을 만들며, 없으면
+보수적인 내장 예시만 표시합니다.<br>
 예: {noise_examples}<br>
 이 목록은 자동 확정이 아니라 제안이므로, 현장 판단에 따라 체크를 해제해 포함할 수 있습니다.<br>
 최종 결과는 작업 마지막에 [기존 결과 후속 작업 > 번호만 다시 매기기]로 정리하는 것을 권장합니다.

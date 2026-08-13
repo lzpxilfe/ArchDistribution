@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "fixture": "validation/fixtures/policy_cases.json",
+  "expected_case_count": 13,
+  "false_merge_tolerance": 0,
+  "source_deletion_tolerance": 0
+}

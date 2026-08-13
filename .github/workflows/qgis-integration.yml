@@ -1,0 +1,123 @@
+name: QGIS 3.44 integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "**.json"
+      - "**.ui"
+      - "metadata.txt"
+      - ".github/workflows/qgis-integration.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "**.json"
+      - "**.ui"
+      - "metadata.txt"
+      - ".github/workflows/qgis-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qgis-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qgis:
+    name: QGIS 3.44 LTR headless tests
+    runs-on: ubuntu-latest
+    container:
+      image: qgis/qgis:3.44.13-noble
+      options: --user root
+    env:
+      QT_QPA_PLATFORM: offscreen
+      XDG_RUNTIME_DIR: /tmp/qgis-runtime
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare headless environment
+        shell: bash
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR" "$HOME/Desktop"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          command -v python3
+          python3 -c "from qgis.core import Qgis; print(Qgis.QGIS_VERSION)"
+
+      - name: Run QGIS integration suite
+        shell: bash
+        run: |
+          python3 -m unittest -v test_metric_context.py
+          python3 -m unittest discover -v -s . -p "test_qgis_*.py"
+
+      - name: Benchmark 100,000 indexed synthetic features
+        shell: bash
+        run: |
+          python3 validation/benchmark_spatial_index.py --features 100000 \
+            > /tmp/archdistribution-qgis-3.44-benchmark.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("/tmp/archdistribution-qgis-3.44-benchmark.json")
+          result = json.loads(path.read_text(encoding="utf-8"))
+          assert result["completed"] is True
+          assert result["feature_count"] == 100000
+          assert result["unique_candidate_pairs"] < result["theoretical_all_pairs"]
+          assert result["maximum_hits_per_query"] <= 25
+          print(json.dumps(result, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Build and headless-import installed ZIP
+        shell: bash
+        run: |
+          python3 create_zip.py
+          rm -rf /tmp/archdistribution-profile
+          mkdir -p /tmp/archdistribution-profile/python/plugins
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archive = Path.home() / "Desktop" / "ArchDistribution-1.0.5.zip"
+          if not archive.exists():
+              raise SystemExit(f"Missing plugin archive: {archive}")
+          with ZipFile(archive) as package:
+              if package.testzip():
+                  raise SystemExit("Plugin archive failed CRC verification")
+              package.extractall("/tmp/archdistribution-profile/python/plugins")
+          PY
+          PYTHONPATH="/tmp/archdistribution-profile/python/plugins:${PYTHONPATH:-}" python3 - <<'PY'
+          import ArchDistribution
+          from qgis.core import QgsApplication
+
+          if not callable(ArchDistribution.classFactory):
+              raise SystemExit("Installed plugin does not expose classFactory")
+          app = QgsApplication([], False)
+          app.initQgis()
+          plugin = ArchDistribution.classFactory(None)
+          if plugin.__class__.__name__ != "ArchDistribution":
+              raise SystemExit("Installed plugin factory returned wrong class")
+          print("Headless plugin factory succeeded")
+          app.exitQgis()
+          PY
+
+      - name: Upload QGIS-tested plugin ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchDistribution-1.0.5-qgis-3.44
+          path: ~/Desktop/ArchDistribution-1.0.5.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload QGIS 3.44 benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchDistribution-qgis-3.44-benchmark
+          path: /tmp/archdistribution-qgis-3.44-benchmark.json
+          if-no-files-found: error
+          retention-days: 30

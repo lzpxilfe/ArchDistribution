@@ -1,0 +1,158 @@
+name: Research software CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-and-package:
+    name: Python ${{ matrix.python-version }} policy tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install validation tools
+        run: python -m pip install --upgrade pip "ruff==0.16.2"
+
+      - name: Install Citation File Format validator
+        if: matrix.python-version == '3.9'
+        run: python -m pip install "cffconvert==2.0.0"
+
+      - name: Compile Python sources
+        run: >-
+          python -m compileall -q
+          -x '(^|/)(1\.0\.1|1\.0\.2|demo_assets|\.git)/' .
+
+      - name: Check fatal Python errors
+        run: ruff check --select E9,F63,F7,F82 --exclude "1.0.1,1.0.2,demo_assets" .
+
+      - name: Run QGIS-independent test modules
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          import unittest
+
+          modules = sorted(
+              path.stem
+              for path in Path(".").glob("test_*.py")
+              if not path.stem.startswith("test_qgis_")
+          )
+          if not modules:
+              raise SystemExit("No QGIS-independent test modules were found")
+          print("QGIS-independent modules:", ", ".join(modules))
+          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() else 1)
+          PY
+
+      - name: Verify repository guardrails
+        run: python verify_guardrails.py
+
+      - name: Verify registered reference-data hashes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          register_path = Path("docs/research/reference-data-register.json")
+          register = json.loads(register_path.read_text(encoding="utf-8"))
+          verified = 0
+          withheld = 0
+          for asset in register["assets"]:
+              path = Path(asset["path"])
+              if not path.exists():
+                  if asset.get("joss_release_approved") is True:
+                      raise SystemExit(f"Approved release asset is missing: {path}")
+                  withheld += 1
+                  continue
+              actual = sha256(path.read_bytes()).hexdigest()
+              if actual != asset["sha256"]:
+                  raise SystemExit(
+                      f"Reference register is stale for {path}: {actual}"
+                  )
+              if asset.get("joss_release_approved") is not True:
+                  raise SystemExit(
+                      f"Unapproved reference asset must not be tracked: {path}"
+                  )
+              verified += 1
+          print(
+              f"Verified {verified} approved reference assets; "
+              f"confirmed {withheld} unapproved assets are withheld"
+          )
+          PY
+
+      - name: Validate citation metadata
+        if: matrix.python-version == '3.9'
+        run: cffconvert --validate
+
+      - name: Build and inspect QGIS ZIP
+        if: matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          mkdir -p "$HOME/Desktop"
+          python create_zip.py
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          archives = sorted((Path.home() / "Desktop").glob("ArchDistribution-*.zip"))
+          if len(archives) != 1:
+              raise SystemExit(f"Expected one plugin ZIP, found {archives}")
+          with ZipFile(archives[0]) as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit(f"Corrupt member: {bad}")
+              files = [PurePosixPath(name) for name in archive.namelist() if not name.endswith("/")]
+              roots = {name.parts[0] for name in files}
+              required = {
+                  PurePosixPath("ArchDistribution/metadata.txt"),
+                  PurePosixPath("ArchDistribution/__init__.py"),
+                  PurePosixPath("ArchDistribution/arch_distribution.py"),
+                  PurePosixPath("ArchDistribution/LICENSES.md"),
+              }
+              forbidden = {
+                  PurePosixPath("ArchDistribution/reference_data.json"),
+                  PurePosixPath("ArchDistribution/smart_patterns.json"),
+              }
+              if (
+                  roots != {"ArchDistribution"}
+                  or not required.issubset(set(files))
+                  or forbidden.intersection(files)
+              ):
+                  raise SystemExit(f"Invalid ZIP layout: roots={roots}, missing={required - set(files)}")
+          print(archives[0])
+          PY
+
+      - name: Upload tested plugin ZIP
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchDistribution-1.0.5-python-${{ matrix.python-version }}
+          path: ~/Desktop/ArchDistribution-1.0.5.zip
+          if-no-files-found: error
+          retention-days: 14

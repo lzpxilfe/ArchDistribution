@@ -1,18 +1,25 @@
 cff-version: 1.2.0
 message: "If you use this repository in research, teaching, or applied work, please cite it using the metadata below."
 type: software
-title: "ArchDistribution: 문화유적분포지도 만들기"
+title: "ArchDistribution: Archaeological distribution mapping and record reconciliation for QGIS"
 authors:
   - family-names: Hwang
     given-names: Jinseo
+    affiliation: "Nuri Institute for Archaeology"
 repository-code: "https://github.com/lzpxilfe/ArchDistribution"
 url: "https://github.com/lzpxilfe/ArchDistribution"
-date-released: 2026-07-10
+version: 1.0.5
+license: GPL-2.0-or-later
 abstract: >
-  문화유적분포지도 만들기
+  A QGIS plugin for reproducible, human-in-the-loop production of
+  archaeological distribution maps. It separates archaeological site
+  identity, investigation events, geometry grouping, and displayed numbering
+  while preserving source records and review evidence.
 keywords:
   - archaeology
   - digital archaeology
+  - cultural heritage
   - research software
   - gis
   - spatial analysis
+  - record linkage

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="QGIS 3.28-3.99" src="https://img.shields.io/badge/QGIS-3.28--3.99-589632?logo=qgis&logoColor=white">
+  <img alt="QGIS 3.40-3.99" src="https://img.shields.io/badge/QGIS-3.40--3.99-589632?logo=qgis&logoColor=white">
   <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-0ea5e9">
   <img alt="License GPL v2" src="https://img.shields.io/badge/license-GPL%20v2-f59e0b">
 </p>
@@ -20,7 +20,7 @@
 | 항목 | 내용 |
 |---|---|
 | 현재 버전 | `1.0.5` |
-| 지원 QGIS | `3.28` - `3.99` |
+| 지원 QGIS | `3.40` - `3.99` |
 | 지원 언어 | `자동(QGIS)` / `한국어` / `English` |
 | 주요 입력 | 조사구역, 수치지형도, 주변유적, 선택적 Zone 레이어 |
 | 주요 출력 | `ArchDistribution_결과물` 그룹, 선택적 GPKG·실행정보·JPG/PDF, `latest_log.txt` |
@@ -44,6 +44,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 버퍼 결과는 `DIST_M`만 남기고 거리 라벨을 자동 표시
 - 주변유적 병합 후 자동 번호 부여
 - 레이어별 `국가·시도 지정 / 국가·시도 등록 / 보호구역 / 분포지도 / 지표 / 발굴` 역할 자동 판정 및 수동 변경
+- 레이어별 UTF-8/CP949 인코딩 명시 선택 및 `.cpg`·공급자 자동 판독
+- 원본·분석·출력 CRS를 분리하고 도·피트 자료는 지역 UTM에서 거리·면적·도곽 계산
 - 공간 인덱스와 명칭·주소·중첩률을 함께 사용하는 자료 종류별 중복 판정
 - `균형형 / 보수형 / 자동화 우선형` 중복처리 프리셋
 - 실행 전 검토창에서 `별도 유지 / 연결만 / 대표 번호로 묶기` 선택
@@ -55,6 +57,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 지정유산 보호구역은 본체와 연결된 무번호 경계로 분리
 - 대표에서 제외된 형상과 판정 근거를 `중복_보존` 및 `중복_판정_검수표`에 보존
 - `사업명`이 같은 발굴유적의 분할 구역을 하나로 병합하여 한 번호 부여
+- 조사사건(`INVESTIGATION_KEY`)·유적 실체(`SITE_ENTITY_KEY`)·지도 번호(`NUMBER_KEY`)·형상 그룹(`GEOMETRY_GROUP_KEY`)을 별도 기록
+- 점·선·면 입력을 형상 계열별 결과 레이어로 유지하면서 전체 번호 순서는 연속 부여
 - `문화유적분포지도 / 매장유산 유존지역` 전용 작업 탭 분리
 - 매장유산 탭에서 폴리곤과 보존조치 필드를 명시적으로 선택
 - `보존조치` 4종의 채움색·외곽선색·두께·불투명도 사용자 설정 및 저장
@@ -66,12 +70,14 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - `기존 결과 후속 작업 — 번호만 다시 매기기`로 판정을 유지한 채 수정 후 재번호
 - Zone 레이어 자동 분할 및 코드별 스타일 적용
 - `버퍼 범위 내 자르기` 옵션으로 Zone 결과를 최대 버퍼 내부로 제한
-- `reference_data.json` + `smart_patterns.json` 기반 속성 분류 및 제외 제안
+- 출처·라이선스가 확인된 사용자 공급 `reference_data.json` 및
+  `smart_patterns.json`을 설치한 경우에만 속성 분류·제외 제안 사용
 - `자동(QGIS) / 한국어 / 영어` UI 전환 즉시 반영
 - 실행 로그를 QGIS 화면과 `latest_log.txt`에 함께 저장
 - 도곽 선필터와 공간 인덱스로 전국 단위 자료의 불필요한 전수 비교 방지
 - 취소·오류 시 작업중 결과를 제거하고 직전 정상 결과와 입력 레이어 위치 복원
 - 선택적으로 전체 결과·검수표를 한 GeoPackage와 실행정보 JSON에 저장
+- 실행정보 schema v2에 CRS 변환, 규칙셋·입력·결정 캐시·결과 내용 해시, 인코딩, 복구·제외와 성공/부분성공/실패/취소 상태 기록
 - 현재 판형·축척으로 편집 가능한 인쇄조판과 300dpi JPG/PDF 자동 출력
 - 작업 완료 후 결과 범위로 자동 확대
 
@@ -81,6 +87,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Keep only `DIST_M` on buffer outputs and label distances automatically
 - Merge heritage layers and assign numbers automatically
 - Detect and override source roles for designated, registered, protection-zone, distribution, surface-survey, and excavation layers
+- Select UTF-8/CP949 per layer or follow its `.cpg` and provider declaration
+- Separate source, metric-analysis, and output CRSs; measure geographic/foot inputs in local UTM
 - Match duplicates with source-aware name, address, overlap, and spatial-index rules
 - Choose Balanced, Conservative, or Automation-first matching presets
 - Review every candidate before output and choose Keep separate, Link only, or Merge numbering identity
@@ -92,6 +100,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Keep protection zones as linked, unnumbered boundaries
 - Preserve suppressed geometries and all review evidence in dedicated audit layers
 - Dissolve excavation areas with the same project name and assign one number
+- Record investigation, site-entity, map-number, and geometry-group identities separately
+- Preserve point, line, and polygon outputs by geometry family with one continuous numbering sequence
 - Separate dedicated workflows for distribution maps and preservation areas
 - Explicitly select a preservation polygon and its action field
 - Customize and persist fill, outline, width, and opacity for all four actions
@@ -103,12 +113,14 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Dedicated renumber-only follow-up that preserves match decisions
 - Split and style zone layers automatically by zone code
 - Optionally clip zone output to the largest survey buffer
-- Use `reference_data.json` and `smart_patterns.json` for smart classification and exclusion hints
+- Use optional, user-supplied `reference_data.json` and `smart_patterns.json`
+  for classification hints only after their provenance and licence are confirmed
 - Switch UI instantly between `Auto (QGIS)`, `Korean`, and `English`
 - Save progress logs in both QGIS and `latest_log.txt`
 - Use provider-side extent filters and spatial indexes to avoid nationwide all-pairs scans
 - Roll back staged output and restore the last good result/input-layer placement on cancel or error
 - Optionally archive every output and audit table in one GeoPackage plus a run manifest
+- Record schema-v2 CRS, ruleset, input/cache/output hashes, encoding, repair/exclusion, and terminal status provenance
 - Create an editable print layout and export a 300-dpi JPG/PDF at the selected paper size and scale
 - Auto-zoom to the output extent after processing
 
@@ -153,12 +165,18 @@ and text-length limits.
 `지정·등록유산 ↔ 분포지도`, `발굴조사 ↔ 분포지도`만 대표화를 추천합니다.
 명칭 포함관계나 유사 명칭은 공간이 크게 겹치더라도 자동 병합하지 않고 실행
 전 검토창에 올립니다. 공간 중첩만으로는 어떤 자료도 합치지 않습니다.
+같은 사업명은 기존 요구대로 `NUMBER_KEY`를 공유하지만, 각 원본의 초기
+`SITE_ENTITY_KEY`와 `GEOMETRY_GROUP_KEY`는 분리됩니다. I·II 지역 같은 명칭은
+공간적으로 가까울 때만 사람이 확인할 동일 실체 후보가 되며 자동 병합되지
+않습니다. 점·선·면도 각각의 결과 레이어를 유지한 채 교차 형상 후보만 검토합니다.
 
 검토 결과의 대표 자료만 본 레이어에서 번호를 받습니다. 제외된 하위 형상은
 삭제되지 않으며 숨김 상태의 `06_중복_검수/중복_보존` 레이어와
-`중복_판정_검수표`에서 확인할 수 있습니다. `SOURCE_ROLE`, `ENTITY_KEY`,
-`RELATION_KEY`, `MATCH_STATUS`, `MATCH_SCORE`, `MATCH_RULE`, `REP_SOURCE`,
-`LINKED_IDS`, `SRC_UID`, `SRC_FP`, `SRC_JSON` 필드에도 판정 근거와 원본
+`중복_판정_검수표`에서 확인할 수 있습니다. `SOURCE_ROLE`,
+`INVESTIGATION_KEY`, `SITE_ENTITY_KEY`, `ENTITY_KEY`, `GEOMETRY_GROUP_KEY`,
+`NUMBER_KEY`, `RELATION_KEY`, `RELATION_TYPE`, `MATCH_STATUS`, `MATCH_SCORE`,
+`MATCH_RULE`, `REP_SOURCE`, `LINKED_IDS`, `SRC_UID`, `SRC_FP`, `SRC_JSON`
+필드에도 판정 근거와 원본
 정보가 남습니다. `이전 검토 결정을 저장·재사용`은 기본으로 켜져 있지만,
 두 원본의 내용 지문 또는 판정 프리셋이 달라지면 저장 결정을 쓰지 않고 다시
 검토창에 표시합니다.
@@ -320,7 +338,8 @@ python create_zip.py
 **KR**
 - 업데이트가 반영되지 않으면 플러그인을 비활성화했다가 다시 활성화하거나 QGIS를 재시작해 주세요.
 - ZIP 설치 오류가 나면 ZIP 루트 구조에 `ArchDistribution/metadata.txt`가 있는지 확인해 주세요.
-- 실행 중 문제가 생기면 플러그인 폴더의 `latest_log.txt`를 먼저 확인해 주세요.
+- 실행 중 문제가 생기면 QGIS 사용자 프로필의
+  `ArchDistribution/latest_log.txt`를 먼저 확인해 주세요.
 - 번호만 다시 매기기는 현재 설정된 도곽·축척·버퍼·정렬 기준으로 동작하므로,
   실행 전 설정을 확인해 주세요. `NUMBER_KEY`와 중복·대표 판정은 유지됩니다.
 - 중복·대표 결정을 바꾸려면 대표 결과가 아니라 각 출처의 원본 레이어를 다시
@@ -329,7 +348,8 @@ python create_zip.py
 **EN**
 - If updates are not reflected, disable and re-enable the plugin or restart QGIS.
 - If ZIP installation fails, verify that the archive contains `ArchDistribution/metadata.txt`.
-- Check `latest_log.txt` in the plugin folder when runtime issues occur.
+- Check `ArchDistribution/latest_log.txt` under the writable QGIS user profile
+  when runtime issues occur.
 - Renumber-only uses the current extent, scale, buffers, and sort order while
   preserving `NUMBER_KEY` and match decisions.
 - Re-run the original source layers—not only the representative result—to
@@ -351,11 +371,23 @@ Always review final geometry, attributes, numbering, and cartographic output bef
 
 인용 메타데이터는 [CITATION.cff](CITATION.cff)에 보관합니다.
 
+JOSS 영문 초안은 [paper/paper.md](paper/paper.md), 고고학적 존재론·판정
+규칙·검증 프로토콜·자료 계보·윤리 및 재현성 명세는
+[docs/research](docs/research), 공개 합성 검증과 현재 release gate는
+[validation](validation)에 있습니다. 전국 원자료와 실제 유적 좌표는 이
+저장소에 포함하지 않습니다.
+
+The English JOSS draft is in [paper/paper.md](paper/paper.md). Detailed
+ontology, decision rules, validation, provenance, ethics, and reproducibility
+specifications live in [docs/research](docs/research), while public synthetic
+checks and release-gate status live in [validation](validation). National
+source datasets and real site coordinates are not distributed here.
+
 
 ```bibtex
 @software{ArchDistribution2026,
-  author = {lzpxilfe},
-  title = {ArchDistribution: Automated QGIS plugin for archaeological distribution maps},
+  author = {Hwang, Jinseo},
+  title = {ArchDistribution: Archaeological distribution mapping and record reconciliation for QGIS},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
   version = {1.0.5}
@@ -368,4 +400,4 @@ Always review final geometry, attributes, numbering, and cartographic output bef
 - Author: `lzpxilfe (balguljang2)`
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)
-- License: `GPL v2`
+- License: `GPL-2.0-or-later` (paper and research documents: `CC-BY-4.0`)

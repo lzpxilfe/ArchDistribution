@@ -11,6 +11,7 @@ from run_artifacts import (
     MANIFEST_SCHEMA_VERSION,
     REDACTED_VALUE,
     build_run_manifest,
+    deterministic_content_hash,
     normalize_filename,
     normalize_layer_summary,
     prepare_artifact_paths,
@@ -18,6 +19,8 @@ from run_artifacts import (
     redact_connection_secrets,
     safe_json_value,
     save_manifest_atomic,
+    sanitize_source_reference,
+    sha256_file_bundle,
 )
 
 
@@ -110,6 +113,7 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema_version"], MANIFEST_SCHEMA_VERSION)
         self.assertEqual(manifest["plugin"]["version"], "1.0.5")
+        self.assertEqual(manifest["plugin"]["git_commit"], "unknown")
         self.assertEqual(manifest["workflow"], "distribution_map")
         self.assertEqual(manifest["status"], "success")
         self.assertFalse(manifest["cancelled"])
@@ -131,6 +135,9 @@ class ManifestTests(unittest.TestCase):
             manifest["processing"]["decision_reuse_count"],
             2,
         )
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertIn("runtime", manifest["provenance"])
+        self.assertRegex(manifest["semantic_sha256"], r"^[0-9a-f]{64}$")
         json.dumps(manifest, ensure_ascii=False, allow_nan=False)
 
     def test_cancelled_and_error_states_are_explicit_and_safe(self):
@@ -151,6 +158,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(cancelled["error"]["type"], None)
         self.assertNotIn("do-not-save", cancelled["error"]["message"])
         self.assertFalse(failed["cancelled"])
+        self.assertEqual(failed["status"], "failed")
         self.assertEqual(failed["error"]["type"], "RuntimeError")
         self.assertNotIn("hidden", failed["error"]["message"])
 
@@ -201,6 +209,255 @@ class ManifestTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["feature_count"], "unknown")
+
+    def test_public_source_summary_removes_absolute_path(self):
+        summary = normalize_layer_summary({
+            "name": "sites",
+            "source": r"C:\\private\\project\\sites.shp|encoding=CP949",
+        })
+
+        self.assertEqual(
+            summary["source"],
+            "file:///sites.shp|encoding=CP949",
+        )
+        self.assertNotIn("private", summary["source"])
+
+    def test_public_manifest_removes_output_directory_and_hash_is_semantic(self):
+        common = {
+            "plugin_version": "1.0.5",
+            "workflow": "distribution_map",
+            "input_checksums": [{"bundle_sha256": "input-hash"}],
+            "ruleset": {"ruleset_version": "1", "sha256": "rules"},
+            "output_hashes": [
+                {"layer": "result", "content_sha256": "content"},
+            ],
+        }
+        first = build_run_manifest(
+            **common,
+            settings={
+                "output_directory": r"C:\private\first",
+                "study_area_id": "transient-a",
+                "scale": 25000,
+            },
+            processing_stats={
+                "source_scans": [{"elapsed_seconds": 1.2}],
+                "artifacts": [{"filename": "first.jpg"}],
+            },
+        )
+        second = build_run_manifest(
+            **common,
+            settings={
+                "output_directory": "/private/second",
+                "study_area_id": "transient-b",
+                "scale": 25000,
+            },
+            processing_stats={
+                "source_scans": [{"elapsed_seconds": 9.8}],
+                "artifacts": [{"filename": "second.jpg"}],
+            },
+        )
+
+        self.assertEqual(
+            first["settings"]["output_directory"],
+            "[LOCAL_PATH_REMOVED]",
+        )
+        self.assertNotIn("private", json.dumps(first))
+        self.assertEqual(
+            first["semantic_sha256"], second["semantic_sha256"]
+        )
+
+    def test_semantic_hash_uses_stable_inputs_not_qgis_mapping_ids(self):
+        base = {
+            "plugin_version": "1.0.5",
+            "workflow": "distribution_map",
+            "ruleset": {"ruleset_version": "1", "sha256": "rules"},
+            "input_checksums": [
+                {"bundle_sha256": "b"},
+                {"bundle_sha256": "a"},
+            ],
+            "output_hashes": [
+                {"layer": "b", "content_sha256": "2"},
+                {"layer": "a", "content_sha256": "1"},
+            ],
+        }
+        inputs = [
+            {
+                "name": "designated",
+                "role": "local_designated",
+                "layer_id": "left-a",
+                "source": r"C:\private\designated.shp",
+                "encoding": "CP949",
+            },
+            {
+                "name": "distribution",
+                "role": "distribution",
+                "layer_id": "left-b",
+                "source": r"C:\private\distribution.shp",
+                "encoding": "UTF-8",
+            },
+        ]
+        first = build_run_manifest(
+            **base,
+            settings={
+                "source_roles": {
+                    "left-a": "local_designated",
+                    "left-b": "distribution",
+                },
+                "source_encodings": {
+                    "left-a": "CP949",
+                    "left-b": "UTF-8",
+                },
+            },
+            input_layers=inputs,
+        )
+        remapped_inputs = [dict(inputs[1]), dict(inputs[0])]
+        remapped_inputs[0]["layer_id"] = "right-b"
+        remapped_inputs[1]["layer_id"] = "right-a"
+        second = build_run_manifest(
+            **{
+                **base,
+                "input_checksums": list(reversed(base["input_checksums"])),
+                "output_hashes": list(reversed(base["output_hashes"])),
+            },
+            settings={
+                "source_roles": {
+                    "right-b": "distribution",
+                    "right-a": "local_designated",
+                },
+                "source_encodings": {
+                    "right-b": "UTF-8",
+                    "right-a": "CP949",
+                },
+            },
+            input_layers=remapped_inputs,
+        )
+
+        self.assertEqual(
+            first["semantic_sha256"], second["semantic_sha256"]
+        )
+
+        changed_inputs = [dict(item) for item in remapped_inputs]
+        changed_inputs[0]["role"] = "surface_survey"
+        changed = build_run_manifest(
+            **base,
+            settings=second["settings"],
+            input_layers=changed_inputs,
+        )
+        self.assertNotEqual(
+            first["semantic_sha256"], changed["semantic_sha256"]
+        )
+
+    def test_partial_success_and_v2_provenance_are_explicit(self):
+        manifest = build_run_manifest(
+            plugin_version="1.0.5",
+            workflow="distribution_map",
+            status="partial_success",
+            git_commit="abc123",
+            ruleset={"version": "matching-v1", "sha256": "deadbeef"},
+            crs_context={
+                "source": "EPSG:4326",
+                "analysis": "EPSG:32652",
+                "output": "EPSG:4326",
+            },
+            excluded_layers=[{"name": "broken", "reason": "invalid CRS"}],
+        )
+
+        self.assertEqual(manifest["status"], "partial_success")
+        self.assertEqual(manifest["plugin"]["git_commit"], "abc123")
+        self.assertEqual(
+            manifest["provenance"]["crs_context"]["analysis"],
+            "EPSG:32652",
+        )
+        self.assertEqual(
+            manifest["processing"]["excluded_layers"][0]["name"],
+            "broken",
+        )
+
+    def test_public_manifest_redacts_paths_in_errors_and_statistics(self):
+        manifest = build_run_manifest(
+            plugin_version="1.0.5",
+            workflow="distribution_map",
+            status="failed",
+            error=RuntimeError(
+                r"failed C:\Users\example\private\source.gpkg"
+            ),
+            processing_stats={
+                "artifact_errors": [
+                    "failed /home/reviewer/private/result.gpkg"
+                ],
+                "nested": {
+                    "message": "cannot open file:///secret/input.shp"
+                },
+            },
+            excluded_layers=[{
+                "name": "broken",
+                "reason": r"read error C:\private\broken.shp",
+            }],
+        )
+
+        serialized = json.dumps(manifest, ensure_ascii=False)
+        self.assertNotIn("Users", serialized)
+        self.assertNotIn("/home/reviewer", serialized)
+        self.assertNotIn("file:///secret", serialized)
+        self.assertNotIn(r"C:\private", serialized)
+        self.assertGreaterEqual(serialized.count("[LOCAL_PATH_REMOVED]"), 4)
+
+
+class ReproducibilityTests(unittest.TestCase):
+    def test_semantic_hash_ignores_time_paths_and_layer_ids(self):
+        left = {
+            "timestamps": {"started_utc": "first"},
+            "path": r"C:\\one\\result.gpkg",
+            "layer_id": "volatile-a",
+            "features": [{"id": 1, "name": "유적 A"}],
+        }
+        right = {
+            "timestamps": {"started_utc": "second"},
+            "path": "/different/result.gpkg",
+            "layer_id": "volatile-b",
+            "features": [{"id": 1, "name": "유적 A"}],
+        }
+
+        self.assertEqual(
+            deterministic_content_hash(left),
+            deterministic_content_hash(right),
+        )
+        right["features"][0]["name"] = "유적 B"
+        self.assertNotEqual(
+            deterministic_content_hash(left),
+            deterministic_content_hash(right),
+        )
+
+    def test_bundle_hash_is_order_independent_and_content_sensitive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shp = root / "sample.shp"
+            dbf = root / "sample.dbf"
+            shp.write_bytes(b"geometry")
+            dbf.write_bytes(b"attributes")
+
+            forward = sha256_file_bundle([shp, dbf])
+            reverse = sha256_file_bundle([dbf, shp])
+            self.assertEqual(
+                forward["bundle_sha256"],
+                reverse["bundle_sha256"],
+            )
+
+            dbf.write_bytes(b"changed")
+            changed = sha256_file_bundle([shp, dbf])
+            self.assertNotEqual(
+                forward["bundle_sha256"],
+                changed["bundle_sha256"],
+            )
+
+    def test_source_sanitizer_preserves_provider_options(self):
+        sanitized = sanitize_source_reference(
+            "file:///secret/sites.gpkg|layername=sites"
+        )
+        self.assertEqual(
+            sanitized,
+            "file:///sites.gpkg|layername=sites",
+        )
 
 
 class OutputPathTests(unittest.TestCase):

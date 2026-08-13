@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "audit_status": "pending_author_and_licence_review",
+  "last_content_check": "2026-08-13",
+  "assets": [
+    {
+      "path": "reference_data.json",
+      "sha256": "1b1079af54661bc695ebc1884e855618f46a5345af2ab4f09e28737959695b6f",
+      "source": "pending_author_confirmation",
+      "source_version": "unknown",
+      "licence": "unknown-needs-review",
+      "joss_release_approved": false
+    },
+    {
+      "path": "smart_patterns.json",
+      "sha256": "504e3118aecaffc30c09eb39bce2545f8af25d0794722e1401a1c7c5f2f6a947",
+      "source": "pending_author_confirmation",
+      "source_version": "unknown",
+      "licence": "unknown-needs-review",
+      "joss_release_approved": false
+    }
+  ],
+  "policy": "An asset with joss_release_approved=false must be excluded from the archived JOSS research snapshot unless its origin and redistribution licence are confirmed."
+}

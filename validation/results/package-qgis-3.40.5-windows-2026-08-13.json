@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "evidence_type": "local_plugin_zip_install",
+  "date": "2026-08-13",
+  "status": "passed",
+  "archive": {
+    "filename": "ArchDistribution-1.0.5.zip",
+    "size_bytes": 984095,
+    "sha256": "d50f759b0b2b7e16a8452b20becb554620e70e558388f59e95e49f236bb99446",
+    "file_count": 19,
+    "crc_error": null,
+    "top_level_directory": "ArchDistribution",
+    "licence_matrix_included": true,
+    "unapproved_reference_assets_withheld": [
+      "reference_data.json",
+      "smart_patterns.json"
+    ]
+  },
+  "runtime": {
+    "qgis": "3.40.5-Bratislava",
+    "operating_system": "Windows 10.0.19045",
+    "qt_platform": "offscreen"
+  },
+  "checks": {
+    "clean_temporary_profile_extract": true,
+    "package_import": true,
+    "class_factory_call": true,
+    "plugin_class": "ArchDistribution.arch_distribution.ArchDistribution"
+  },
+  "source": {
+    "base_git_commit": "c2b669692017cc14b9bcf14a6928cabf2b4c9040",
+    "working_tree_dirty": true
+  },
+  "release_gate_effect": "diagnostic_only_until_committed_qgis_3_44_ci_evidence_exists"
+}

@@ -1,0 +1,1 @@
+case_id,anonymization_reviewed,input_feature_count,candidate_count,automatic_representatives,human_changes,error_count,cancelled_or_rerun,elapsed_seconds,manual_baseline_seconds,baseline_recorded_contemporaneously,qgis_version,os,git_commit,ruleset_sha256,notes

@@ -14,17 +14,47 @@ import hashlib
 import json
 import math
 import os
+import platform
 from pathlib import Path
 import re
+import sys
 import tempfile
 import unicodedata
-from typing import Any, Dict, Iterable, Mapping, Optional, Union
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Union
 
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 DEFAULT_PLUGIN_NAME = "ArchDistribution"
-VALID_RUN_STATUSES = frozenset({"running", "success", "cancelled", "error"})
+VALID_RUN_STATUSES = frozenset({
+    "running",
+    "success",
+    "partial_success",
+    "failed",
+    "cancelled",
+    # Accepted as a schema-v1 compatibility alias and serialized as ``failed``.
+    "error",
+})
 REDACTED_VALUE = "[REDACTED]"
+LOCAL_PATH_REMOVED = "[LOCAL_PATH_REMOVED]"
+UNKNOWN_VALUE = "unknown"
+
+DEFAULT_VOLATILE_HASH_KEYS = frozenset({
+    "created_at",
+    "duration_seconds",
+    "finished_at",
+    "finished_local",
+    "finished_utc",
+    "generated_at",
+    "layer_id",
+    "path",
+    "paths",
+    "source",
+    "started_at",
+    "started_local",
+    "started_utc",
+    "timestamp",
+    "timestamps",
+})
 
 _SENSITIVE_KEY_PARTS = (
     "password",
@@ -64,6 +94,14 @@ _CONNECTION_SECRET_RE = re.compile(
 _URL_PASSWORD_RE = re.compile(
     r"(?i)([a-z][a-z0-9+.-]*://[^/@:\s]+:)([^/@\s]+)(@)"
 )
+_FILE_URI_PATH_RE = re.compile(r"(?i)file://[^\r\n]*")
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])[A-Z]:[\\/][^\r\n]*"
+)
+_UNC_ABSOLUTE_PATH_RE = re.compile(r"(?<![\\])\\\\[^\r\n]*")
+_POSIX_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9:/])/(?!/)[^\r\n]*"
+)
 
 
 def _is_sensitive_key(key: Any) -> bool:
@@ -99,6 +137,289 @@ def redact_connection_secrets(value: Any) -> str:
         ),
         text,
     )
+
+
+def sanitize_source_reference(value: Any) -> str:
+    """Return a public-safe provider reference without local absolute paths.
+
+    QGIS source strings often append provider options after ``|``.  Those
+    options are retained after credential redaction, while a local path is
+    reduced to its filename.  Database/HTTP connection strings are never
+    parsed for semantics; only known credentials are redacted.
+    """
+    text = redact_connection_secrets(value)
+    base, separator, options = text.partition("|")
+    normalized = base.replace("\\", "/")
+    is_file_uri = normalized.casefold().startswith("file://")
+    local_candidate = normalized[7:] if is_file_uri else normalized
+    is_windows_absolute = bool(re.match(r"^[A-Za-z]:/", local_candidate))
+    is_posix_absolute = local_candidate.startswith("/")
+    if is_file_uri or is_windows_absolute or is_posix_absolute:
+        basename = Path(local_candidate).name or "<local-source>"
+        base = "file:///{}".format(basename)
+    else:
+        base = redact_local_paths(base)
+    safe_options = redact_local_paths(options) if separator else ""
+    return base + (separator + safe_options if separator else "")
+
+
+def redact_local_paths(value: Any) -> str:
+    """Remove absolute filesystem paths embedded in diagnostic text.
+
+    Diagnostic messages are not a stable transport format, so when an
+    absolute path is found the remainder of that line is conservatively
+    removed.  This favours privacy over retaining incidental error wording in
+    manifests intended for publication.
+    """
+    text = redact_connection_secrets(value)
+    for pattern in (
+        _FILE_URI_PATH_RE,
+        _WINDOWS_ABSOLUTE_PATH_RE,
+        _UNC_ABSOLUTE_PATH_RE,
+        _POSIX_ABSOLUTE_PATH_RE,
+    ):
+        text = pattern.sub(LOCAL_PATH_REMOVED, text)
+    return text
+
+
+def sanitize_public_value(value: Any) -> Any:
+    """Recursively redact credentials and embedded local paths."""
+    safe_value = safe_json_value(value)
+    if isinstance(safe_value, Mapping):
+        return {
+            str(key): (
+                REDACTED_VALUE
+                if _is_sensitive_key(key)
+                else sanitize_public_value(item)
+            )
+            for key, item in safe_value.items()
+        }
+    if isinstance(safe_value, list):
+        return [sanitize_public_value(item) for item in safe_value]
+    if isinstance(safe_value, str):
+        return redact_local_paths(safe_value)
+    return safe_value
+
+
+def sanitize_public_settings(value: Any, *, key: str = "") -> Any:
+    """Remove local paths from settings stored in a public run manifest."""
+    if isinstance(value, Mapping):
+        result = {}
+        for item_key, item_value in value.items():
+            string_key = str(item_key)
+            result[string_key] = (
+                REDACTED_VALUE
+                if _is_sensitive_key(string_key)
+                else sanitize_public_settings(
+                    item_value,
+                    key=string_key,
+                )
+            )
+        return result
+    normalized_key = re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
+    path_key = (
+        normalized_key.endswith(("path", "paths", "directory", "folder"))
+        or normalized_key in {"output_dir", "input_dir"}
+    )
+    if path_key and value not in (None, ""):
+        return LOCAL_PATH_REMOVED
+    if isinstance(value, (list, tuple)):
+        return [sanitize_public_settings(item, key=key) for item in value]
+    return safe_json_value(value)
+
+
+def _semantic_settings(value: Any) -> Any:
+    """Drop transient QGIS object identifiers from deterministic settings."""
+    if isinstance(value, Mapping):
+        result = {}
+        for key, item in value.items():
+            normalized = str(key).casefold()
+            if normalized.endswith("_id") or normalized.endswith("_ids"):
+                continue
+            if normalized in {"source_roles", "source_encodings"}:
+                # These mappings are keyed by transient QgsMapLayer IDs.
+                # Their stable role/encoding values are represented by the
+                # normalized input summaries in the semantic payload.
+                continue
+            if normalized in {"output_directory", "output_folder"}:
+                continue
+            result[str(key)] = _semantic_settings(item)
+        return result
+    if isinstance(value, list):
+        return [_semantic_settings(item) for item in value]
+    return value
+
+
+def _semantic_processing(value: Any) -> Any:
+    """Keep result counts while dropping timing and artifact transport data."""
+    if isinstance(value, Mapping):
+        result = {}
+        for key, item in value.items():
+            normalized = str(key).casefold()
+            if normalized in {
+                "artifacts",
+                "artifact_errors",
+                "elapsed_seconds",
+                "gpkg_layers",
+            }:
+                continue
+            result[str(key)] = _semantic_processing(item)
+        return result
+    if isinstance(value, list):
+        return [_semantic_processing(item) for item in value]
+    return value
+
+
+def _canonical_sequence(value: Any) -> Any:
+    """Sort an order-insensitive sequence by canonical JSON content."""
+    safe_value = safe_json_value(value)
+    if not isinstance(safe_value, list):
+        return safe_value
+    return sorted(
+        safe_value,
+        key=lambda item: json.dumps(
+            item,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+
+
+def _semantic_input_summaries(inputs: Iterable[Mapping[str, Any]]) -> list:
+    """Keep stable input meaning while dropping paths and QGIS IDs."""
+    stable = []
+    for summary in inputs:
+        item = {
+            str(key): value
+            for key, value in summary.items()
+            if str(key).casefold() not in {"layer_id", "source"}
+        }
+        stable.append(item)
+    return _canonical_sequence(stable)
+
+
+def _without_volatile_keys(value: Any, ignored_keys: frozenset) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _without_volatile_keys(item, ignored_keys)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            if str(key).casefold() not in ignored_keys
+        }
+    if isinstance(value, (list, tuple)):
+        return [_without_volatile_keys(item, ignored_keys) for item in value]
+    if isinstance(value, (set, frozenset)):
+        items = [_without_volatile_keys(item, ignored_keys) for item in value]
+        return sorted(
+            items,
+            key=lambda item: json.dumps(
+                item,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+    return value
+
+
+def deterministic_content_hash(
+    value: Any,
+    *,
+    ignored_keys: Optional[Iterable[str]] = None,
+) -> str:
+    """Hash semantic JSON content while excluding volatile run metadata."""
+    ignored = frozenset(
+        str(key).casefold()
+        for key in (
+            DEFAULT_VOLATILE_HASH_KEYS
+            if ignored_keys is None
+            else ignored_keys
+        )
+    )
+    safe_value = safe_json_value(value)
+    canonical = _without_volatile_keys(safe_value, ignored)
+    payload = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def sha256_file(path: Union[os.PathLike, str], chunk_size: int = 1024 * 1024) -> str:
+    """Return the SHA-256 of one file without loading it entirely in memory."""
+    source = Path(path)
+    digest = hashlib.sha256()
+    with source.open("rb") as stream:
+        while True:
+            block = stream.read(chunk_size)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def sha256_file_bundle(paths: Sequence[Union[os.PathLike, str]]) -> Dict[str, Any]:
+    """Fingerprint a Shapefile/GPKG-style input bundle deterministically."""
+    resolved = sorted(
+        (Path(path).resolve(strict=True) for path in paths),
+        key=lambda path: path.name.casefold(),
+    )
+    if not resolved:
+        raise ValueError("At least one input file is required")
+    bundle_digest = hashlib.sha256()
+    files = []
+    for path in resolved:
+        file_hash = sha256_file(path)
+        size = path.stat().st_size
+        files.append({
+            "name": path.name,
+            "size": size,
+            "sha256": file_hash,
+        })
+        bundle_digest.update(path.name.encode("utf-8"))
+        bundle_digest.update(b"\0")
+        bundle_digest.update(str(size).encode("ascii"))
+        bundle_digest.update(b"\0")
+        bundle_digest.update(file_hash.encode("ascii"))
+        bundle_digest.update(b"\n")
+    return {
+        "algorithm": "sha256",
+        "bundle_sha256": bundle_digest.hexdigest(),
+        "files": files,
+    }
+
+
+def python_runtime_environment(extra: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """Collect dependency-free runtime metadata; QGIS callers may add versions."""
+    environment = {
+        "python": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "operating_system": platform.system(),
+        "architecture": platform.machine(),
+    }
+    if extra:
+        environment.update(safe_json_value(extra))
+    return environment
+
+
+def read_build_info(plugin_directory: Union[os.PathLike, str]) -> Dict[str, Any]:
+    """Read packaging provenance without requiring a Git executable at runtime."""
+    path = Path(plugin_directory) / "build_info.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {"git_commit": UNKNOWN_VALUE}
+    if not isinstance(raw, Mapping):
+        return {"git_commit": UNKNOWN_VALUE}
+    return {
+        "git_commit": str(raw.get("git_commit") or UNKNOWN_VALUE),
+        "built_at": raw.get("built_at"),
+        "dirty": bool(raw.get("dirty", False)),
+    }
 
 
 def safe_json_value(
@@ -234,6 +555,7 @@ def normalize_layer_summary(
     layer: Union[Mapping[str, Any], str],
     *,
     output: bool = False,
+    public: bool = True,
 ) -> Dict[str, Any]:
     """Return a stable, safe input/output layer summary.
 
@@ -256,6 +578,10 @@ def normalize_layer_summary(
         "crs",
         "geometry_type",
         "feature_count",
+        "encoding",
+        "source_sha256",
+        "bundle_sha256",
+        "geometry_repairs",
     )
     summary: Dict[str, Any] = {}
     for field_name in known_fields:
@@ -263,7 +589,11 @@ def normalize_layer_summary(
             continue
         value = raw.pop(field_name)
         if field_name == "source" and value is not None:
-            value = redact_connection_secrets(value)
+            value = (
+                sanitize_source_reference(value)
+                if public
+                else redact_connection_secrets(value)
+            )
         elif field_name == "feature_count" and value is not None:
             try:
                 value = int(value)
@@ -280,7 +610,10 @@ def normalize_layer_summary(
         except (TypeError, ValueError):
             summary["feature_count"] = safe_json_value(count_value)
     if raw:
-        summary["details"] = safe_json_value(raw)
+        summary["details"] = (
+            sanitize_public_value(raw)
+            if public else safe_json_value(raw)
+        )
     return summary
 
 
@@ -296,25 +629,31 @@ def _iso_seconds(value: datetime) -> str:
     return value.isoformat(timespec="seconds")
 
 
-def _normalize_error(error: Any) -> Optional[Dict[str, Any]]:
+def _normalize_error(
+    error: Any,
+    *,
+    public: bool = False,
+) -> Optional[Dict[str, Any]]:
     if error is None:
         return None
     if isinstance(error, BaseException):
-        return {
+        normalized = {
             "type": type(error).__name__,
             "message": redact_connection_secrets(str(error)),
         }
+        return sanitize_public_value(normalized) if public else normalized
     if isinstance(error, Mapping):
         safe_error = safe_json_value(error)
         if isinstance(safe_error, dict) and "message" in safe_error:
             safe_error["message"] = redact_connection_secrets(
                 safe_error["message"]
             )
-        return safe_error
-    return {
+        return sanitize_public_value(safe_error) if public else safe_error
+    normalized = {
         "type": None,
         "message": redact_connection_secrets(error),
     }
+    return sanitize_public_value(normalized) if public else normalized
 
 
 def build_run_manifest(
@@ -332,11 +671,22 @@ def build_run_manifest(
     finished_at: Optional[datetime] = None,
     local_timezone: Optional[tzinfo] = None,
     plugin_name: str = DEFAULT_PLUGIN_NAME,
+    git_commit: Optional[str] = None,
+    ruleset: Optional[Mapping[str, Any]] = None,
+    runtime_environment: Optional[Mapping[str, Any]] = None,
+    crs_context: Optional[Mapping[str, Any]] = None,
+    input_checksums: Optional[Iterable[Mapping[str, Any]]] = None,
+    output_hashes: Any = None,
+    decision_cache: Optional[Mapping[str, Any]] = None,
+    excluded_layers: Optional[Iterable[Mapping[str, Any]]] = None,
+    public_manifest: bool = True,
 ) -> Dict[str, Any]:
     """Build a complete, JSON-serializable run manifest."""
     normalized_status = str(status).strip().casefold()
     if normalized_status not in VALID_RUN_STATUSES:
         raise ValueError("Unsupported run status: {}".format(status))
+    if normalized_status == "error":
+        normalized_status = "failed"
     if not str(plugin_version).strip():
         raise ValueError("plugin_version is required")
     if not str(workflow).strip():
@@ -362,11 +712,11 @@ def build_run_manifest(
     local_zone_name = finished_local.tzname() or str(local_timezone)
 
     normalized_inputs = [
-        normalize_layer_summary(layer, output=False)
+        normalize_layer_summary(layer, output=False, public=public_manifest)
         for layer in (input_layers or [])
     ]
     normalized_outputs = [
-        normalize_layer_summary(layer, output=True)
+        normalize_layer_summary(layer, output=True, public=public_manifest)
         for layer in (output_layers or [])
     ]
 
@@ -375,11 +725,12 @@ def build_run_manifest(
         "plugin": {
             "name": str(plugin_name).strip() or DEFAULT_PLUGIN_NAME,
             "version": str(plugin_version).strip(),
+            "git_commit": str(git_commit or UNKNOWN_VALUE),
         },
         "workflow": str(workflow).strip(),
         "status": normalized_status,
         "cancelled": normalized_status == "cancelled",
-        "error": _normalize_error(error),
+        "error": _normalize_error(error, public=public_manifest),
         "timestamps": {
             "started_utc": _iso_seconds(started_utc),
             "finished_utc": _iso_seconds(finished_utc),
@@ -391,14 +742,77 @@ def build_run_manifest(
                 6,
             ),
         },
-        "settings": safe_json_value(settings or {}),
+        "settings": (
+            sanitize_public_settings(settings or {})
+            if public_manifest else safe_json_value(settings or {})
+        ),
         "inputs": normalized_inputs,
         "outputs": normalized_outputs,
         "processing": {
-            "statistics": safe_json_value(processing_stats or {}),
+            "statistics": (
+                sanitize_public_value(processing_stats or {})
+                if public_manifest
+                else safe_json_value(processing_stats or {})
+            ),
             "decision_reuse_count": reuse_count,
+            "excluded_layers": (
+                sanitize_public_value(list(excluded_layers or []))
+                if public_manifest
+                else safe_json_value(list(excluded_layers or []))
+            ),
+        },
+        "provenance": {
+            "ruleset": (
+                sanitize_public_value(ruleset or {})
+                if public_manifest else safe_json_value(ruleset or {})
+            ),
+            "runtime": (
+                sanitize_public_value(
+                    runtime_environment or python_runtime_environment()
+                )
+                if public_manifest else safe_json_value(
+                    runtime_environment or python_runtime_environment()
+                )
+            ),
+            "crs_context": (
+                sanitize_public_value(crs_context or {})
+                if public_manifest else safe_json_value(crs_context or {})
+            ),
+            "input_checksums": (
+                sanitize_public_value(list(input_checksums or []))
+                if public_manifest
+                else safe_json_value(list(input_checksums or []))
+            ),
+            "output_hashes": (
+                sanitize_public_value(output_hashes or {})
+                if public_manifest else safe_json_value(output_hashes or {})
+            ),
+            "decision_cache": (
+                sanitize_public_value(decision_cache or {})
+                if public_manifest else safe_json_value(decision_cache or {})
+            ),
+            "public_manifest": bool(public_manifest),
         },
     }
+    manifest["semantic_sha256"] = deterministic_content_hash({
+        "plugin": manifest["plugin"],
+        "workflow": manifest["workflow"],
+        "settings": _semantic_settings(manifest["settings"]),
+        "inputs": _semantic_input_summaries(manifest["inputs"]),
+        "processing": _semantic_processing(manifest["processing"]),
+        "ruleset": manifest["provenance"]["ruleset"],
+        "crs_context": manifest["provenance"]["crs_context"],
+        "input_checksums": _canonical_sequence(
+            manifest["provenance"]["input_checksums"]
+        ),
+        "decision_cache": manifest["provenance"]["decision_cache"],
+        "output_content_hashes": _canonical_sequence([
+            item for item in manifest["provenance"]["output_hashes"]
+            if isinstance(item, Mapping) and item.get("content_sha256")
+        ]) if isinstance(
+            manifest["provenance"]["output_hashes"], list
+        ) else manifest["provenance"]["output_hashes"],
+    }, ignored_keys=())
     # This assertion deliberately rejects accidental non-finite/unsupported
     # additions made by future callers or maintainers.
     json.dumps(

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "evidence_type": "local_qgis_integration_suite",
+  "date": "2026-08-13",
+  "status": "passed",
+  "tests_run": 84,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "elapsed_seconds": 52.329,
+  "runtime": {
+    "qgis": "3.40.5-Bratislava",
+    "python": "3.12.9",
+    "operating_system": "Windows 10.0.19045",
+    "qt_platform": "offscreen"
+  },
+  "scope": [
+    "test_metric_context.py",
+    "test_qgis_*.py"
+  ],
+  "source": {
+    "base_git_commit": "c2b669692017cc14b9bcf14a6928cabf2b4c9040",
+    "working_tree_dirty": true,
+    "ruleset_sha256": "418f3093d7fefb2527d64b12c989d2bcb72c1905ae775cfaa4f9500ebce34b1f"
+  },
+  "release_gate_effect": "diagnostic_only_until_committed_ci_evidence_exists"
+}

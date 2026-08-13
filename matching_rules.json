@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "ruleset_version": "1.0.0",
+  "description": "ArchDistribution 1.0.5 conservative duplicate-candidate policy",
+  "thresholds": {
+    "exact_name_distance_m": 50.0,
+    "review_name_similarity": 0.9,
+    "review_overlap_ratio": 0.25,
+    "address_overlap_ratio": 0.8,
+    "project_name_similarity": 0.9,
+    "automation_name_similarity": 0.95,
+    "automation_overlap_ratio": 0.5,
+    "name_containment_min_chars": 4,
+    "name_containment_min_fraction": 0.6
+  },
+  "score_weights": {
+    "name_similarity": 0.55,
+    "overlap_ratio": 0.35,
+    "address": 0.1
+  },
+  "generic_names": [
+    "유적",
+    "유적지",
+    "문화유적",
+    "고분",
+    "고분군",
+    "사지",
+    "보호구역",
+    "유존지역",
+    "매장유산유존지역"
+  ],
+  "automatic_geometry_pairs": [
+    "polygon_polygon"
+  ]
+}

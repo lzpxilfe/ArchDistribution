@@ -1,0 +1,21 @@
+{
+  "benchmark": "qgsspatialindex-local-candidate-generation",
+  "candidate_fraction_of_all_pairs": 7.9621596e-05,
+  "completed": true,
+  "feature_count": 100000,
+  "index_build_seconds": 18.260907,
+  "maximum_hits_per_query": 9,
+  "peak_rss_mib": 164.188,
+  "query_seconds": 9.019021,
+  "raw_index_hits": 896208,
+  "runtime": {
+    "operating_system": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.9",
+    "qgis": "3.40.5-Bratislava"
+  },
+  "schema_version": 1,
+  "synthetic": true,
+  "theoretical_all_pairs": 4999950000,
+  "total_seconds": 27.279928,
+  "unique_candidate_pairs": 398104
+}

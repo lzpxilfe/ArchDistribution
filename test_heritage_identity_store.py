@@ -69,14 +69,14 @@ class SourceIdentityTests(unittest.TestCase):
             "지표조사",
             name=" 공주   유적 ",
             project_name="정비 사업",
-            address="신관동 24-171",
+            address="가상동 1-1",
             geometry="POLYGON ((0 0, 1 0, 0 0))",
         )
         second = build_source_identity(
             "지표조사",
             name="공주 유적",
             project_name="정비  사업",
-            address="신관동 24-171",
+            address="가상동 1-1",
             geometry="POLYGON ((0 0, 1 0, 0 0))",
         )
 

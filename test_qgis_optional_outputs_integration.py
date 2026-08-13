@@ -430,6 +430,7 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
                 audit.name(): 3,
             },
         )
+
         self.assertEqual(
             manifest["processing"]["decision_reuse_count"],
             2,
@@ -445,12 +446,130 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
                 audit.name(): 3,
             },
         )
-        artifact_paths = {Path(path) for path in statistics["artifacts"]}
+        public_artifacts = statistics["artifacts"]
         self.assertEqual(
-            {path.suffix.casefold() for path in artifact_paths},
+            {
+                Path(item["filename"]).suffix.casefold()
+                for item in public_artifacts
+            },
             {".gpkg", ".jpg", ".pdf"},
         )
-        self.assertTrue(all(path.is_file() for path in artifact_paths))
+        self.assertTrue(
+            all(len(item["sha256"]) == 64 for item in public_artifacts)
+        )
+        self.assertTrue(
+            all(not Path(item["filename"]).is_absolute()
+                for item in public_artifacts)
+        )
+        self.assertNotIn(
+            str(self.output_directory),
+            json.dumps(manifest, ensure_ascii=False),
+        )
+
+    def test_selected_output_without_directory_reports_partial_error(self):
+        result = self.plugin._run_optional_outputs(
+            {
+                "save_gpkg_manifest": True,
+                "export_layout_jpg": False,
+                "export_layout_pdf": False,
+                "output_directory": "",
+            },
+            None,
+            QgsGeometry(),
+            QgsCoordinateReferenceSystem("EPSG:5186"),
+            "distribution_map",
+            datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result["paths"], [])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("저장 폴더", result["errors"][0])
+
+    def test_uppercase_shapefile_sidecars_are_discovered(self):
+        dataset = self.output_directory / "HERITAGE.SHP"
+        for suffix, payload in (
+            (".SHP", b"shape"),
+            (".SHX", b"index"),
+            (".DBF", b"table"),
+            (".PRJ", b"projection"),
+            (".CPG", b"UTF-8"),
+        ):
+            dataset.with_suffix(suffix).write_bytes(payload)
+
+        bundle = self.plugin._shapefile_bundle_paths(dataset)
+        self.assertEqual(
+            [path.suffix.casefold() for path in bundle],
+            [".shp", ".shx", ".dbf", ".prj", ".cpg"],
+        )
+
+        class Provider:
+            @staticmethod
+            def encoding():
+                return "CP949"
+
+        class Layer:
+            @staticmethod
+            def source():
+                return str(dataset)
+
+            @staticmethod
+            def customProperty(_key, default=""):
+                return default
+
+            @staticmethod
+            def dataProvider():
+                return Provider()
+
+        self.assertEqual(
+            self.plugin._declared_layer_encoding(Layer()),
+            ("UTF-8", ".cpg"),
+        )
+
+    def test_terminal_manifests_record_cancelled_and_failed_runs(self):
+        settings = self._distribution_layout_settings(
+            self.output_directory
+        )
+        settings.update({
+            "save_gpkg_manifest": True,
+            "study_area_id": None,
+            "topo_layer_ids": [],
+            "heritage_layer_ids": [],
+            "source_roles": {},
+            "source_encodings": {},
+            "zone_layer_id": None,
+        })
+        started_at = datetime(2026, 8, 13, tzinfo=timezone.utc)
+
+        for status, error in (
+            ("cancelled", None),
+            ("failed", "synthetic failure"),
+        ):
+            with self.subTest(status=status):
+                path = self.plugin._write_terminal_manifest(
+                    settings,
+                    "distribution_map",
+                    started_at,
+                    status,
+                    error=error,
+                )
+                self.assertIsNotNone(path)
+                manifest_path = Path(path)
+                self.assertTrue(manifest_path.is_file())
+                manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                self.assertEqual(manifest["status"], status)
+                if error is None:
+                    self.assertIsNone(manifest["error"])
+                else:
+                    self.assertEqual(
+                        manifest["error"]["message"], error
+                    )
+                self.assertEqual(manifest["schema_version"], 2)
+                self.assertNotIn(
+                    str(self.output_directory),
+                    json.dumps(manifest, ensure_ascii=False),
+                )
 
     def _restore_output_preferences(self, previous):
         settings = QSettings()

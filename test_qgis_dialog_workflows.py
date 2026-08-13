@@ -157,6 +157,15 @@ class QgisDialogWorkflowTests(unittest.TestCase):
             dialog.comboPreservationActionField.currentData(),
             "보존조치",
         )
+        encoding_index = dialog.comboPreservationEncoding.findData("UTF-8")
+        dialog.comboPreservationEncoding.setCurrentIndex(encoding_index)
+        self.assertEqual(
+            layer.customProperty("ArchDistribution/encoding_override"),
+            "UTF-8",
+        )
+        self.assertEqual(
+            dialog.get_settings()["preservation_encoding"], "UTF-8"
+        )
 
     def test_source_role_overrides_and_balanced_preset_are_available(self):
         layer = QgsVectorLayer(
@@ -178,9 +187,31 @@ class QgisDialogWorkflowTests(unittest.TestCase):
 
         self.assertEqual(settings["match_preset"], "balanced")
         self.assertIn(layer.id(), dialog.layerRoleCombos)
+        self.assertIn(layer.id(), dialog.layerEncodingCombos)
         self.assertEqual(
             dialog.layerRoleCombos[layer.id()].currentData(),
             "excavation",
+        )
+        encoding_combo = dialog.layerEncodingCombos[layer.id()]
+        encoding_combo.setCurrentIndex(
+            encoding_combo.findData("CP949")
+        )
+        layer_item = next(
+            dialog.listHeritageLayers.item(index)
+            for index in range(dialog.listHeritageLayers.count())
+            if dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            == layer.id()
+        )
+        layer_item.setCheckState(Qt.Checked)
+        settings = dialog.get_settings()
+        self.assertEqual(
+            settings["source_encodings"][layer.id()], "CP949"
+        )
+        self.assertEqual(
+            layer.customProperty(
+                "ArchDistribution/encoding_override"
+            ),
+            "CP949",
         )
 
     def test_existing_representative_result_has_dedicated_renumber_path(self):

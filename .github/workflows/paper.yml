@@ -1,0 +1,43 @@
+name: JOSS paper draft
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "paper/**"
+      - ".github/workflows/paper.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "paper/**"
+      - ".github/workflows/paper.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: joss-paper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-paper:
+    name: Compile JOSS manuscript
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compile with Open Journals tooling
+        uses: openjournals/openjournals-draft-action@85a18372e48f551d8af9ddb7a747de685fbbb01c # master, verified 2026-08-13
+        with:
+          journal: joss
+          paper-path: paper/paper.md
+
+      - name: Upload paper proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchDistribution-JOSS-draft
+          path: paper/paper.pdf
+          if-no-files-found: error
+          retention-days: 30

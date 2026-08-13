@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "description": "Wholly synthetic ontology, matching, and cartographic safety cases",
+  "cases": [
+    {
+      "id": "same-project-area-i",
+      "kind": "identity",
+      "input": {
+        "project_name": "공주 월송 국민임대주택단지 조성사업",
+        "site_name": "공주 월송 유적 I 지역",
+        "fallback_key": "synthetic:area-i"
+      },
+      "expected": {
+        "investigation_key": "project:공주월송국민임대주택단지조성사업",
+        "site_entity_key": "source:synthetic:area-i",
+        "number_key": "project:공주월송국민임대주택단지조성사업"
+      }
+    },
+    {
+      "id": "same-project-different-site",
+      "kind": "identity",
+      "input": {
+        "project_name": "공주 월송 국민임대주택단지 조성사업",
+        "site_name": "공주 월송 가마터",
+        "fallback_key": "synthetic:kiln"
+      },
+      "expected": {
+        "investigation_key": "project:공주월송국민임대주택단지조성사업",
+        "site_entity_key": "source:synthetic:kiln",
+        "number_key": "project:공주월송국민임대주택단지조성사업"
+      }
+    },
+    {
+      "id": "designated-distribution",
+      "kind": "matching",
+      "left": {"uid": "designated:1", "role": "local_designated", "name": "합성 A유적"},
+      "right": {"uid": "distribution:1", "role": "distribution", "name": "합성 A유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.8},
+      "expected": {"recommended_decision": "merge", "auto_apply": true, "relation_type": "same_entity"}
+    },
+    {
+      "id": "excavation-distribution",
+      "kind": "matching",
+      "left": {"uid": "excavation:1", "role": "excavation", "name": "합성 B유적"},
+      "right": {"uid": "distribution:2", "role": "distribution", "name": "합성 B유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.7},
+      "expected": {"recommended_decision": "merge", "auto_apply": true, "relation_type": "same_entity"}
+    },
+    {
+      "id": "designated-excavation",
+      "kind": "matching",
+      "left": {"uid": "designated:2", "role": "national_designated", "name": "합성 C유적"},
+      "right": {"uid": "excavation:2", "role": "excavation", "name": "합성 C유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.9},
+      "expected": {"recommended_decision": "link", "auto_apply": true, "relation_type": "investigation_site"}
+    },
+    {
+      "id": "surface-remains-separate",
+      "kind": "matching",
+      "left": {"uid": "surface:1", "role": "surface_survey", "name": "합성 D유적"},
+      "right": {"uid": "distribution:3", "role": "distribution", "name": "합성 D유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.9},
+      "expected": {"recommended_decision": "keep", "auto_apply": false, "relation_type": "related_separate"}
+    },
+    {
+      "id": "parent-child-review",
+      "kind": "matching",
+      "left": {"uid": "designated:3", "role": "local_designated", "name": "합성 탑골공원"},
+      "right": {"uid": "distribution:4", "role": "distribution", "name": "합성 탑골공원 팔각정"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.8},
+      "expected": {"recommended_decision": "merge", "auto_apply": false, "relation_type": "parent_child"}
+    },
+    {
+      "id": "overlap-alone-not-candidate",
+      "kind": "matching",
+      "left": {"uid": "designated:4", "role": "local_designated", "name": "합성 E유적"},
+      "right": {"uid": "distribution:5", "role": "distribution", "name": "완전히 다른 이름"},
+      "spatial": {"intersects": true, "overlap_ratio": 1.0},
+      "expected": null
+    },
+    {
+      "id": "generic-name-review-only",
+      "kind": "matching",
+      "left": {"uid": "excavation:5", "role": "excavation", "name": "유적"},
+      "right": {"uid": "distribution:6", "role": "distribution", "name": "유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 1.0},
+      "expected": {"recommended_decision": "merge", "auto_apply": false, "relation_type": "uncertain"}
+    },
+    {
+      "id": "line-polygon-review-only",
+      "kind": "matching",
+      "left": {"uid": "excavation:6", "role": "excavation", "name": "합성 F유적"},
+      "right": {"uid": "distribution:7", "role": "distribution", "name": "합성 F유적"},
+      "spatial": {"intersects": true, "overlap_ratio": 1.0, "geometry_pair": "line_polygon"},
+      "expected": {"recommended_decision": "merge", "auto_apply": false, "relation_type": "same_entity"}
+    },
+    {
+      "id": "excavation-area-parts-review-only",
+      "kind": "matching",
+      "left": {"uid": "excavation:area-i", "role": "excavation", "name": "합성 월송유적 I지역", "project_name": "합성 개발사업"},
+      "right": {"uid": "excavation:area-ii", "role": "excavation", "name": "합성 월송유적 II-1지역", "project_name": "합성 개발사업"},
+      "spatial": {"intersects": true, "overlap_ratio": 0.2},
+      "expected": {"recommended_decision": "merge", "auto_apply": false, "relation_type": "same_entity"}
+    },
+    {
+      "id": "distant-excavation-area-homonyms-not-candidate",
+      "kind": "matching",
+      "left": {"uid": "excavation:far-i", "role": "excavation", "name": "합성 원거리유적 I지역", "project_name": "합성 개발사업"},
+      "right": {"uid": "excavation:far-ii", "role": "excavation", "name": "합성 원거리유적 II지역", "project_name": "합성 개발사업"},
+      "spatial": {"intersects": false, "overlap_ratio": 0.0, "distance": 100.0},
+      "expected": null
+    },
+    {
+      "id": "tiny-edge-fragment",
+      "kind": "cartographic_fragment",
+      "input": {
+        "original_area": 10000,
+        "clipped_area": 1,
+        "clipped_width": 1,
+        "clipped_height": 1,
+        "extent_width": 5000,
+        "extent_height": 4000,
+        "paper_width_mm": 200,
+        "paper_height_mm": 160
+      },
+      "expected": true
+    }
+  ]
+}
