@@ -48,6 +48,27 @@ jobs:
           chmod 700 "$XDG_RUNTIME_DIR"
           command -v python3
           python3 -c "from qgis.core import Qgis; print(Qgis.QGIS_VERSION)"
+          QGIS_PYTHON_PLUGINS="$(python3 - <<'PY'
+          from pathlib import Path
+          from qgis.core import QgsApplication
+
+          candidates = (
+              Path(QgsApplication.pkgDataPath()) / "python" / "plugins",
+              Path("/usr/share/qgis/python/plugins"),
+          )
+          for candidate in candidates:
+              if (candidate / "processing").is_dir():
+                  print(candidate)
+                  break
+          else:
+              raise SystemExit(
+                  "The QGIS container does not expose the Processing plugin"
+              )
+          PY
+          )"
+          echo "PYTHONPATH=$QGIS_PYTHON_PLUGINS:${PYTHONPATH:-}" >> "$GITHUB_ENV"
+          PYTHONPATH="$QGIS_PYTHON_PLUGINS:${PYTHONPATH:-}" \
+            python3 -c "from processing.core.Processing import Processing; print('Processing import succeeded')"
 
       - name: Run QGIS integration suite
         shell: bash
