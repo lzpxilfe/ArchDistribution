@@ -84,7 +84,7 @@
     <line class="divider" x1="847" y1="501" x2="1143" y2="501"/>
     <text class="body" x="851" y="540">ruleset + SHA-256</text>
     <text class="body" x="851" y="580">reviewable suggestions</text>
-    <text class="body" x="851" y="620">keep / link / share number</text>
+    <text class="body" x="851" y="620">keep / link / share</text>
     <text class="eyebrow" x="851" y="662">HUMAN DECISION RECORDED</text>
   </g>
 
@@ -94,14 +94,14 @@
     <rect class="card" x="430" y="435" width="340" height="250" rx="8"/>
     <circle class="step" cx="462" cy="470" r="22"/>
     <text class="step-text" x="462" y="471">5</text>
-    <text class="heading" x="496" y="478">Keys + typed relations</text>
+    <text class="heading" x="496" y="478">Keys + relations</text>
     <line class="divider" x1="452" y1="501" x2="748" y2="501"/>
     <text class="key" x="456" y="530">SITE_ENTITY_KEY</text>
     <text class="key" x="456" y="556">INVESTIGATION_KEY</text>
     <text class="key" x="456" y="582">GEOMETRY_GROUP_KEY</text>
     <text class="key" x="456" y="608">NUMBER_KEY</text>
-    <text class="relation" x="456" y="640">same entity / parent–child</text>
-    <text class="relation" x="456" y="668">investigation / boundary links</text>
+    <text class="relation" x="456" y="640">identity / parent–child</text>
+    <text class="relation" x="456" y="668">investigation / boundary</text>
   </g>
 
   <path class="arrow" d="M 418 560 H 387"/>
@@ -112,9 +112,9 @@
     <text class="step-text" x="67" y="471">6</text>
     <text class="heading" x="101" y="478">Auditable outputs</text>
     <line class="divider" x1="57" y1="501" x2="353" y2="501"/>
-    <text class="body" x="61" y="538">point / line / polygon layers</text>
-    <text class="body" x="61" y="574">representative labels + map</text>
-    <text class="body" x="61" y="610">preserved records + audit table</text>
+    <text class="body" x="61" y="538">separate geometry layers</text>
+    <text class="body" x="61" y="574">representative map labels</text>
+    <text class="body" x="61" y="610">preserved records + audit</text>
     <text class="body" x="61" y="646">manifest + content hashes</text>
   </g>
 
