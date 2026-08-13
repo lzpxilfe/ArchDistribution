@@ -66,7 +66,7 @@ The repository provides versioned rules, synthetic fixtures, installation and co
 
 On 11 August 2026, the developer used ArchDistribution while preparing a surrounding-site map for an excavation-report workflow at Nuri Institute for Archaeology. The project concerned a housing-development site at 227-2, Ungjin-dong, Gongju. The public permit register independently establishes the project context: a 2,252 m² rescue excavation associated with permit 2024-0745 and completed on 12 August 2024 [@khs2026permit]. The register does not document software use; that statement comes from the author's workflow record. ArchDistribution combined filtering, clipping, numbering, styling, and map preparation in one reviewable process. No contemporaneous manual-time baseline was recorded.
 
-The available evidence demonstrates developer-led operational use and reproducible software behavior. It does not establish a numerical estimate of labor saved, independently validated archaeological classification accuracy, external adoption, or generalization across institutions. Future evaluation will require independent reviewers and use across institutions.
+The available evidence demonstrates developer-led operational use and reproducible software behavior. It does not establish a numerical estimate of labor saved, independently validated archaeological classification accuracy, external adoption, or generalization across institutions.
 
 # AI usage disclosure
 
