@@ -371,23 +371,23 @@ Always review final geometry, attributes, numbering, and cartographic output bef
 
 인용 메타데이터는 [CITATION.cff](CITATION.cff)에 보관합니다.
 
-JOSS 영문 초안은 [paper/paper.md](paper/paper.md), 고고학적 존재론·판정
+JOSS 영문 원고는 [paper/paper.md](paper/paper.md), 고고학적 존재론·판정
 규칙·검증 프로토콜·자료 계보·윤리 및 재현성 명세는
-[docs/research](docs/research), 공개 합성 검증과 현재 release gate는
+[docs/research](docs/research), 공개 합성 검증과 현재 검증 상태는
 [validation](validation)에 있습니다. 전국 원자료와 실제 유적 좌표는 이
 저장소에 포함하지 않습니다.
 
-The English JOSS draft is in [paper/paper.md](paper/paper.md). Detailed
+The English JOSS manuscript is in [paper/paper.md](paper/paper.md). Detailed
 ontology, decision rules, validation, provenance, ethics, and reproducibility
 specifications live in [docs/research](docs/research), while public synthetic
-checks and release-gate status live in [validation](validation). National
+checks and validation status live in [validation](validation). National
 source datasets and real site coordinates are not distributed here.
 
 
 ```bibtex
 @software{ArchDistribution2026,
   author = {Hwang, Jinseo},
-  title = {ArchDistribution: Archaeological distribution mapping and record reconciliation for QGIS},
+  title = {ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
   version = {1.0.5}
@@ -397,7 +397,7 @@ source datasets and real site coordinates are not distributed here.
 ## ℹ️ 프로젝트 정보 | Project Info
 
 - Version: `1.0.5`
-- Author: `lzpxilfe (balguljang2)`
+- Author: `Jinseo Hwang (lzpxilfe / balguljang2)`
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)
 - License: `GPL-2.0-or-later` (paper and research documents: `CC-BY-4.0`)

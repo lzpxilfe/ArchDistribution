@@ -1,11 +1,11 @@
 cff-version: 1.2.0
 message: "If you use this repository in research, teaching, or applied work, please cite it using the metadata below."
 type: software
-title: "ArchDistribution: Archaeological distribution mapping and record reconciliation for QGIS"
+title: "ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records"
 authors:
   - family-names: Hwang
     given-names: Jinseo
-    affiliation: "Nuri Institute for Archaeology"
+    affiliation: "Nuri Institute for Archaeology, Republic of Korea"
 repository-code: "https://github.com/lzpxilfe/ArchDistribution"
 url: "https://github.com/lzpxilfe/ArchDistribution"
 version: 1.0.5

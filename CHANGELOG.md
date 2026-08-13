@@ -24,7 +24,7 @@ tags do not change the installable plugin version.
   provenance, input-bundle checksums, excluded layers, and semantic hashes.
 - Pure-Python, leakage-resistant project splitting, blinding, and scoring
   utilities and a private-data CLI for the pending single-reviewer pilot.
-- JOSS paper draft and bibliography.
+- JOSS manuscript, verified bibliography, and workflow figure.
 - Research specifications for ontology, validation, provenance, limitations,
   AI usage, and reproducibility.
 - Synthetic-validation directory contract, release-gate status, and blank
@@ -35,11 +35,12 @@ tags do not change the installable plugin version.
 
 ### Changed
 
-- Research claims are explicitly limited while the 300-pair pilot, external
-  installation test, real-workflow observations, and DOI remain pending.
+- The JOSS manuscript now separates demonstrated software behaviour and one
+  developer-led research use from future accuracy, adoption, and productivity
+  studies; internal readiness notes no longer appear in the paper.
 - Mixed-geometry family separation, directional containment evidence, and
   per-layer encoding selection pass QGIS 3.44 CI; broader golden-fixture
-  coverage remains part of the research release gate.
+  coverage remains part of the future validation programme.
 - Preservation-area numbering accepts only exact semantic supplier site-ID
   fields; generic `CODE` fields and incomplete name/address fallbacks cannot
   collapse unrelated records into one number.
@@ -53,8 +54,8 @@ tags do not change the installable plugin version.
 
 - Current plugin release line. See Git history and README for the implemented
   mapping, preservation-area, duplicate-review, and renumbering workflow.
-- Research hardening remains in progress and must not be inferred from the
-  plugin version alone.
+- Research documentation and journal metadata are versioned separately and do
+  not change the installable plugin version.
 
 ## Historical tags
 

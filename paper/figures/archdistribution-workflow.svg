@@ -42,7 +42,7 @@
     <text class="body" x="76" y="242">• protection boundary</text>
     <text class="body" x="76" y="274">• distribution map</text>
     <text class="body" x="76" y="306">• survey / excavation</text>
-    <text class="eyebrow" x="76" y="338">SOURCE ATTRIBUTES RETAINED</text>
+    <text class="eyebrow" x="76" y="338">SOURCE DATA RETAINED</text>
   </g>
 
   <path class="arrow" d="M 392 232 H 423"/>
@@ -85,7 +85,7 @@
     <text class="body" x="846" y="543">versioned JSON + SHA-256</text>
     <text class="body" x="846" y="579">reversible recommendations</text>
     <text class="body" x="846" y="615">separate | link | share number</text>
-    <text class="eyebrow" x="846" y="660">HUMAN DECISION RECORDED</text>
+    <text class="eyebrow" x="846" y="660">HUMAN REVIEW RECORDED</text>
   </g>
 
   <path class="arrow" d="M 808 562 H 777"/>

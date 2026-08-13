@@ -6,7 +6,8 @@ pairs and exact real-site coordinates are prohibited.
 
 Every result must reference a protocol version, Git commit, rules hash, input
 hash or synthetic fixture identifier, environment, reviewer, and status.
-`status.md` is the release gate; narrative descriptions cannot override it.
+`status.md` is the canonical evidence-status index; narrative descriptions
+cannot override a failed, incomplete, or future item.
 
 ## Current real-workflow record
 
