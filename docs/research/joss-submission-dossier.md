@@ -101,7 +101,8 @@ must make and communicate the evaluative judgement.
 - **Content type:** Software paper
 - **Title:** `ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records`
 - **Repository:** `https://github.com/lzpxilfe/ArchDistribution`
-- **Branch containing paper:** `main`
+- **Branch containing paper:** Leave blank; the paper is in the default `main`
+  branch.
 - **Software version:** `1.0.5`
 - **Submission type:** New submission
 - **Main subject:** Choose the closest live option to Archaeology, Digital
