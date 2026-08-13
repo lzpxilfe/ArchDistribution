@@ -10,6 +10,7 @@ tags:
 authors:
   - given-names: Jinseo
     surname: Hwang
+    orcid: 0009-0000-8228-4083
     corresponding: true
     affiliation: "1"
 affiliations:

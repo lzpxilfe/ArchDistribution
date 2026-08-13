@@ -32,7 +32,7 @@ must not be described as complete until it has actually occurred.
 | GitHub account | `lzpxilfe` |
 | Affiliation | Nuri Institute for Archaeology, Republic of Korea |
 | Role | Archaeological researcher |
-| ORCID | Not provided; optional |
+| ORCID | [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083) |
 | Email | `lzpxilfe@gmail.com` (already published in `metadata.txt`; confirm in the JOSS account) |
 | Other authors | None reported |
 | External funding | None |
@@ -143,8 +143,8 @@ declares no competing interests.
 
 ## Final author actions / 최종 제출 동작
 
-1. Confirm `lzpxilfe@gmail.com` in the JOSS account; add an ORCID only if the
-   author has one and wishes to publish it.
+1. Confirm `lzpxilfe@gmail.com` in the JOSS account and verify that the ORCID
+   shown there is `0009-0000-8228-4083`.
 2. Confirm that the public `main` commit passes Python, QGIS, package-install,
    and paper-build workflows.
 3. Download and inspect the CI-built PDF, especially the workflow figure,
