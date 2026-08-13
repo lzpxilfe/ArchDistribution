@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title description">
   <title id="title">ArchDistribution processing and evidence flow</title>
   <desc id="description">Six-stage workflow from role-assigned heritage layers through metric processing, indexed candidate generation, versioned rules and human review, distinct identifiers and typed relations, to geometry-family outputs, a printable map, an audit table, and a reproducibility manifest.</desc>
 
@@ -13,111 +13,111 @@
       .card-output { fill: #e9f2f7; stroke: #263238; stroke-width: 2; }
       .step { fill: #005b96; stroke: #ffffff; stroke-width: 2; }
       .step-text { fill: #ffffff; font: 700 22px Arial, Helvetica, sans-serif; text-anchor: middle; dominant-baseline: middle; }
-      .heading { fill: #102027; font: 700 23px Arial, Helvetica, sans-serif; }
-      .body { fill: #263238; font: 20px Arial, Helvetica, sans-serif; }
-      .key { fill: #263238; font: 700 19px Consolas, "Liberation Mono", monospace; }
-      .relation { fill: #263238; font: 19px Arial, Helvetica, sans-serif; }
-      .eyebrow { fill: #005b96; font: 700 19px Arial, Helvetica, sans-serif; letter-spacing: 0.5px; }
-      .title { fill: #102027; font: 700 34px Arial, Helvetica, sans-serif; }
-      .subtitle { fill: #37474f; font: 20px Arial, Helvetica, sans-serif; }
+      .heading { fill: #102027; font: 700 21px Arial, Helvetica, sans-serif; }
+      .body { fill: #263238; font: 18px Arial, Helvetica, sans-serif; }
+      .key { fill: #263238; font: 700 16px Consolas, "Liberation Mono", monospace; }
+      .relation { fill: #263238; font: 16px Arial, Helvetica, sans-serif; }
+      .eyebrow { fill: #005b96; font: 700 16px Arial, Helvetica, sans-serif; letter-spacing: 0.35px; }
+      .title { fill: #102027; font: 700 32px Arial, Helvetica, sans-serif; }
+      .subtitle { fill: #37474f; font: 18px Arial, Helvetica, sans-serif; }
       .arrow { fill: none; stroke: #263238; stroke-width: 4; marker-end: url(#arrow); }
       .divider { stroke: #78909c; stroke-width: 1.5; }
       .footer { fill: #ffffff; stroke: #005b96; stroke-width: 2; stroke-dasharray: 8 5; }
-      .footer-text { fill: #102027; font: 700 20px Arial, Helvetica, sans-serif; text-anchor: middle; }
+      .footer-text { fill: #102027; font: 700 18px Arial, Helvetica, sans-serif; text-anchor: middle; }
     </style>
   </defs>
 
-  <rect class="background" x="0" y="0" width="1200" height="760"/>
-  <text class="title" x="50" y="48">ArchDistribution: processing and evidence flow</text>
-  <text class="subtitle" x="50" y="80">Spatial similarity proposes evidence; explicit policy and review determine what a map number means.</text>
+  <rect class="background" x="0" y="0" width="1200" height="800"/>
+  <text class="title" x="48" y="48">ArchDistribution: processing and evidence flow</text>
+  <text class="subtitle" x="48" y="80">Spatial evidence proposes candidates; versioned policy and human review determine what a map number means.</text>
 
   <!-- Top row: collection and candidate generation -->
   <g id="stage-1">
-    <rect class="card" x="50" y="110" width="330" height="245" rx="8"/>
-    <circle class="step" cx="82" cy="145" r="22"/>
-    <text class="step-text" x="82" y="146">1</text>
-    <text class="heading" x="116" y="153">Role-assigned inputs</text>
-    <line class="divider" x1="72" y1="176" x2="358" y2="176"/>
-    <text class="body" x="76" y="210">• designated / registered</text>
-    <text class="body" x="76" y="242">• protection boundary</text>
-    <text class="body" x="76" y="274">• distribution map</text>
-    <text class="body" x="76" y="306">• survey / excavation</text>
-    <text class="eyebrow" x="76" y="338">SOURCE DATA RETAINED</text>
+    <rect class="card" x="35" y="110" width="340" height="250" rx="8"/>
+    <circle class="step" cx="67" cy="145" r="22"/>
+    <text class="step-text" x="67" y="146">1</text>
+    <text class="heading" x="101" y="153">Role-assigned sources</text>
+    <line class="divider" x1="57" y1="176" x2="353" y2="176"/>
+    <text class="body" x="61" y="210">• designated / registered</text>
+    <text class="body" x="61" y="242">• protection boundary</text>
+    <text class="body" x="61" y="274">• distribution map</text>
+    <text class="body" x="61" y="306">• survey / excavation</text>
+    <text class="eyebrow" x="61" y="340">SOURCE DATA RETAINED</text>
   </g>
 
-  <path class="arrow" d="M 392 232 H 423"/>
+  <path class="arrow" d="M 387 235 H 416"/>
 
   <g id="stage-2">
-    <rect class="card" x="435" y="110" width="330" height="245" rx="8"/>
-    <circle class="step" cx="467" cy="145" r="22"/>
-    <text class="step-text" x="467" y="146">2</text>
-    <text class="heading" x="501" y="153">Metric context</text>
-    <line class="divider" x1="457" y1="176" x2="743" y2="176"/>
-    <text class="body" x="461" y="213">source → analysis → output CRS</text>
-    <text class="body" x="461" y="251">extent prefilter</text>
-    <text class="body" x="461" y="289">encoding + geometry repair</text>
-    <text class="eyebrow" x="461" y="332">MEASUREMENTS IN METRES</text>
+    <rect class="card" x="430" y="110" width="340" height="250" rx="8"/>
+    <circle class="step" cx="462" cy="145" r="22"/>
+    <text class="step-text" x="462" y="146">2</text>
+    <text class="heading" x="496" y="153">Metric context</text>
+    <line class="divider" x1="452" y1="176" x2="748" y2="176"/>
+    <text class="body" x="456" y="212">source → analysis → output</text>
+    <text class="body" x="456" y="252">extent prefilter</text>
+    <text class="body" x="456" y="292">encoding + geometry repair</text>
+    <text class="eyebrow" x="456" y="340">MEASUREMENTS IN METRES</text>
   </g>
 
-  <path class="arrow" d="M 777 232 H 808"/>
+  <path class="arrow" d="M 782 235 H 811"/>
 
   <g id="stage-3">
-    <rect class="card" x="820" y="110" width="330" height="245" rx="8"/>
-    <circle class="step" cx="852" cy="145" r="22"/>
-    <text class="step-text" x="852" y="146">3</text>
-    <text class="heading" x="886" y="153">Indexed candidates</text>
-    <line class="divider" x1="842" y1="176" x2="1128" y2="176"/>
-    <text class="body" x="846" y="215">QgsSpatialIndex</text>
-    <text class="body" x="846" y="253">name + spatial evidence</text>
-    <text class="body" x="846" y="291">bounded local comparison</text>
-    <text class="eyebrow" x="846" y="332">NO ALL-PAIRS SCAN</text>
+    <rect class="card" x="825" y="110" width="340" height="250" rx="8"/>
+    <circle class="step" cx="857" cy="145" r="22"/>
+    <text class="step-text" x="857" y="146">3</text>
+    <text class="heading" x="891" y="153">Indexed candidates</text>
+    <line class="divider" x1="847" y1="176" x2="1143" y2="176"/>
+    <text class="body" x="851" y="212">QgsSpatialIndex</text>
+    <text class="body" x="851" y="252">name + spatial evidence</text>
+    <text class="body" x="851" y="292">bounded local comparison</text>
+    <text class="eyebrow" x="851" y="340">NO ALL-PAIRS SCAN</text>
   </g>
 
-  <path class="arrow" d="M 985 367 V 425"/>
+  <path class="arrow" d="M 995 372 V 421"/>
 
   <!-- Bottom row runs right to left: decisions, meaning, outputs -->
   <g id="stage-4">
-    <rect class="card" x="820" y="440" width="330" height="245" rx="8"/>
-    <circle class="step" cx="852" cy="475" r="22"/>
-    <text class="step-text" x="852" y="476">4</text>
-    <text class="heading" x="886" y="483">Rules + review</text>
-    <line class="divider" x1="842" y1="506" x2="1128" y2="506"/>
-    <text class="body" x="846" y="543">versioned JSON + SHA-256</text>
-    <text class="body" x="846" y="579">reversible recommendations</text>
-    <text class="body" x="846" y="615">separate | link | share number</text>
-    <text class="eyebrow" x="846" y="660">HUMAN REVIEW RECORDED</text>
+    <rect class="card" x="825" y="435" width="340" height="250" rx="8"/>
+    <circle class="step" cx="857" cy="470" r="22"/>
+    <text class="step-text" x="857" y="471">4</text>
+    <text class="heading" x="891" y="478">Rules + review</text>
+    <line class="divider" x1="847" y1="501" x2="1143" y2="501"/>
+    <text class="body" x="851" y="540">versioned rules + SHA-256</text>
+    <text class="body" x="851" y="580">reversible recommendations</text>
+    <text class="body" x="851" y="620">separate / link / share number</text>
+    <text class="eyebrow" x="851" y="662">HUMAN DECISION RECORDED</text>
   </g>
 
-  <path class="arrow" d="M 808 562 H 777"/>
+  <path class="arrow" d="M 813 560 H 782"/>
 
   <g id="stage-5">
-    <rect class="card" x="435" y="440" width="330" height="245" rx="8"/>
-    <circle class="step" cx="467" cy="475" r="22"/>
-    <text class="step-text" x="467" y="476">5</text>
-    <text class="heading" x="501" y="483">Keys + typed relations</text>
-    <line class="divider" x1="457" y1="506" x2="743" y2="506"/>
-    <text class="key" x="461" y="532">SITE_ENTITY_KEY</text>
-    <text class="key" x="461" y="558">INVESTIGATION_KEY</text>
-    <text class="key" x="461" y="584">GEOMETRY_GROUP_KEY</text>
-    <text class="key" x="461" y="610">NUMBER_KEY</text>
-    <text class="relation" x="461" y="640">same entity | parent–child</text>
-    <text class="relation" x="461" y="668">investigation–site | boundary–site</text>
+    <rect class="card" x="430" y="435" width="340" height="250" rx="8"/>
+    <circle class="step" cx="462" cy="470" r="22"/>
+    <text class="step-text" x="462" y="471">5</text>
+    <text class="heading" x="496" y="478">Keys + typed relations</text>
+    <line class="divider" x1="452" y1="501" x2="748" y2="501"/>
+    <text class="key" x="456" y="530">SITE_ENTITY_KEY</text>
+    <text class="key" x="456" y="556">INVESTIGATION_KEY</text>
+    <text class="key" x="456" y="582">GEOMETRY_GROUP_KEY</text>
+    <text class="key" x="456" y="608">NUMBER_KEY</text>
+    <text class="relation" x="456" y="640">same entity / parent–child</text>
+    <text class="relation" x="456" y="668">investigation–site / boundary–site</text>
   </g>
 
-  <path class="arrow" d="M 423 562 H 392"/>
+  <path class="arrow" d="M 418 560 H 387"/>
 
   <g id="stage-6">
-    <rect class="card-output" x="50" y="440" width="330" height="245" rx="8"/>
-    <circle class="step" cx="82" cy="475" r="22"/>
-    <text class="step-text" x="82" y="476">6</text>
-    <text class="heading" x="116" y="483">Auditable outputs</text>
-    <line class="divider" x1="72" y1="506" x2="358" y2="506"/>
-    <text class="body" x="76" y="540">point / line / polygon layers</text>
-    <text class="body" x="76" y="574">representative labels + map</text>
-    <text class="body" x="76" y="608">preserved records + audit table</text>
-    <text class="body" x="76" y="642">manifest + content hashes</text>
+    <rect class="card-output" x="35" y="435" width="340" height="250" rx="8"/>
+    <circle class="step" cx="67" cy="470" r="22"/>
+    <text class="step-text" x="67" y="471">6</text>
+    <text class="heading" x="101" y="478">Auditable outputs</text>
+    <line class="divider" x1="57" y1="501" x2="353" y2="501"/>
+    <text class="body" x="61" y="538">point / line / polygon layers</text>
+    <text class="body" x="61" y="574">representative labels + map</text>
+    <text class="body" x="61" y="610">preserved records + audit table</text>
+    <text class="body" x="61" y="646">manifest + content hashes</text>
   </g>
 
-  <rect class="footer" x="160" y="710" width="880" height="38" rx="6"/>
-  <text class="footer-text" x="600" y="736">Source layers remain unchanged; every recommendation and decision remains traceable.</text>
+  <rect class="footer" x="175" y="720" width="850" height="46" rx="6"/>
+  <text class="footer-text" x="600" y="749">Source layers remain unchanged; every recommendation and decision remains traceable.</text>
 </svg>

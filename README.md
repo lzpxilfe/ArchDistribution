@@ -5,26 +5,103 @@
 <h1 align="center">🏺 ArchDistribution</h1>
 
 <p align="center">
-  고고학 분포지도 제작을 빠르게 정리하는 QGIS 플러그인<br>
-  A QGIS plugin for fast archaeological distribution map production
+  여러 고고유산 공간자료를 검토 가능한 규칙으로 정리해 분포지도를 만드는 QGIS 플러그인<br>
+  A QGIS plugin for reviewable reconciliation and mapping of archaeological spatial records
 </p>
 
 <p align="center">
-  <img alt="QGIS 3.40-3.99" src="https://img.shields.io/badge/QGIS-3.40--3.99-589632?logo=qgis&logoColor=white">
+  <img alt="QGIS declared 3.40-3.99" src="https://img.shields.io/badge/QGIS-declared%203.40--3.99-589632?logo=qgis&logoColor=white">
   <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-0ea5e9">
-  <img alt="License GPL v2" src="https://img.shields.io/badge/license-GPL%20v2-f59e0b">
+  <img alt="License GPL-2.0-or-later" src="https://img.shields.io/badge/license-GPL--2.0--or--later-f59e0b">
 </p>
+
+<p align="center">
+  <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml"><img alt="Research software CI" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml"><img alt="QGIS integration" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml"><img alt="JOSS paper build" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml/badge.svg?branch=main"></a>
+</p>
+
+> **원본 레이어는 수정하거나 삭제하지 않습니다.** 결과, 중복 판정 근거,
+> 보존된 원본 레코드와 실행정보는 별도 출력으로 남습니다. 그래도 공식 보고서에
+> 사용하기 전에는 위치·속성·번호·도면 표현을 사람이 최종 검수해야 합니다.
 
 ## ✨ 프로젝트 한눈에 보기 | At a Glance
 
 | 항목 | 내용 |
 |---|---|
 | 현재 버전 | `1.0.5` |
-| 지원 QGIS | `3.40` - `3.99` |
+| QGIS 호환성 | 선언 범위 `3.40` - `3.99`; 자동검증 Windows `3.40.5`, Linux `3.44.13` |
 | 지원 언어 | `자동(QGIS)` / `한국어` / `English` |
-| 주요 입력 | 조사구역, 수치지형도, 주변유적, 선택적 Zone 레이어 |
+| 주요 입력 | 조사구역, 지정·등록유산, 분포지도, 지표·발굴조사, 선택적 지형도·Zone 레이어 |
 | 주요 출력 | `ArchDistribution_결과물` 그룹, 선택적 GPKG·실행정보·JPG/PDF, `latest_log.txt` |
 | 배포 방식 | QGIS ZIP 설치 또는 플러그인 폴더 수동 배치 |
+
+## 👋 처음이라면 여기부터 | Start Here
+
+### 어떤 작업을 하려는 건가요?
+
+| 하려는 작업 | 열 탭·기능 | 핵심 결과 |
+|---|---|---|
+| 조사대상지 주변의 지정유산·분포지도·발굴조사를 모아 번호가 있는 분포지도 만들기 | `문화유적분포지도` | 대표 유적 레이어, 중복 보존 레이어, 검수표, 버퍼·도곽, 인쇄조판 |
+| 매장유산 유존지역을 보존조치 4종으로 나누어 표현하기 | `매장유산 유존지역` | 보존조치별 형상·심볼, 공유 번호, 인쇄조판 |
+| 이미 검토한 결과는 그대로 두고 번호 순서만 다시 정리하기 | 스타일 탭의 `기존 결과 후속 작업 — 번호만 다시 매기기` | 기존 판정키를 보존한 재번호 결과 |
+
+![ArchDistribution processing and evidence flow](paper/figures/archdistribution-workflow.svg)
+
+도면의 후보 생성은 동일성 결정을 뜻하지 않습니다. 공간·명칭 증거로 비교할
+대상을 줄인 뒤, 버전이 고정된 규칙과 사람의 검토가 관계·대표 번호를 정합니다.
+
+### 준비할 자료
+
+| 구분 | 필요한 것 | 참고 |
+|---|---|---|
+| 필수 | 조사구역 레이어와 하나 이상의 고고유산 레이어 | SHP와 GeoPackage를 사용할 수 있습니다. |
+| 권장 | 각 입력의 올바른 CRS, 알아볼 수 있는 레이어명·명칭 필드 | CRS가 없거나 변환할 수 없으면 거리를 안전하게 계산할 수 없어 실행을 중단합니다. |
+| 선택 | 수치지형도, 현상변경 허용기준(Zone), 출력 폴더 | GPKG·JPG·PDF·실행정보 JSON을 함께 보관할 수 있습니다. |
+| 저장 형식 | 결과 보존에는 GeoPackage 권장 | Shapefile은 긴 필드명과 `SRC_JSON` 같은 긴 텍스트가 잘릴 수 있습니다. |
+
+전국 원자료와 실제 유적 좌표는 라이선스와 민감성 때문에 이 저장소에 포함하지
+않습니다. 사용자는 권한이 있는 자료를 QGIS에 직접 불러와야 합니다.
+
+### 내 자료로 첫 실행하기
+
+현재 공개 저장소에는 실제 유적 좌표가 없는 완전한 QGIS 공간 예제 프로젝트가
+아직 없습니다. 아래 절차는 사용 권한이 있는 자신의 자료로 처음 실행하는
+경로입니다. 공개된 `validation/fixtures`는 판정정책용 합성 JSON이며 QGIS에
+불러오는 공간 레이어가 아닙니다.
+
+1. QGIS `3.40` 이상을 열고 `Plugins → Manage and Install Plugins → Install from ZIP`을 선택합니다.
+2. `ArchDistribution-1.0.5.zip`을 설치하고 플러그인을 활성화합니다.
+3. QGIS 프로젝트에 조사구역과 주변 고고유산 레이어를 불러옵니다.
+4. ArchDistribution의 `문화유적분포지도` 탭에서 조사구역·유산 레이어를 선택합니다.
+5. 자동 추천된 자료 역할을 확인합니다. 모호한 레이어는 임의로 추정하지 말고 직접 역할을 지정합니다.
+6. 판형·축척·버퍼 거리와 기본 `균형형` 중복처리를 확인한 뒤 실행합니다.
+7. 중복 후보마다 `별도 유지`, `연결만`, `대표 번호로 묶기` 중 하나를 확인합니다.
+8. `ArchDistribution_결과물` 그룹의 대표 결과·`중복_보존`·검수표·인쇄조판을 확인합니다.
+
+> **처음 시험할 때 권장값:** 중복처리 `균형형`, GeoPackage와 실행정보 JSON
+> 저장 켜기, 도곽 미세조각 제외 켜기. `자동화 우선형`은 규칙을 이해한 뒤
+> 사용하는 편이 안전합니다.
+
+### GitHub에서 직접 설치 패키지 만들기
+
+저장소를 clone한 심사자·개발자는 깨끗한 작업 트리에서 다음을 실행할 수 있습니다.
+
+```bash
+git clone https://github.com/lzpxilfe/ArchDistribution.git
+cd ArchDistribution
+python verify_guardrails.py
+python create_zip.py
+```
+
+`create_zip.py`는 바탕화면에 `ArchDistribution-1.0.5.zip`을 만들며, ZIP 안에는
+QGIS가 요구하는 최상위 `ArchDistribution/` 폴더 하나만 들어갑니다.
+
+**English quick path:** Install the versioned ZIP through QGIS Plugin Manager,
+load a study-area layer and one or more heritage layers, confirm the suggested
+source roles, run the Balanced preset, review every proposed relationship, and
+inspect both the representative output and the audit layers. Source layers are
+not modified. Build the ZIP from a clean clone with the commands above.
 
 ## 🧭 프로젝트 소개 | Overview
 
@@ -37,6 +114,12 @@ ArchDistribution is a QGIS plugin built to reduce repetitive GIS work in archaeo
 It streamlines buffering, heritage-layer merging, numbering, zone processing, styling, and logging in one workflow.
 
 ## 🚀 현재 제공 기능 | Current Features
+
+<details>
+<summary><strong>전체 기능 목록 펼치기 | Show the complete feature list</strong></summary>
+
+빠른 설치와 첫 실행만 필요하다면 위의 `처음이라면 여기부터`만 읽어도 됩니다.
+아래 목록은 세부 동작과 검수 기능을 확인하려는 사용자·심사자를 위한 것입니다.
 
 **KR**
 - `조사구역 / 수치지형도 / 주변유적 / Zone` 레이어를 한 화면에서 선택
@@ -56,7 +139,7 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 지표조사는 자동 소거하지 않고 기본적으로 별도 유지
 - 지정유산 보호구역은 본체와 연결된 무번호 경계로 분리
 - 대표에서 제외된 형상과 판정 근거를 `중복_보존` 및 `중복_판정_검수표`에 보존
-- `사업명`이 같은 발굴유적의 분할 구역을 하나로 병합하여 한 번호 부여
+- `사업명`이 같은 발굴 기록은 조사사건과 번호를 공유하되 원본별 유적 실체와 형상 그룹은 보존
 - 조사사건(`INVESTIGATION_KEY`)·유적 실체(`SITE_ENTITY_KEY`)·지도 번호(`NUMBER_KEY`)·형상 그룹(`GEOMETRY_GROUP_KEY`)을 별도 기록
 - 점·선·면 입력을 형상 계열별 결과 레이어로 유지하면서 전체 번호 순서는 연속 부여
 - `문화유적분포지도 / 매장유산 유존지역` 전용 작업 탭 분리
@@ -99,7 +182,7 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Never auto-suppress surface-survey records
 - Keep protection zones as linked, unnumbered boundaries
 - Preserve suppressed geometries and all review evidence in dedicated audit layers
-- Dissolve excavation areas with the same project name and assign one number
+- Share the investigation and map number for records from the same excavation project while retaining source-specific site entities and geometry groups
 - Record investigation, site-entity, map-number, and geometry-group identities separately
 - Preserve point, line, and polygon outputs by geometry family with one continuous numbering sequence
 - Separate dedicated workflows for distribution maps and preservation areas
@@ -123,6 +206,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Record schema-v2 CRS, ruleset, input/cache/output hashes, encoding, repair/exclusion, and terminal status provenance
 - Create an editable print layout and export a 300-dpi JPG/PDF at the selected paper size and scale
 - Auto-zoom to the output extent after processing
+
+</details>
 
 ## 🗺️ 매장유산 유존지역 | Buried Heritage Preservation Areas
 
@@ -160,6 +245,23 @@ and text-length limits.
 확인합니다. 발굴·지표조사는 속성 구조가 거의 같으므로 이름이 모호한 사용자
 자료는 `기타`로 남겨 잘못 추정하지 않으며, 사용자가 역할을 직접 지정할 수
 있습니다.
+
+검토창의 세 선택은 다음 뜻입니다.
+
+| 선택 | 지도 번호 | 원본·속성 | 관계 기록 |
+|---|---|---|---|
+| `별도 유지` | 각각 유지 | 모두 보존 | 동일·관련 관계를 만들지 않음 |
+| `연결만` | 각각 유지 | 모두 보존 | 서로 관련된 별도 자료로 연결 |
+| `대표 번호로 묶기` | 하나의 `NUMBER_KEY` 공유, 대표 라벨 하나 | 대표에서 빠진 자료도 `중복_보존`과 검수표에 보존 | 동일 실체인지 단순 번호 공유인지 관계 유형과 키로 구분 |
+
+세 프리셋은 검토 책임을 없애는 단계가 아니라, 어떤 후보를 자동 추천하고 어떤
+후보를 반드시 사람에게 보여줄지 정하는 정책입니다.
+
+| 프리셋 | 권장 상황 | 동작 |
+|---|---|---|
+| `균형형` | 대부분의 첫 작업 | 동일 명칭과 실제 중첩처럼 근거가 강한 관계만 대표화 추천 |
+| `보수형` | 민감한 보고서·규칙 확인 | 자동 대표화 없이 후보를 사람이 검토 |
+| `자동화 우선형` | 규칙을 검증한 반복 작업 | 더 높은 유사도·중첩 후보까지 자동 추천하되 지표조사와 지정–발굴 관계는 제외 |
 
 기본 `균형형`은 명칭이 같고 실제 면적이 중첩되는
 `지정·등록유산 ↔ 분포지도`, `발굴조사 ↔ 분포지도`만 대표화를 추천합니다.
@@ -210,9 +312,10 @@ and text-length limits.
 3. `ArchDistribution`를 실행하고 데이터 탭에서 입력 레이어를 선택합니다.
 4. 자동 추천된 자료 역할과 중복 판정 프리셋을 확인합니다.
 5. 도곽 크기, 축척, 버퍼 거리, 스타일, km 표기 여부와 정렬 방식을 설정합니다.
-6. `속성 분류 실행`으로 시대/성격 후보와 제외 제안 목록을 확인합니다.
-7. 필요하면 공통 `선택 저장 및 인쇄조판 출력`에서 GPKG·JPG·PDF를 켭니다.
-8. `▶ 분석 및 지도 생성 실행` 후 중복 후보의 처리 방식을 검토합니다.
+6. 필요하면 공통 `선택 저장 및 인쇄조판 출력`에서 GPKG·JPG·PDF를 켭니다.
+7. `▶ 분석 및 지도 생성 실행` 후 중복 후보의 처리 방식을 검토합니다.
+8. 출처·라이선스가 확인된 선택형 분류 사전을 별도로 설치한 경우에만
+   `속성 분류 실행`의 시대·성격 후보와 제외 제안을 보조자료로 확인합니다.
 9. 편집 후에는 스타일 탭의 `기존 결과 후속 작업 — 번호만 다시 매기기`에서
    대표 결과를 골라 중복·대표 판정을 유지한 채 번호를 다시 정리합니다.
 
@@ -226,9 +329,10 @@ and text-length limits.
 3. Open `ArchDistribution` and select input layers on the Data tab.
 4. Confirm the detected source roles and duplicate-matching preset.
 5. Configure paper size, scale, buffers, styles, and sort order.
-6. Run `Attribute Scan` to review classification and exclusion suggestions.
-7. Optionally enable GPKG, JPG, or PDF under `Optional Archive and Print Outputs`.
-8. Click `Run Analysis / Generate Map` and review duplicate candidates.
+6. Optionally enable GPKG, JPG, or PDF under `Optional Archive and Print Outputs`.
+7. Click `Run Analysis / Generate Map` and review duplicate candidates.
+8. Use `Attribute Scan` only when separately installed classification assets
+   have confirmed provenance and licensing; its suggestions are not required for the core workflow.
 9. If you edit results later, choose the representative layer under
    `Existing Result Follow-up — Renumber Only`; match decisions stay unchanged.
 
@@ -256,6 +360,11 @@ area and width, so complete small sites inside the map remain included.
 
 ### 1) ZIP 설치 (권장) | Install from ZIP (Recommended)
 
+정식 GitHub Release가 만들어지기 전에는 저장소에서 임의의 ZIP을 받지 말고,
+이 저장소를 clone하여 아래 `python create_zip.py`로 직접 만들거나 저자가
+제공한 커밋·체크섬이 명시된 `1.0.5` 시험 ZIP을 사용하세요. JOSS 심사 중에는
+GitHub Actions가 같은 소스에서 만든 설치 ZIP도 확인할 수 있습니다.
+
 **KR**
 1. 플러그인 ZIP 파일을 준비합니다.
 2. QGIS에서 `Plugins -> Manage and Install Plugins -> Install from ZIP`으로 이동합니다.
@@ -278,13 +387,35 @@ area and width, so complete small sites inside the map remain included.
 ## 🛠️ 개발 및 배포 | Development & Release
 
 현재 저장소에는 ZIP 생성과 기본 검증을 위한 스크립트가 포함되어 있습니다.
+전체 자동검증은 GitHub Actions의
+[Research software CI](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml),
+[QGIS integration](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml),
+[JOSS paper build](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml)에서
+확인할 수 있습니다. 현재 검증 범위와 아직 주장하지 않는 항목은
+[validation/results/status.md](validation/results/status.md)에 구분해 기록합니다.
 
 ```bash
-python -m py_compile arch_distribution.py arch_distribution_dialog.py heritage_matching.py heritage_matching_dialog.py heritage_identity_store.py run_artifacts.py
-python -m unittest test_heritage_matching test_heritage_grouping test_cartographic_filtering test_preservation_actions test_heritage_identity_store test_run_artifacts
+python -m compileall -q .
 python verify_guardrails.py
 python create_zip.py
 ```
+
+순수 정책 테스트와 QGIS 통합테스트의 정확한 모듈·환경은 위 workflow 파일에
+고정되어 있습니다. 공개 fixture는 완전히 합성한 사례이며, 실제 전국 SHP나
+민감한 유적 좌표를 재배포하지 않습니다.
+
+### JOSS reviewer quick path
+
+1. Clone the public repository and inspect `paper/`, `docs/research/`, and `validation/`.
+2. Check the three public Actions workflows linked above.
+3. Run `python verify_guardrails.py` and `python create_zip.py` from a clean checkout.
+4. Install the generated ZIP in QGIS 3.40 or later.
+5. Review the synthetic policy cases and their expected outcomes under `validation/`.
+6. Open an issue if installation, documentation, or a reproducible workflow is unclear.
+
+The JOSS proof PDF is compiled from [paper/paper.md](paper/paper.md); the PDF is
+not the source of record. The repository commit, manuscript source, tests, and
+review history are the materials reviewed by JOSS.
 
 **KR**
 - `create_zip.py`는 `metadata.txt`의 버전을 읽어 `~/Desktop/ArchDistribution-1.0.5.zip` 형태로 패키징합니다.
@@ -300,6 +431,23 @@ python create_zip.py
 
 **KR**
 - 결과는 QGIS 레이어 패널의 `ArchDistribution_결과물` 그룹 아래에 정리됩니다.
+- 기본 그룹 구조는 다음과 같습니다. `06_중복_검수`와
+  `ArchDistribution_원본_데이터`는 지도 가독성을 위해 처음에는 꺼져 있지만
+  삭제된 것이 아닙니다.
+
+```text
+ArchDistribution_결과물
+├─ 00_조사구역_및_표제
+├─ 01_유적_현황
+├─ 02_도곽_및_영역
+├─ 03_조사구역_버퍼
+├─ 04_수치지형도_병합
+├─ 05_현상변경허용기준
+└─ 06_중복_검수  (기본 숨김)
+
+ArchDistribution_원본_데이터  (기본 숨김, 원본 유지)
+```
+
 - 화면이 비어 보이면 그룹 가시성을 확인하고 `레이어로 확대`를 시도해 주세요.
 - `GeoPackage + 실행정보(JSON)`을 켜면 대표·중복보존·보호구역·검수표를
   하나의 `.gpkg`에 저장하고 같은 이름의 `_run.json`에 입력·출력 건수와
@@ -355,6 +503,21 @@ python create_zip.py
 - Re-run the original source layers—not only the representative result—to
   change duplicate or representative decisions.
 
+### 문제를 제보할 때 | Reporting a Problem
+
+[GitHub Issues](https://github.com/lzpxilfe/ArchDistribution/issues)에 다음 내용을
+적어주면 재현이 빨라집니다.
+
+- 운영체제, QGIS 버전, ArchDistribution 버전
+- 실행한 탭과 주요 설정(축척·버퍼·중복 프리셋·분석 CRS)
+- `latest_log.txt`의 관련 부분과 오류 메시지
+- 기대한 결과와 실제 결과
+- 가능하면 실제 좌표를 제거한 최소 재현 자료 또는 화면 캡처
+
+공개 이슈에 비공개 보고서, 개인정보, 전국 원자료, 실제 유적의 민감 좌표를
+올리지 마세요. 민감 자료가 없어도 재현할 수 있도록 필드 구조와 가상의 예시값을
+설명하는 편이 안전합니다.
+
 ## ⚠️ 면책 | Disclaimer
 
 **KR**  
@@ -398,6 +561,7 @@ source datasets and real site coordinates are not distributed here.
 
 - Version: `1.0.5`
 - Author: `Jinseo Hwang (lzpxilfe / balguljang2)`
+- ORCID: [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083)
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)
 - License: `GPL-2.0-or-later` (paper and research documents: `CC-BY-4.0`)
