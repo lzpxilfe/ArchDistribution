@@ -14,12 +14,12 @@
       .step { fill: #005b96; stroke: #ffffff; stroke-width: 2; }
       .step-text { fill: #ffffff; font: 700 22px Arial, Helvetica, sans-serif; text-anchor: middle; dominant-baseline: middle; }
       .heading { fill: #102027; font: 700 21px Arial, Helvetica, sans-serif; }
-      .body { fill: #263238; font: 18px Arial, Helvetica, sans-serif; }
-      .key { fill: #263238; font: 700 16px Consolas, "Liberation Mono", monospace; }
-      .relation { fill: #263238; font: 16px Arial, Helvetica, sans-serif; }
-      .eyebrow { fill: #005b96; font: 700 16px Arial, Helvetica, sans-serif; letter-spacing: 0.35px; }
+      .body { fill: #263238; font: 20px Arial, Helvetica, sans-serif; }
+      .key { fill: #263238; font: 700 19px Consolas, "Liberation Mono", monospace; }
+      .relation { fill: #263238; font: 19px Arial, Helvetica, sans-serif; }
+      .eyebrow { fill: #005b96; font: 700 19px Arial, Helvetica, sans-serif; letter-spacing: 0.35px; }
       .title { fill: #102027; font: 700 32px Arial, Helvetica, sans-serif; }
-      .subtitle { fill: #37474f; font: 18px Arial, Helvetica, sans-serif; }
+      .subtitle { fill: #37474f; font: 20px Arial, Helvetica, sans-serif; }
       .arrow { fill: none; stroke: #263238; stroke-width: 4; marker-end: url(#arrow); }
       .divider { stroke: #78909c; stroke-width: 1.5; }
       .footer { fill: #ffffff; stroke: #005b96; stroke-width: 2; stroke-dasharray: 8 5; }
@@ -29,14 +29,14 @@
 
   <rect class="background" x="0" y="0" width="1200" height="800"/>
   <text class="title" x="48" y="48">ArchDistribution: processing and evidence flow</text>
-  <text class="subtitle" x="48" y="80">Spatial evidence proposes candidates; versioned policy and human review determine what a map number means.</text>
+  <text class="subtitle" x="48" y="80">Spatial evidence proposes candidates; versioned rules and human review determine map numbers.</text>
 
   <!-- Top row: collection and candidate generation -->
   <g id="stage-1">
     <rect class="card" x="35" y="110" width="340" height="250" rx="8"/>
     <circle class="step" cx="67" cy="145" r="22"/>
     <text class="step-text" x="67" y="146">1</text>
-    <text class="heading" x="101" y="153">Role-assigned sources</text>
+    <text class="heading" x="101" y="153">Role-assigned data</text>
     <line class="divider" x1="57" y1="176" x2="353" y2="176"/>
     <text class="body" x="61" y="210">• designated / registered</text>
     <text class="body" x="61" y="242">• protection boundary</text>
@@ -119,5 +119,5 @@
   </g>
 
   <rect class="footer" x="175" y="720" width="850" height="46" rx="6"/>
-  <text class="footer-text" x="600" y="749">Source layers remain unchanged; every recommendation and decision remains traceable.</text>
+  <text class="footer-text" x="600" y="749">Sources stay unchanged; recommendations and decisions stay traceable.</text>
 </svg>

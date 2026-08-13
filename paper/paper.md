@@ -52,7 +52,7 @@ Users first assign source roles such as designated heritage, protection boundary
 
 The workflow is summarized in \autoref{fig:workflow}.
 
-![Role-assigned inputs are measured in an explicit metric context. Extent filtering and spatial indexing bound the comparisons. Versioned rules and human review produce separate identifiers and typed relations, while geometry-family outputs preserve source evidence beside the printable map, audit table, and run manifest. \label{fig:workflow}](figures/archdistribution-workflow.svg)
+![Role-assigned inputs are measured in an explicit metric context. Extent filtering and spatial indexing bound the comparisons. Versioned rules and human review produce separate identifiers and typed relations, while geometry-family outputs preserve source evidence beside the printable map, audit table, and run manifest. \label{fig:workflow}](figures/archdistribution-workflow.svg){width="100%"}
 
 Versioned rules evaluate candidate pairs using source roles, normalized names, directional containment, intersection over union, area ratio, and distance. The resulting relation types distinguish identity, an investigation at a site, a legal boundary around a site, a parent and component, related but separate entries, and uncertainty. A user can keep a pair separate, link it, or assign a shared representative number. One excavation project may share a numbering key without forcing all named sites in that project to share an entity key. Only a confirmed identity decision enters equivalence clustering. Unresolved matches remain visible for review because a false merge may erase a meaningful distinction.
 
