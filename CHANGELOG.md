@@ -38,8 +38,8 @@ tags do not change the installable plugin version.
 - Research claims are explicitly limited while the 300-pair pilot, external
   installation test, real-workflow observations, and DOI remain pending.
 - Mixed-geometry family separation, directional containment evidence, and
-  per-layer encoding selection are implemented; their broader QGIS 3.44 and
-  golden-fixture coverage remains part of the research release gate.
+  per-layer encoding selection pass QGIS 3.44 CI; broader golden-fixture
+  coverage remains part of the research release gate.
 - Preservation-area numbering accepts only exact semantic supplier site-ID
   fields; generic `CODE` fields and incomplete name/address fallbacks cannot
   collapse unrelated records into one number.

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "evidence_type": "github_actions_qgis_integration",
+  "date": "2026-08-13",
+  "status": "passed",
+  "run": {
+    "id": 31670485940,
+    "url": "https://github.com/lzpxilfe/ArchDistribution/actions/runs/31670485940",
+    "head_commit": "43a8f7f21e877b6bf2b8e8981f9920e228b7e413",
+    "branch": "main"
+  },
+  "runtime": {
+    "container": "qgis/qgis:3.44.13-noble",
+    "qgis": "3.44.13-Solothurn",
+    "python": "3.12.3",
+    "operating_system": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "qt_platform": "offscreen"
+  },
+  "tests": {
+    "metric_context": 16,
+    "qgis_integration": 68,
+    "total": 84,
+    "failures": 0,
+    "errors": 0
+  },
+  "benchmark": {
+    "synthetic": true,
+    "feature_count": 100000,
+    "index_build_seconds": 2.189475,
+    "query_seconds": 1.052384,
+    "total_seconds": 3.241859,
+    "peak_rss_mib": 250.699,
+    "raw_index_hits": 896208,
+    "unique_candidate_pairs": 398104,
+    "theoretical_all_pairs": 4999950000,
+    "maximum_hits_per_query": 9
+  },
+  "package": {
+    "crc_verified": true,
+    "headless_class_factory": true,
+    "artifact_id": 9169508402
+  }
+}

@@ -35,9 +35,10 @@ additional regressions were added, including cross-CRS measurement, terminal
 manifest, invalid pre-clip repair, contained-boundary distance, and protection
 code-collision, typed cross-family review, entity-versus-number cases,
 preservation-site identifier safety, and normalized geometry hashing. It
-is diagnostic local evidence; the pinned
-QGIS 3.44 workflow and installable-ZIP import still need a successful GitHub
-Actions run before the release gate passes.
+is diagnostic local evidence. The pinned QGIS 3.44.13 workflow subsequently
+passed 84/84 tests, the indexed benchmark, and installable-ZIP import on GitHub
+Actions. Its machine-readable record is
+`qgis-3.44.13-github-2026-08-13.json`.
 The machine-readable local record is
 `qgis-3.40.5-windows-2026-08-13.json`; it explicitly marks the working tree as
 dirty and is therefore diagnostic rather than release evidence.
@@ -47,16 +48,17 @@ its one-directory QGIS layout, extracted into a clean temporary plugin path,
 and loaded through `classFactory` in QGIS 3.40.5. Its diagnostic checksum and
 the list of provenance-blocked assets are recorded in
 `package-qgis-3.40.5-windows-2026-08-13.json`. This does not replace the pinned
-QGIS 3.44 CI installation gate or an independent external-user test.
+QGIS 3.44 CI installation evidence or an independent external-user test.
 
 ## Current synthetic benchmark
 
 | Runtime | Features | Candidate pairs | All-pairs baseline | Time | Peak RSS |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | QGIS 3.40.5 / Python 3.12.9 / Windows | 100,000 | 398,104 | 4,999,950,000 | 27.280 s | 164.188 MiB |
+| QGIS 3.44.13 / Python 3.12.3 / Linux CI | 100,000 | 398,104 | 4,999,950,000 | 3.242 s | 250.699 MiB |
 
 The committed measurement was produced by
 `validation/benchmark_spatial_index.py`. It measures synthetic local candidate
 generation, not end-to-end nationwide source loading. The maximum query result
 was nine records, demonstrating bounded spatial-index work rather than a full
-pairwise comparison. QGIS 3.44 CI replication remains a release gate.
+pairwise comparison. The pinned QGIS 3.44.13 CI replication passed.

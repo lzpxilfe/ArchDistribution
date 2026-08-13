@@ -54,8 +54,8 @@ fixture별 실행 명령은 각 README에 고정한다. 현재 비어 있는 fix
 ## CI와 로컬 QGIS
 
 GitHub Actions는 Python 3.9/3.12 정적·순수 정책 검사를 수행하고, 별도 QGIS
-워크플로는 검증된 QGIS 3.44 LTR 컨테이너에서 통합시험과 headless 설치를 수행하는
-것을 목표로 한다. QGIS 3.28 Windows 시험은 하위호환을 다시 주장할 때 수동
+워크플로는 고정된 QGIS 3.44 LTR 컨테이너에서 통합시험과 headless 설치를 수행한다.
+QGIS 3.28 Windows 시험은 하위호환을 다시 주장할 때 수동
 템플릿으로 기록한다. 현재 PC의 3.28 설치는 실행 런타임이 불완전해 시험할 수
 없었으므로 `qgisMinimumVersion`을 로컬 검증이 끝난 3.40으로 올렸다. CI가 아직
 활성화되지 않았거나 컨테이너 이미지가 고정되지 않은 항목은 연구 Release의
@@ -63,8 +63,8 @@ GitHub Actions는 Python 3.9/3.12 정적·순수 정책 검사를 수행하고, 
 
 2026-08-13 현재 working tree의 로컬 QGIS 3.40.5/Python 3.12.9 재실행에서는
 `test_metric_context.py`와 모든 `test_qgis_*.py`가 84/84 통과했다. 추가 회귀
-테스트가 생겨 이전 68개 통과 기록보다 총수가 늘었다. 이 로컬 결과는 호환성
-근거이지만 QGIS 3.44 CI와 ZIP 설치 시험을 대신하지 않는다.
+테스트가 생겨 이전 68개 통과 기록보다 총수가 늘었다. GitHub Actions의
+QGIS 3.44.13 실행도 같은 84개 시험, 10만 건 합성 벤치마크, ZIP 설치를 통과했다.
 
 ## 비공개 자료 재현
 
@@ -77,11 +77,11 @@ GitHub Actions는 Python 3.9/3.12 정적·순수 정책 검사를 수행하고, 
 
 - 초기 합성 정책 fixture: **13/13 통과**
 - 합성 golden fixture 전체: **부분 완료; metric·encoding·geometry repair·취소·결정론적 출력 확대 pending**
-- 100,000건 공간 인덱스 로컬 결과: **QGIS 3.40.5 Windows 통과, 3.44 CI pending**
-- QGIS 3.40.5 로컬 통합검증: **84/84 통과, QGIS 3.44 CI pending**
-- 점·선·면 family-separated 출력과 연속 번호: **implemented, local regression pass, CI pending**
+- 100,000건 공간 인덱스 결과: **QGIS 3.40.5 Windows와 QGIS 3.44.13 CI 통과**
+- QGIS 통합검증: **3.40.5 로컬 84/84, 3.44.13 CI 84/84 통과**
+- 점·선·면 family-separated 출력과 연속 번호: **implemented, local/CI regression pass**
 - 양방향 폴리곤 포함률 `COVER_A`/`COVER_B`: **implemented, unit/local suite pass, broader golden coverage pending**
-- 레이어별 인코딩 선택·manifest 기록: **implemented, local tests pass, QGIS 3.44 CI pending**
+- 레이어별 인코딩 선택·manifest 기록: **implemented, local/QGIS 3.44 CI tests pass**
 - Windows QGIS 3.28 수동 기록: **현재 지원 범위 밖; 하위호환 복원 시 pending**
 - 외부 사용자 재현: **pending**
 - Zenodo archive 및 DOI: **pending**
