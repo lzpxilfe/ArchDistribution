@@ -82,9 +82,9 @@
     <text class="step-text" x="857" y="471">4</text>
     <text class="heading" x="891" y="478">Rules + review</text>
     <line class="divider" x1="847" y1="501" x2="1143" y2="501"/>
-    <text class="body" x="851" y="540">versioned rules + SHA-256</text>
-    <text class="body" x="851" y="580">reversible recommendations</text>
-    <text class="body" x="851" y="620">separate / link / share number</text>
+    <text class="body" x="851" y="540">ruleset + SHA-256</text>
+    <text class="body" x="851" y="580">reviewable suggestions</text>
+    <text class="body" x="851" y="620">keep / link / share number</text>
     <text class="eyebrow" x="851" y="662">HUMAN DECISION RECORDED</text>
   </g>
 
@@ -101,7 +101,7 @@
     <text class="key" x="456" y="582">GEOMETRY_GROUP_KEY</text>
     <text class="key" x="456" y="608">NUMBER_KEY</text>
     <text class="relation" x="456" y="640">same entity / parent–child</text>
-    <text class="relation" x="456" y="668">investigation–site / boundary–site</text>
+    <text class="relation" x="456" y="668">investigation / boundary links</text>
   </g>
 
   <path class="arrow" d="M 418 560 H 387"/>
