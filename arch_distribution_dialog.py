@@ -2965,9 +2965,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             return None
         try:
             provider = layer.dataProvider()
-            current = str(provider.encoding() or "").strip()
-            if current.casefold() == selected.casefold():
-                return selected
             # Set both layer and provider encodings before reload.  Calling
             # only one API can leave old DBF strings cached in QGIS.
             layer.setProviderEncoding(selected)

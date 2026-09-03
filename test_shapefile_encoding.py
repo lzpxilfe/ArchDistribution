@@ -48,6 +48,19 @@ class ShapefileEncodingTests(unittest.TestCase):
                 ("CP949", ".cpg"),
             )
 
+    def test_cp949_dbf_overrides_a_stale_utf8_cpg(self):
+        header = bytearray(32)
+        header[29] = 0x79
+        with tempfile.TemporaryDirectory() as directory:
+            shp_path = Path(directory) / "heritage.shp"
+            shp_path.write_bytes(b"")
+            shp_path.with_suffix(".dbf").write_bytes(bytes(header))
+            shp_path.with_suffix(".cpg").write_text("UTF-8", encoding="ascii")
+            self.assertEqual(
+                declared_shapefile_encoding(shp_path),
+                ("CP949", "DBF automatic detection"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

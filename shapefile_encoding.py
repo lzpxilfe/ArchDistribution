@@ -32,6 +32,15 @@ def declared_shapefile_encoding(shp_path):
     path = Path(shp_path)
     if path.suffix.casefold() != ".shp":
         return None, None
+    # The DBF language driver records the bytes actually stored in the
+    # attribute table.  Some public downloads ship a stale ``UTF-8`` .cpg
+    # next to a CP949 DBF; trusting that sidecar first creates mojibake before
+    # the plugin can inspect the zone values.  A positive CP949 DBF detection
+    # therefore takes precedence over a conflicting sidecar declaration.
+    inferred = infer_dbf_encoding(path.with_suffix(".dbf"))
+    if inferred == "CP949":
+        return inferred, "DBF automatic detection"
+
     cpg_path = path.with_suffix(".cpg")
     if cpg_path.exists():
         try:
@@ -42,7 +51,6 @@ def declared_shapefile_encoding(shp_path):
             declared = ""
         if declared:
             return declared, ".cpg"
-    inferred = infer_dbf_encoding(path.with_suffix(".dbf"))
     return (inferred, "DBF automatic detection") if inferred else (None, None)
 
 

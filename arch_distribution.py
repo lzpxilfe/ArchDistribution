@@ -675,40 +675,47 @@ class ArchDistribution:
                         her_group.addLayer(result_layer)
                     self.log("최종 결과 유적 레이어 등록 완료.")
 
-                    for protection_layer in protection_layers:
-                        if protection_layer.featureCount() <= 0:
-                            continue
-                        self.apply_protection_zone_style(protection_layer)
-                        QgsProject.instance().addMapLayer(
-                            protection_layer,
-                            False,
-                        )
-                        her_group.addLayer(protection_layer)
-                        self.log(
-                            "지정유산 보호구역 경계를 무번호 레이어로 "
-                            "등록했습니다."
-                        )
-
-                    for suppressed_layer in suppressed_layers:
-                        if suppressed_layer.featureCount() <= 0:
-                            continue
-                        QgsProject.instance().addMapLayer(
-                            suppressed_layer,
-                            False,
-                        )
-                        audit_group.addLayer(suppressed_layer)
-                    for audit_layer in audit_layers:
-                        if audit_layer.featureCount() <= 0:
-                            continue
-                        QgsProject.instance().addMapLayer(
-                            audit_layer,
-                            False,
-                        )
-                        audit_group.addLayer(audit_layer)
-                    audit_group.setItemVisibilityChecked(False)
-
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
+
+                # Legal protection boundaries are independent map outputs.
+                # They must be registered even when the operator deliberately
+                # selected no nearby-heritage layer, in which case
+                # ``merged_heritage`` is correctly empty.
+                for protection_layer in protection_layers:
+                    for separate_layer in self.split_protection_zone_layers(
+                        protection_layer
+                    ):
+                        if separate_layer.featureCount() <= 0:
+                            continue
+                        self.apply_protection_zone_style(separate_layer)
+                        QgsProject.instance().addMapLayer(
+                            separate_layer,
+                            False,
+                        )
+                        her_group.addLayer(separate_layer)
+                        self.log(
+                            f"{separate_layer.name()} 경계를 무번호 "
+                            "레이어로 등록했습니다."
+                        )
+
+                for suppressed_layer in suppressed_layers:
+                    if suppressed_layer.featureCount() <= 0:
+                        continue
+                    QgsProject.instance().addMapLayer(
+                        suppressed_layer,
+                        False,
+                    )
+                    audit_group.addLayer(suppressed_layer)
+                for audit_layer in audit_layers:
+                    if audit_layer.featureCount() <= 0:
+                        continue
+                    QgsProject.instance().addMapLayer(
+                        audit_layer,
+                        False,
+                    )
+                    audit_group.addLayer(audit_layer)
+                audit_group.setItemVisibilityChecked(False)
 
             # A current-change standard map is meaningful without surrounding
             # sites.  Previously this was accidentally nested under the
@@ -2412,13 +2419,14 @@ class ArchDistribution:
             self.log(f"  -> 인코딩은 공급자 기본값 유지: {layer.name()}")
             return None
         try:
-            current = str(layer.dataProvider().encoding() or "").strip()
-            if current.casefold() != selected.casefold():
-                layer.setProviderEncoding(selected)
-                layer.dataProvider().setEncoding(selected)
-                layer.dataProvider().reloadData()
-                layer.updateFields()
-                layer.triggerRepaint()
+            # Reload even when QGIS reports the same encoding.  It may have
+            # decoded the DBF before this plug-in was opened and retained
+            # mojibake strings in the provider cache.
+            layer.setProviderEncoding(selected)
+            layer.dataProvider().setEncoding(selected)
+            layer.dataProvider().reloadData()
+            layer.updateFields()
+            layer.triggerRepaint()
             self.log(
                 f"  -> 인코딩: {selected} ({basis}, {layer.name()})"
             )
@@ -6655,6 +6663,41 @@ class ArchDistribution:
         layer.setLabelsEnabled(False)
         layer.triggerRepaint()
 
+    def split_protection_zone_layers(self, layer):
+        """Keep national and provincial protection zones as separate outputs."""
+        if not layer:
+            return []
+        family_field = "PROTECTION_FAMILY"
+        if layer.fields().indexFromName(family_field) < 0:
+            layer.setName("지정유산_보호구역")
+            return [layer]
+        definitions = (
+            ("national", "국가지정유산_보호구역"),
+            ("local", "시도지정유산_보호구역"),
+        )
+        outputs = []
+        for family, name in definitions:
+            output = self._memory_layer_like(
+                layer,
+                name,
+                lambda feature, value=family: (
+                    str(feature[family_field] or "") == value
+                ),
+            )
+            if output.featureCount() > 0:
+                outputs.append(output)
+        # Preserve unexpected supplier values rather than silently dropping
+        # a boundary whose family was not supplied by the dialog.
+        known = {family for family, _name in definitions}
+        fallback = self._memory_layer_like(
+            layer,
+            "지정유산_보호구역_분류확인",
+            lambda feature: str(feature[family_field] or "") not in known,
+        )
+        if fallback.featureCount() > 0:
+            outputs.append(fallback)
+        return outputs
+
     def apply_zone_categorical_style(self, layer):
         """Apply the supplied current-change legend to one categorical layer."""
         field_name = self.find_field(layer, ['구역', '구역명', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
@@ -6909,16 +6952,9 @@ class ArchDistribution:
             if not src_group:
                 src_group = root.addGroup("ArchDistribution_원본_데이터")
 
-            # Find the layer node
-            my_node = root.findLayer(layer.id())
-            if my_node:
-                my_clone = my_node.clone()
-                src_group.addChildNode(my_clone)
-                # Remove from original position to prevent duplicate (or just leave it? User said "grouped together")
-                # Usually better to move.
-                parent = my_node.parent()
-                parent.removeChildNode(my_node)
-                self.log("   -> 원본 현상변경허용기준 레이어를 'ArchDistribution_원본_데이터' 그룹으로 이동했습니다.")
+            self.move_layer_to_group(layer, src_group)
+            src_group.setItemVisibilityChecked(False)
+            self.log("   -> 원본 현상변경허용기준 레이어를 숨김 원본 그룹으로 이동했습니다.")
         except Exception as e:
             self.log(f"WARNING: 레이어 이동 실패: {e}")
 
