@@ -1000,7 +1000,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblPreservationEncoding = QtWidgets.QLabel()
         self.comboPreservationEncoding = QtWidgets.QComboBox()
         self.comboPreservationEncoding.addItem(
-            self._t("자동(.cpg/공급자)", "Automatic (.cpg/provider)"),
+            self._t(
+                "자동(DBF/.cpg/공급자)",
+                "Automatic (DBF/.cpg/provider)",
+            ),
             "",
         )
         self.comboPreservationEncoding.addItem("UTF-8", "UTF-8")
@@ -3070,7 +3073,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             encoding_combo = QtWidgets.QComboBox()
             encoding_combo.addItem(
-                self._t("자동(.cpg/공급자)", "Automatic (.cpg/provider)"),
+                self._t(
+                    "자동(DBF/.cpg/공급자)",
+                    "Automatic (DBF/.cpg/provider)",
+                ),
                 "",
             )
             encoding_combo.addItem("UTF-8", "UTF-8")
@@ -3097,10 +3103,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             encoding_combo.currentIndexChanged.connect(save_encoding)
             encoding_combo.setToolTip(self._t(
-                "글자가 깨질 때만 이 레이어의 UTF-8 또는 CP949를 "
-                "직접 선택하세요. 자동은 .cpg와 공급자 설정을 따릅니다.",
-                "Choose UTF-8 or CP949 for this layer only when text is "
-                "misread. Automatic follows .cpg and provider settings.",
+                "자동은 DBF 문자 바이트를 우선 확인하고 .cpg와 공급자 "
+                "설정을 함께 사용합니다. 직접 선택은 예외 자료에만 "
+                "사용하세요.",
+                "Automatic checks DBF text bytes first, then .cpg and the "
+                "provider setting. Use a manual choice only for exceptional "
+                "sources.",
             ))
             self.tableLayerRoles.setCellWidget(row, 2, encoding_combo)
             self.layerEncodingCombos[layer_id] = encoding_combo
@@ -3481,19 +3489,34 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             self.log(self._t(f"레이어 스캔 중: {layer.name()}", f"Scanning layer: {layer.name()}"))
 
+            # Re-run source-byte detection at action time.  QGIS may have
+            # opened a CP949 DBF as UTF-8 before this dialog existed, and a
+            # provider can cache those damaged strings even after the layer
+            # first appears in the list.  This reload changes interpretation
+            # only and never rewrites the source files.
+            detected_encoding = self._apply_automatic_shapefile_encoding(
+                layer
+            )
+            if detected_encoding:
+                self.log(self._t(
+                    f"  - 속성 분류 전 문자 인코딩 자동 확인: "
+                    f"{detected_encoding}",
+                    f"  - Encoding verified automatically before scan: "
+                    f"{detected_encoding}",
+                ))
+
             # Detect damage but never mutate the provider implicitly.  The
-            # per-layer selector above gives the operator an auditable choice.
+            # automatic source-byte check above has already reloaded any
+            # recoverable shapefile before this final validation.
             fields = [f.name() for f in layer.fields()]
             needs_encoding_fix = any('\ufffd' in f for f in fields)
 
             if needs_encoding_fix:
                 self.log(self._t(
-                    "  ⚠️ 인코딩 깨짐이 감지되었습니다. 자료 역할 표의 "
-                    "문자 인코딩에서 이 레이어만 UTF-8 또는 CP949로 "
-                    "지정한 뒤 다시 스캔하세요.",
-                    "  ⚠️ Text decoding damage was detected. Choose UTF-8 "
-                    "or CP949 for this layer in the source-role table, then "
-                    "scan again.",
+                    "  ⚠️ 원본 DBF 자동 재판독 후에도 필드명 손상이 "
+                    "남았습니다. 원본 파일의 문자 바이트를 확인하세요.",
+                    "  ⚠️ Field-name damage remains after automatic DBF "
+                    "re-decoding. Check the source file's text bytes.",
                 ))
             self.log(self._t(
                 f"  - 필드 목록: {', '.join(fields)}",

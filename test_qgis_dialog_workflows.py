@@ -267,7 +267,13 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         )
         layer_item.setCheckState(Qt.Checked)
 
-        dialog.scan_categories()
+        with mock.patch.object(
+            dialog,
+            "_apply_automatic_shapefile_encoding",
+            wraps=dialog._apply_automatic_shapefile_encoding,
+        ) as encoding_check:
+            dialog.scan_categories()
+        encoding_check.assert_called_once_with(layer)
 
         self.assertEqual(
             [dialog.listEras.item(i).text()

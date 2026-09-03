@@ -70,7 +70,7 @@ def infer_dbf_encoding(dbf_path, *, sample_size=65536):
         if declared:
             return declared
 
-    sample = raw[:max(32, int(sample_size))]
+    sample = _dbf_character_sample(raw, sample_size=sample_size)
     try:
         utf8 = sample.decode("utf-8", errors="replace")
         cp949 = sample.decode("cp949", errors="replace")
@@ -79,6 +79,89 @@ def infer_dbf_encoding(dbf_path, *, sample_size=65536):
     utf8_replacements = utf8.count("\ufffd")
     cp949_replacements = cp949.count("\ufffd")
     cp949_hangul = sum("가" <= char <= "힣" for char in cp949)
-    if utf8_replacements and not cp949_replacements and cp949_hangul:
+    # DBF headers contain binary dates, offsets and lengths.  Treating the
+    # whole file as text creates a few false CP949 replacement characters and
+    # used to suppress otherwise obvious detection.  The structured sampler
+    # below normally removes those bytes; the small ratio allowance keeps the
+    # fallback path conservative for damaged/truncated DBFs.
+    cp949_error_limit = max(1, utf8_replacements // 100)
+    if (
+        utf8_replacements
+        and cp949_replacements <= cp949_error_limit
+        and cp949_replacements * 8 < utf8_replacements
+        and cp949_hangul
+    ):
         return "CP949"
     return None
+
+
+def _dbf_character_sample(raw, *, sample_size=65536):
+    """Extract character-field bytes from valid DBF records.
+
+    Numeric/binary fields and the binary header are deliberately excluded.
+    If the byte sequence is not a structurally valid DBF, return the old raw
+    sample so tiny fixtures and unusual providers retain conservative support.
+    """
+    limit = max(32, int(sample_size))
+    if len(raw) < 33:
+        return raw[:limit]
+
+    record_count = int.from_bytes(raw[4:8], "little")
+    header_length = int.from_bytes(raw[8:10], "little")
+    record_length = int.from_bytes(raw[10:12], "little")
+    if (
+        record_count <= 0
+        or header_length < 33
+        or header_length > len(raw)
+        or record_length <= 1
+        or header_length + record_length > len(raw)
+    ):
+        return raw[:limit]
+
+    character_fields = []
+    field_offset = 1  # deletion flag is the first byte of every DBF record
+    descriptor_offset = 32
+    while descriptor_offset + 32 <= header_length:
+        if raw[descriptor_offset] == 0x0D:
+            break
+        descriptor = raw[descriptor_offset:descriptor_offset + 32]
+        try:
+            field_type = chr(descriptor[11])
+        except (IndexError, ValueError):
+            return raw[:limit]
+        field_length = int(descriptor[16])
+        if field_length <= 0:
+            return raw[:limit]
+        if field_type == "C":
+            character_fields.append((field_offset, field_length))
+        field_offset += field_length
+        descriptor_offset += 32
+
+    if not character_fields or field_offset > record_length:
+        return raw[:limit]
+
+    chunks = []
+    sampled_bytes = 0
+    available_records = min(
+        record_count,
+        max(0, (len(raw) - header_length) // record_length),
+    )
+    for record_index in range(available_records):
+        start = header_length + record_index * record_length
+        record = raw[start:start + record_length]
+        if not record or record[0] == 0x2A:  # deleted record
+            continue
+        for offset, length in character_fields:
+            value = record[offset:offset + length].strip(b" \x00")
+            if not value:
+                continue
+            remaining = limit - sampled_bytes
+            if remaining <= 0:
+                break
+            value = value[:remaining]
+            chunks.append(value)
+            sampled_bytes += len(value)
+        if sampled_bytes >= limit:
+            break
+
+    return b"\n".join(chunks) if chunks else raw[:limit]

@@ -128,7 +128,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 버퍼 결과는 `DIST_M`만 남기고 거리 라벨을 자동 표시
 - 주변유적 병합 후 자동 번호 부여
 - 레이어별 `국가·시도 지정 / 국가·시도 등록 / 보호구역 / 분포지도 / 지표 / 발굴` 역할 자동 판정 및 수동 변경
-- 레이어별 UTF-8/CP949 인코딩 명시 선택 및 `.cpg`·공급자 자동 판독
+- QGIS가 UTF-8로 잘못 연 Shapefile도 DBF 문자 레코드에서 CP949를 자동
+  판별·재로딩하며, 예외 자료를 위한 레이어별 수동 선택도 제공
 - 원본·분석·출력 CRS를 분리하고 도·피트 자료는 지역 UTM에서 거리·면적·도곽 계산
 - 공간 인덱스와 명칭·주소·중첩률을 함께 사용하는 자료 종류별 중복 판정
 - `균형형 / 보수형 / 자동화 우선형` 중복처리 프리셋
@@ -176,7 +177,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Keep only `DIST_M` on buffer outputs and label distances automatically
 - Merge heritage layers and assign numbers automatically
 - Detect and override source roles for designated, registered, protection-zone, distribution, surface-survey, and excavation layers
-- Select UTF-8/CP949 per layer or follow its `.cpg` and provider declaration
+- Detect CP949 from DBF character records even when QGIS opens the layer as
+  UTF-8; retain per-layer UTF-8/CP949 override controls for exceptional data
 - Separate source, metric-analysis, and output CRSs; measure geographic/foot inputs in local UTM
 - Match duplicates with source-aware name, address, overlap, and spatial-index rules
 - Choose Balanced, Conservative, or Automation-first matching presets

@@ -35,6 +35,8 @@ tags do not change the installable plugin version.
 
 ### Changed
 
+- Attribute scan and analysis now inspect DBF character records and reload a
+  CP949 Shapefile automatically even when QGIS initially opens it as UTF-8.
 - Attribute classification now reconnects exact, registered historical
   reference assets already present in a user's QGIS plugin backups. The files
   remain local and are still excluded from the public ZIP.
