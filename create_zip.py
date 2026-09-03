@@ -148,6 +148,7 @@ def create_plugin_zip():
         "arch_distribution.py",
         "arch_distribution_dialog.py",
         "arch_distribution_dialog_base.ui",
+        "attribute_classification.py",
         "cartographic_filtering.py",
         "icon.png",
         "heritage_grouping.py",

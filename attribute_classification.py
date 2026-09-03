@@ -1,0 +1,72 @@
+"""Source-driven period/type classification for nearby-heritage layers."""
+
+import re
+
+
+NAME_FIELD_KEYWORDS = (
+    "유적명", "국가유산명", "문화재명", "지정명칭",
+    "명칭", "site_name", "heritage_name", "name", "title",
+)
+ERA_FIELD_KEYWORDS = (
+    "시대", "시기", "연대", "편년", "era", "period", "chronology", "age",
+)
+TYPE_FIELD_KEYWORDS = (
+    "성격", "유형", "종류", "유적분류", "분류", "type", "class", "category",
+)
+
+ERA_NAME_TOKENS = (
+    "구석기", "신석기", "청동기", "초기철기", "원삼국", "삼국",
+    "고구려", "백제", "가야", "통일신라", "신라", "고려", "조선",
+    "근대", "현대",
+)
+TYPE_NAME_TOKENS = (
+    "유물산포지", "고분군", "고분", "분묘", "성곽", "산성", "읍성",
+    "건물지", "주거지", "취락", "가마터", "요지", "사지", "사찰",
+    "관방", "봉수", "제철", "생산유적", "생활유적",
+)
+
+
+def _field_key(value):
+    return re.sub(r"[\s_\-]+", "", str(value or "")).casefold()
+
+
+def find_semantic_field(field_names, keywords):
+    """Choose an exact semantic field first, then a conservative substring."""
+    fields = [(str(name), _field_key(name)) for name in field_names]
+    keys = [(_field_key(keyword), index) for index, keyword in enumerate(keywords)]
+    for keyword, _index in keys:
+        for original, field_key in fields:
+            if field_key == keyword:
+                return original
+    candidates = []
+    for original, field_key in fields:
+        for keyword, priority in keys:
+            minimum = 2 if any(ord(char) > 127 for char in keyword) else 3
+            if len(keyword) >= minimum and keyword in field_key:
+                candidates.append((priority, len(field_key), original))
+    return min(candidates)[2] if candidates else None
+
+
+def category_values(value, *, ignored=()):
+    """Split a supplier category cell into clean, non-placeholder labels."""
+    if value is None:
+        return set()
+    ignored_keys = {_field_key(item) for item in ignored}
+    result = set()
+    for part in re.split(r"[,;/|\n\r·]+", str(value)):
+        text = part.strip()
+        if not text:
+            continue
+        key = _field_key(text)
+        if key in {"null", "none", "nan", "미상", "불명"} or key in ignored_keys:
+            continue
+        result.add(text)
+    return result
+
+
+def infer_categories_from_name(name):
+    """Return generic period/type tokens visibly present in a site name."""
+    text = str(name or "")
+    eras = {token for token in ERA_NAME_TOKENS if token in text}
+    types = {token for token in TYPE_NAME_TOKENS if token in text}
+    return eras, types

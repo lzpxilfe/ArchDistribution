@@ -156,8 +156,9 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - `버퍼 범위 내 자르기` 옵션으로 Zone 결과를 최대 버퍼 내부로 제한
 - 주변유적을 선택하지 않아도 Zone 레이어만으로 현상변경 허용기준 도면 생성
 - 현상변경 Zone과 지정·보호구역에 제공 범례 색을 적용하고 인쇄조판 범례에도 반영
+- 속성 분류는 원본의 시대·시기·연대 및 성격·유형·종류 필드를 우선 사용
 - 출처·라이선스가 확인된 사용자 공급 `reference_data.json` 및
-  `smart_patterns.json`을 설치한 경우에만 속성 분류·제외 제안 사용
+  `smart_patterns.json`이 있으면 명칭 사전·제외 제안을 추가로 사용
 - `자동(QGIS) / 한국어 / 영어` UI 전환 즉시 반영
 - 실행 로그를 QGIS 화면과 `latest_log.txt`에 함께 저장
 - 도곽 선필터와 공간 인덱스로 전국 단위 자료의 불필요한 전수 비교 방지
@@ -199,7 +200,9 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Dedicated renumber-only follow-up that preserves match decisions
 - Split and style zone layers automatically by zone code
 - Optionally clip zone output to the largest survey buffer
-- Use optional, user-supplied `reference_data.json` and `smart_patterns.json`
+- Classify source period/type fields without optional reference assets; use
+  user-supplied `reference_data.json` and `smart_patterns.json` only for
+  additional name lookup and exclusion suggestions
   for classification hints only after their provenance and licence are confirmed
 - Switch UI instantly between `Auto (QGIS)`, `Korean`, and `English`
 - Save progress logs in both QGIS and `latest_log.txt`

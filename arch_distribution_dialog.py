@@ -18,6 +18,14 @@ from qgis.gui import (
 )  # [NEW] Import
 from qgis.utils import iface  # [CRITICAL FIX] Import global iface
 
+from .attribute_classification import (
+    ERA_FIELD_KEYWORDS,
+    NAME_FIELD_KEYWORDS,
+    TYPE_FIELD_KEYWORDS,
+    category_values,
+    find_semantic_field,
+    infer_categories_from_name,
+)
 from .preservation_actions import (
     PRESERVATION_ACTION_FIELD_CANDIDATES,
     PRESERVATION_ACTION_STYLES,
@@ -214,6 +222,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # check should never require the operator to feed those legal layers
         # through a general-purpose duplicate/numbering list.
         self.groupLegalLayers = QtWidgets.QGroupBox()
+        self.groupLegalLayers.setCheckable(True)
+        self.groupLegalLayers.setChecked(False)
         legal_layout = QtWidgets.QFormLayout(self.groupLegalLayers)
         legal_layout.setFieldGrowthPolicy(
             QtWidgets.QFormLayout.AllNonFixedFieldsGrow
@@ -264,6 +274,25 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.chkClipZoneToBuffer.setChecked(False)
         legal_layout.addRow("", self.chkClipZoneToBuffer)
         self.comboZoneLayer.layerChanged.connect(self._refresh_zone_fields)
+        self._legalLayerWidgets = [
+            self.lblZoneLayer,
+            self.comboZoneLayer,
+            self.lblZoneField,
+            self.comboZoneField,
+            self.lblNationalDesignatedLayer,
+            self.comboNationalDesignatedLayer,
+            self.lblNationalProtectionLayer,
+            self.comboNationalProtectionLayer,
+            self.lblLocalDesignatedLayer,
+            self.comboLocalDesignatedLayer,
+            self.lblLocalProtectionLayer,
+            self.comboLocalProtectionLayer,
+            self.chkClipZoneToBuffer,
+        ]
+        self.groupLegalLayers.toggled.connect(
+            self._set_legal_layer_controls_visible
+        )
+        self._set_legal_layer_controls_visible(False)
 
         if hasattr(self, 'vTab1'):
             self.vTab1.insertWidget(1, self.groupLegalLayers)
@@ -1238,6 +1267,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     return field_name
         return None
 
+    def _set_legal_layer_controls_visible(self, enabled):
+        """Expand legal inputs only when the operator explicitly enables them."""
+        for widget in getattr(self, "_legalLayerWidgets", []):
+            widget.setVisible(bool(enabled))
+        if hasattr(self, "groupLegalLayers"):
+            self.groupLegalLayers.updateGeometry()
+
     def _refresh_zone_fields(self, layer):
         """Populate the explicit current-change category-field selector."""
         if not hasattr(self, "comboZoneField"):
@@ -2209,8 +2245,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         if hasattr(self, "groupLegalLayers"):
             self.groupLegalLayers.setTitle(self._t(
-                "국가유산청 법정 레이어 (주변유적 선택 불필요)",
-                "National Heritage Administration legal layers (independent of nearby heritage)",
+                "국가유산청 법정 레이어 사용 (체크 시 펼침)",
+                "Use NHA legal layers (check to expand)",
+            ))
+            self.groupLegalLayers.setToolTip(self._t(
+                "현상변경·지정유산·보호구역이 필요한 작업에서만 체크하고, 각 레이어는 사용자가 직접 선택합니다.",
+                "Enable only when legal layers are needed; select every input manually.",
             ))
         if hasattr(self, "lblZoneLayer"):
             self.lblZoneLayer.setText(self._t(
@@ -2937,57 +2977,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     )
                     item_heritage.setCheckState(QtCore.Qt.Unchecked)
                     self.listHeritageLayers.addItem(item_heritage)
-        self._auto_assign_legal_layers(layers)
         self._populate_previous_result_layers()
         self._populate_layer_role_table()
         self._update_previous_result_guidance()
-
-    def _auto_assign_legal_layers(self, layers):
-        """Preselect the four NHA legal layers by their source-layer names.
-
-        The controls remain editable, but a project already containing the
-        standard Korean layer names should not require the user to rediscover
-        and select each layer on every run.  Memory outputs are deliberately
-        excluded so a prior result can never become the next input.
-        """
-        targets = (
-            ("zone", self.comboZoneLayer),
-            ("national_protection", self.comboNationalProtectionLayer),
-            ("local_protection", self.comboLocalProtectionLayer),
-            ("national_designated", self.comboNationalDesignatedLayer),
-            ("local_designated", self.comboLocalDesignatedLayer),
-        )
-        empty_targets = {
-            key: combo for key, combo in targets
-            if combo.currentLayer() is None
-        }
-        if not empty_targets:
-            return
-        for layer in layers:
-            if (
-                not layer
-                or layer.type() != 0
-                or layer.geometryType() != 2
-                or str(layer.providerType() or "").casefold() == "memory"
-            ):
-                continue
-            name = str(layer.name() or "").replace(" ", "")
-            if "현상변경" in name and "허용" in name:
-                key = "zone"
-            elif "보호구역" in name and "국가" in name:
-                key = "national_protection"
-            elif "보호구역" in name and ("시도" in name or "도지정" in name):
-                key = "local_protection"
-            elif "국가" in name and "지정" in name:
-                key = "national_designated"
-            elif ("시도" in name or "도지정" in name) and "지정" in name:
-                key = "local_designated"
-            else:
-                continue
-            combo = empty_targets.get(key)
-            if combo is not None:
-                combo.setLayer(layer)
-                empty_targets.pop(key, None)
 
     @staticmethod
     def _apply_automatic_shapefile_encoding(layer):
@@ -3184,8 +3176,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         )
         legal_layer_ids = {}
         protection_families = {}
+        legal_enabled = (
+            self.groupLegalLayers.isChecked()
+            if hasattr(self, "groupLegalLayers") else False
+        )
         for setting_key, combo, role, protection_family in legal_inputs:
-            layer = combo.currentLayer() if combo else None
+            layer = combo.currentLayer() if combo and legal_enabled else None
             layer_id = layer.id() if layer else None
             legal_layer_ids[setting_key] = layer_id
             if layer_id:
@@ -3286,13 +3282,21 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 else True
             ),
             # [NEW] Zone Layer ID
-            "zone_layer_id": self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
-            "zone_field_name": (
-                self.comboZoneField.currentData()
-                if hasattr(self, "comboZoneField")
+            "zone_layer_id": (
+                self.comboZoneLayer.currentLayer().id()
+                if legal_enabled and self.comboZoneLayer.currentLayer()
                 else None
             ),
-            "clip_zone_to_buffer": self.chkClipZoneToBuffer.isChecked() if hasattr(self, "chkClipZoneToBuffer") else False,
+            "zone_field_name": (
+                self.comboZoneField.currentData()
+                if legal_enabled and hasattr(self, "comboZoneField")
+                else None
+            ),
+            "clip_zone_to_buffer": (
+                self.chkClipZoneToBuffer.isChecked()
+                if legal_enabled and hasattr(self, "chkClipZoneToBuffer")
+                else False
+            ),
             # [NEW] Label Style
             "label_font_size": self.spinLabelFontSize.value(),
             "label_font_family": self.comboLabelFont.currentFont().family(),
@@ -3459,36 +3463,39 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 f"  - Fields: {', '.join(fields)}",
             ))
 
-            name_field = None
-            keywords = ['유적명', '명칭', '명', '이름', 'NAME', 'SITE', 'TITLE']
+            name_field = find_semantic_field(fields, NAME_FIELD_KEYWORDS)
+            era_field = find_semantic_field(fields, ERA_FIELD_KEYWORDS)
+            type_field = find_semantic_field(fields, TYPE_FIELD_KEYWORDS)
 
-            for f in fields:
-                for k in keywords:
-                    if k in f.upper():
-                        name_field = f
-                        break
-                if name_field:
-                    break
-
-            if not name_field:
-                self.log(self._t("  ⚠️ 경고: 유적 명칭 필드를 찾을 수 없어 건너뜁니다.", "  ⚠️ Name field not found, skipping layer."))
+            if not any((name_field, era_field, type_field)):
+                self.log(self._t(
+                    "  ⚠️ 명칭·시대·유형 필드를 찾지 못해 건너뜁니다.",
+                    "  ⚠️ No name, period, or type field found; skipping layer.",
+                ))
                 continue
 
-            self.log(self._t(f"  - 명칭 필드 식별됨: {name_field}", f"  - Name field detected: {name_field}"))
+            self.log(self._t(
+                "  - 식별 필드: "
+                f"명칭={name_field or '-'}, 시대={era_field or '-'}, "
+                f"유형={type_field or '-'}",
+                "  - Detected fields: "
+                f"name={name_field or '-'}, period={era_field or '-'}, "
+                f"type={type_field or '-'}",
+            ))
 
             layer_feats = 0
+            layer_matched = 0
             for feat in layer.getFeatures():
                 layer_feats += 1
                 total_feats += 1
-                name = feat[name_field]
-                if name is None:
-                    continue
-                name = str(name)
+                name = str(feat[name_field] or "") if name_field else ""
 
                 # [NEW] Exclusion Logic with User Review
                 # Instead of silently skipping, add to exclusion list
                 noise_keywords = self.smart_patterns.get('noise', [])
-                is_suspicious = any(b in name for b in noise_keywords)
+                is_suspicious = bool(name) and any(
+                    token in name for token in noise_keywords
+                )
 
                 if is_suspicious:
                     found_exclusions.add(name)
@@ -3496,26 +3503,58 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 matched = False
 
+                # Prefer categories carried by the supplier itself.  This
+                # works without the optional external reference assets.
+                direct_eras = category_values(
+                    feat[era_field] if era_field else None,
+                    ignored=("시대미상",),
+                )
+                direct_types = category_values(
+                    feat[type_field] if type_field else None,
+                    ignored=("기타", "미분류"),
+                )
+                if direct_eras:
+                    found_eras.update(direct_eras)
+                    matched = True
+                if direct_types:
+                    found_types.update(direct_types)
+                    matched = True
+
                 # 1. Reference Data Lookup
-                if name in self.reference_data:
+                if name and name in self.reference_data:
                     matched = True
                     info = self.reference_data[name]
-                    if info['e'] and info['e'] != "시대미상":
+                    if info.get('e') and info.get('e') != "시대미상":
                         found_eras.add(info['e'])
-                    if info['t'] and info['t'] != "기타":
+                    if info.get('t') and info.get('t') != "기타":
                         found_types.add(info['t'])
 
                 # 2. Keyword Refinement (Overrides/Additions)
                 refinements = self.smart_patterns.get('artifacts', {})
                 for key, val in refinements.items():
-                    if key in name:
+                    if name and key in name:
                         found_types.add(val)
                         matched = True
 
+                # Generic, auditable fallback: only terms visibly present in
+                # the source name are used; nothing is guessed from a private
+                # or unavailable lookup table.
+                inferred_eras, inferred_types = infer_categories_from_name(name)
+                if inferred_eras:
+                    found_eras.update(inferred_eras)
+                    matched = True
+                if inferred_types:
+                    found_types.update(inferred_types)
+                    matched = True
+
                 if matched:
                     matched_feats += 1
+                    layer_matched += 1
 
-            self.log(self._t(f"  - {layer_feats}개 객체 중 {matched_feats}개 매칭 성공", f"  - {matched_feats} matched out of {layer_feats} features"))
+            self.log(self._t(
+                f"  - {layer_feats}개 객체 중 {layer_matched}개 분류",
+                f"  - {layer_matched} classified out of {layer_feats} features",
+            ))
 
         self.log(self._t(f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.", f"✅ Scan complete: {matched_feats}/{total_feats} matched."))
 
@@ -3529,7 +3568,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 item.setCheckState(QtCore.Qt.Checked)
                 self.listEras.addItem(item)
         else:
-            self.listEras.addItem(self._t("식별실패", "No match"))
+            self.listEras.addItem(self._t("(시대 정보 없음)", "(No period data)"))
 
         # Populate List - Type
         if found_types:
@@ -3540,7 +3579,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 item.setCheckState(QtCore.Qt.Checked)
                 self.listTypes.addItem(item)
         else:
-            self.listTypes.addItem(self._t("식별실패", "No match"))
+            self.listTypes.addItem(self._t("(유형 정보 없음)", "(No type data)"))
 
         # [NEW] Populate Exclusion List
         if found_exclusions:

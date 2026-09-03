@@ -379,86 +379,6 @@ class ArchDistribution:
             except Exception:
                 pass
 
-    def _augment_legal_layer_settings(self, settings):
-        """Discover standard NHA legal inputs again at execution time.
-
-        This is intentionally independent of the dialog widgets.  It also
-        covers projects restored from an older saved dialog state, where the
-        five visible legal layers exist but the newly added combo boxes have
-        no persisted selection yet.
-        """
-        project = QgsProject.instance()
-        candidates = []
-        for layer in project.mapLayers().values():
-            if not layer or layer.type() != 0 or layer.geometryType() != 2:
-                continue
-            if str(layer.providerType() or "").casefold() == "memory":
-                continue
-            candidates.append(layer)
-
-        mapping = {}
-        for layer in candidates:
-            name = str(layer.name() or "").replace(" ", "")
-            if "현상변경" in name and "허용" in name:
-                key = "zone_layer_id"
-            elif "보호구역" in name and "국가" in name:
-                key = "national_protection_layer_id"
-            elif "보호구역" in name and ("시도" in name or "도지정" in name):
-                key = "local_protection_layer_id"
-            elif "보호구역" not in name and "국가" in name and "지정" in name:
-                key = "national_designated_layer_id"
-            elif (
-                "보호구역" not in name
-                and ("시도" in name or "도지정" in name)
-                and "지정" in name
-            ):
-                key = "local_designated_layer_id"
-            else:
-                continue
-            mapping.setdefault(key, layer.id())
-
-        for key, layer_id in mapping.items():
-            current_id = settings.get(key)
-            if not current_id or project.mapLayer(current_id) is None:
-                settings[key] = layer_id
-        if not settings.get("zone_layer_id") and mapping.get("zone_layer_id"):
-            settings["zone_layer_id"] = mapping["zone_layer_id"]
-
-        heritage_ids = list(settings.get("heritage_layer_ids") or [])
-        source_roles = dict(settings.get("source_roles") or {})
-        legal_roles = dict(settings.get("legal_layer_roles") or {})
-        protection_families = dict(
-            settings.get("protection_families") or {}
-        )
-        definitions = (
-            ("national_designated_layer_id", ROLE_NATIONAL_DESIGNATED, None),
-            ("national_protection_layer_id", ROLE_PROTECTION_ZONE, "national"),
-            ("local_designated_layer_id", ROLE_LOCAL_DESIGNATED, None),
-            ("local_protection_layer_id", ROLE_PROTECTION_ZONE, "local"),
-        )
-        detected_names = []
-        for setting_key, role, family in definitions:
-            layer_id = settings.get(setting_key)
-            layer = project.mapLayer(layer_id) if layer_id else None
-            if layer is None:
-                continue
-            if layer_id not in heritage_ids:
-                heritage_ids.append(layer_id)
-            source_roles[layer_id] = role
-            legal_roles[layer_id] = role
-            if family:
-                protection_families[layer_id] = family
-            detected_names.append(layer.name())
-        settings["heritage_layer_ids"] = heritage_ids
-        settings["source_roles"] = source_roles
-        settings["legal_layer_roles"] = legal_roles
-        settings["protection_families"] = protection_families
-        if detected_names:
-            self.log(
-                "법정 레이어 실행 시점 자동 등록: "
-                + ", ".join(detected_names)
-            )
-
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
         if settings.get("workflow_mode") == "preservation":
@@ -476,7 +396,6 @@ class ArchDistribution:
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
         self.log("작업을 시작합니다...")
-        self._augment_legal_layer_settings(settings)
 
         # 0. Setup Progress Dialog
         total_steps = DEFAULT_PROGRESS_STEPS
