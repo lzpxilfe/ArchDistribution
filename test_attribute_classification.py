@@ -4,9 +4,11 @@ from attribute_classification import (
     ERA_FIELD_KEYWORDS,
     NAME_FIELD_KEYWORDS,
     TYPE_FIELD_KEYWORDS,
+    build_reference_name_index,
     category_values,
     find_semantic_field,
     infer_categories_from_name,
+    reference_info_for_name,
     should_exclude_categories,
 )
 
@@ -49,6 +51,30 @@ class AttributeClassificationTests(unittest.TestCase):
         }
         self.assertFalse(
             should_exclude_categories({"고려"}, set(), selection)
+        )
+
+    def test_reference_lookup_accepts_spacing_without_guessing(self):
+        reference = {
+            "공주정지산유적": {"e": "삼국시대", "t": "주거유적"},
+        }
+        index = build_reference_name_index(reference)
+
+        self.assertEqual(
+            reference_info_for_name(reference, index, "공주 정지산 유적"),
+            reference["공주정지산유적"],
+        )
+
+    def test_reference_lookup_rejects_ambiguous_normalized_name(self):
+        reference = {
+            "가 나": {"e": "삼국시대"},
+            "가나": {"e": "조선시대"},
+        }
+        index = build_reference_name_index(reference)
+
+        self.assertIsNone(reference_info_for_name(reference, index, "가  나"))
+        self.assertEqual(
+            reference_info_for_name(reference, index, "가나"),
+            {"e": "조선시대"},
         )
 
 

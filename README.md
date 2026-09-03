@@ -159,6 +159,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 속성 분류는 원본의 시대·시기·연대 및 성격·유형·종류 필드를 우선 사용
 - 출처·라이선스가 확인된 사용자 공급 `reference_data.json` 및
   `smart_patterns.json`이 있으면 명칭 사전·제외 제안을 추가로 사용
+- 기존 설치의 QGIS 백업에 등록 해시와 일치하는 분류표가 남아 있으면
+  공개 ZIP에 복사하지 않고 해당 PC에서만 자동으로 다시 연결
 - `자동(QGIS) / 한국어 / 영어` UI 전환 즉시 반영
 - 실행 로그를 QGIS 화면과 `latest_log.txt`에 함께 저장
 - 도곽 선필터와 공간 인덱스로 전국 단위 자료의 불필요한 전수 비교 방지
@@ -203,7 +205,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Classify source period/type fields without optional reference assets; use
   user-supplied `reference_data.json` and `smart_patterns.json` only for
   additional name lookup and exclusion suggestions
-  for classification hints only after their provenance and licence are confirmed
+- Reconnect a registered, hash-matching classification asset found in an
+  existing QGIS plugin backup locally without copying it into the public ZIP
 - Switch UI instantly between `Auto (QGIS)`, `Korean`, and `English`
 - Save progress logs in both QGIS and `latest_log.txt`
 - Use provider-side extent filters and spatial indexes to avoid nationwide all-pairs scans

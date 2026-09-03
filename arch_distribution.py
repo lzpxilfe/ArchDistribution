@@ -25,12 +25,15 @@ from datetime import datetime
 from pathlib import Path
 
 from .cartographic_filtering import is_insignificant_extent_fragment
+from .local_reference_assets import resolve_local_reference_asset
 from .attribute_classification import (
     ERA_FIELD_KEYWORDS,
     TYPE_FIELD_KEYWORDS,
+    build_reference_name_index,
     category_values,
     find_semantic_field,
     infer_categories_from_name,
+    reference_info_for_name,
     should_exclude_categories,
 )
 from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
@@ -2964,25 +2967,49 @@ class ArchDistribution:
             layer.commitChanges()
 
     def load_reference_data(self):
-        """Load reference data for filtering."""
-        import json
-        json_path = os.path.join(self.plugin_dir, 'reference_data.json')
-        if os.path.exists(json_path):
+        """Load explicit or verified legacy-local data for filtering."""
+        json_path, reference_source = resolve_local_reference_asset(
+            self.plugin_dir,
+            "reference_data.json",
+        )
+        if json_path:
             try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    self.reference_data = json.load(f)
-            except Exception:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    loaded_reference = json.load(f)
+                if not isinstance(loaded_reference, dict):
+                    raise TypeError("reference_data.json root must be an object")
+                self.reference_data = loaded_reference
+                source_label = (
+                    "기존 로컬 백업"
+                    if reference_source == "legacy_backup"
+                    else "사용자 설치 파일"
+                )
+                self.log(
+                    f"속성 분류 참조 데이터 연결: {len(self.reference_data)}개 "
+                    f"항목 ({source_label})"
+                )
+            except (OSError, json.JSONDecodeError, TypeError) as exc:
                 self.reference_data = {}
+                self.log(f"속성 분류 참조 데이터 로드 실패: {exc}")
         else:
             self.reference_data = {}
+        self.reference_data_normalized = build_reference_name_index(
+            self.reference_data
+        )
 
         # [NEW] Load Smart Patterns for Override
-        json_pattern_path = os.path.join(os.path.dirname(__file__), 'smart_patterns.json')
+        json_pattern_path, _pattern_source = resolve_local_reference_asset(
+            self.plugin_dir,
+            "smart_patterns.json",
+        )
         self.smart_patterns = {"noise": [], "artifacts": {}}
-        if os.path.exists(json_pattern_path):
+        if json_pattern_path:
             try:
-                with open(json_pattern_path, 'r', encoding='utf-8') as f:
-                    self.smart_patterns = json.load(f)
+                with open(json_pattern_path, "r", encoding="utf-8") as f:
+                    loaded_patterns = json.load(f)
+                if not isinstance(loaded_patterns, dict):
+                    raise TypeError("smart_patterns.json root must be an object")
+                self.smart_patterns = loaded_patterns
             except (OSError, json.JSONDecodeError) as exc:
                 self.log(f"스마트 패턴 로드 실패, 기본값 사용: {exc}")
 
@@ -3010,7 +3037,11 @@ class ArchDistribution:
         name = str(name or "")
         eras = set(source_eras or ())
         types = set(source_types or ())
-        info = self.reference_data.get(name)
+        info = reference_info_for_name(
+            self.reference_data,
+            getattr(self, "reference_data_normalized", {}),
+            name,
+        )
         if isinstance(info, dict):
             if (
                 not eras

@@ -22,9 +22,11 @@ from .attribute_classification import (
     ERA_FIELD_KEYWORDS,
     NAME_FIELD_KEYWORDS,
     TYPE_FIELD_KEYWORDS,
+    build_reference_name_index,
     category_values,
     find_semantic_field,
     infer_categories_from_name,
+    reference_info_for_name,
 )
 from .preservation_actions import (
     PRESERVATION_ACTION_FIELD_CANDIDATES,
@@ -32,6 +34,7 @@ from .preservation_actions import (
     recognized_preservation_actions,
 )
 from .map_legend_styles import normalize_change_zone_code
+from .local_reference_assets import resolve_local_reference_asset
 from .shapefile_encoding import declared_shapefile_encoding
 from .heritage_matching import (
     MATCH_PRESET_LABELS,
@@ -3390,27 +3393,59 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             return None
 
     def load_reference_data(self):
-        """Load reference data from JSON file."""
-        import json
-        json_path = os.path.join(os.path.dirname(__file__), 'reference_data.json')
-        if os.path.exists(json_path):
+        """Load explicit or verified legacy-local classification assets."""
+        plugin_dir = os.path.dirname(__file__)
+        json_path, reference_source = resolve_local_reference_asset(
+            plugin_dir,
+            "reference_data.json",
+        )
+        if json_path:
             try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    self.reference_data = json.load(f)
-                self.log(self._t(f"참조 데이터 로드 완료: {len(self.reference_data)}개 항목", f"Reference data loaded: {len(self.reference_data)} entries"))
+                with open(json_path, "r", encoding="utf-8") as f:
+                    loaded_reference = json.load(f)
+                if not isinstance(loaded_reference, dict):
+                    raise TypeError("reference_data.json root must be an object")
+                self.reference_data = loaded_reference
+                source_label = self._t(
+                    "기존 로컬 백업" if reference_source == "legacy_backup" else "사용자 설치 파일",
+                    "verified local backup" if reference_source == "legacy_backup" else "user-installed file",
+                )
+                self.log(self._t(
+                    f"참조 데이터 로드 완료: {len(self.reference_data)}개 항목 ({source_label})",
+                    f"Reference data loaded: {len(self.reference_data)} entries ({source_label})",
+                ))
             except Exception as e:
                 self.log(self._t(f"참조 데이터 로드 실패: {str(e)}", f"Failed to load reference data: {str(e)}"))
         else:
-            self.log(self._t("참조 데이터 파일이 없습니다. (reference_data.json)", "Reference file not found (reference_data.json)."))
+            self.log(self._t(
+                "로컬 참조 데이터가 없어 원본 레이어의 시대·유형 필드와 명칭만 사용합니다.",
+                "No local reference data; using source period/type fields and names only.",
+            ))
+        self.reference_data_normalized = build_reference_name_index(
+            self.reference_data
+        )
 
         # [NEW] Load Smart Patterns
-        json_pattern_path = os.path.join(os.path.dirname(__file__), 'smart_patterns.json')
+        json_pattern_path, pattern_source = resolve_local_reference_asset(
+            plugin_dir,
+            "smart_patterns.json",
+        )
         self.smart_patterns = {"noise": [], "artifacts": {}}
-        if os.path.exists(json_pattern_path):
+        if json_pattern_path:
             try:
-                with open(json_pattern_path, 'r', encoding='utf-8') as f:
-                    self.smart_patterns = json.load(f)
-                self.log(self._t("스마트 필터 패턴 로드 완료.", "Smart-filter patterns loaded."))
+                with open(json_pattern_path, "r", encoding="utf-8") as f:
+                    loaded_patterns = json.load(f)
+                if not isinstance(loaded_patterns, dict):
+                    raise TypeError("smart_patterns.json root must be an object")
+                self.smart_patterns = loaded_patterns
+                source_label = self._t(
+                    "기존 로컬 백업" if pattern_source == "legacy_backup" else "사용자 설치 파일",
+                    "verified local backup" if pattern_source == "legacy_backup" else "user-installed file",
+                )
+                self.log(self._t(
+                    f"스마트 필터 패턴 로드 완료 ({source_label}).",
+                    f"Smart-filter patterns loaded ({source_label}).",
+                ))
             except Exception as e:
                 self.log(self._t(f"스마트 필터 패턴 로드 실패: {str(e)}", f"Failed to load smart-filter patterns: {str(e)}"))
 
@@ -3527,9 +3562,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     matched = True
 
                 # 1. Reference Data Lookup
-                if name and name in self.reference_data:
+                info = reference_info_for_name(
+                    self.reference_data,
+                    self.reference_data_normalized,
+                    name,
+                )
+                if isinstance(info, dict):
                     matched = True
-                    info = self.reference_data[name]
                     if (
                         not direct_eras
                         and info.get('e')
@@ -3859,17 +3898,12 @@ ArchDistribution은 자료 역할과 함께 명칭·중첩·주소·거리를 �
             if self.ui_lang == "ko"
             else ["surface", "attendance", "collection", "permit", "drain", "protected tree"]
         )
-        patterns_path = os.path.join(os.path.dirname(__file__), "smart_patterns.json")
-        try:
-            with open(patterns_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            noise_keywords = data.get("noise", [])
-            if isinstance(noise_keywords, list):
-                cleaned = [str(x).strip() for x in noise_keywords if str(x).strip()]
-                if cleaned:
-                    return cleaned[:limit]
-        except (OSError, json.JSONDecodeError, TypeError):
-            return defaults[:limit]
+        data = getattr(self, "smart_patterns", {})
+        noise_keywords = data.get("noise", []) if isinstance(data, dict) else []
+        if isinstance(noise_keywords, list):
+            cleaned = [str(x).strip() for x in noise_keywords if str(x).strip()]
+            if cleaned:
+                return cleaned[:limit]
         return defaults[:limit]
 
     def show_help(self):

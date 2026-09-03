@@ -1,6 +1,7 @@
 """Source-driven period/type classification for nearby-heritage layers."""
 
 import re
+import unicodedata
 
 
 NAME_FIELD_KEYWORDS = (
@@ -70,6 +71,46 @@ def infer_categories_from_name(name):
     eras = {token for token in ERA_NAME_TOKENS if token in text}
     types = {token for token in TYPE_NAME_TOKENS if token in text}
     return eras, types
+
+
+def _reference_name_key(value):
+    """Normalize harmless display differences without changing the name."""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return re.sub(r"\s+", "", normalized)
+
+
+def build_reference_name_index(reference_data):
+    """Build a collision-safe lookup for reference names with space changes.
+
+    Exact dictionary lookup remains authoritative. A normalized key is used
+    only when every reference spelling for that key carries identical data;
+    ambiguous collisions are deliberately excluded from the fallback index.
+    """
+    index = {}
+    ambiguous = set()
+    if not isinstance(reference_data, dict):
+        return index
+    for name, info in reference_data.items():
+        key = _reference_name_key(name)
+        if not key or key in ambiguous:
+            continue
+        if key in index and index[key] != info:
+            index.pop(key, None)
+            ambiguous.add(key)
+        else:
+            index[key] = info
+    return index
+
+
+def reference_info_for_name(reference_data, normalized_index, name):
+    """Return exact or collision-safe whitespace-normalized reference data."""
+    if not isinstance(reference_data, dict):
+        return None
+    text = str(name or "")
+    exact = reference_data.get(text)
+    if exact is not None:
+        return exact
+    return (normalized_index or {}).get(_reference_name_key(text))
 
 
 def should_exclude_categories(eras, types, selection):

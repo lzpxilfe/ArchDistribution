@@ -35,6 +35,9 @@ tags do not change the installable plugin version.
 
 ### Changed
 
+- Attribute classification now reconnects exact, registered historical
+  reference assets already present in a user's QGIS plugin backups. The files
+  remain local and are still excluded from the public ZIP.
 - The JOSS manuscript now separates demonstrated software behaviour and one
   developer-led research use from future accuracy, adoption, and productivity
   studies; internal readiness notes no longer appear in the paper.

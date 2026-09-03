@@ -28,6 +28,12 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         cls.app = QgsApplication.instance() or QgsApplication([], False)
         cls.app.initQgis()
 
+        qgis_python_plugins = str(
+            Path(QgsApplication.prefixPath()) / "python" / "plugins"
+        )
+        if qgis_python_plugins not in sys.path:
+            sys.path.insert(0, qgis_python_plugins)
+
         plugin_parent = str(Path(__file__).resolve().parent.parent)
         if plugin_parent not in sys.path:
             sys.path.insert(0, plugin_parent)
@@ -35,12 +41,22 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         from ArchDistribution.arch_distribution_dialog import (
             ArchDistributionDialog,
         )
+        from ArchDistribution.arch_distribution import ArchDistribution
         from ArchDistribution.heritage_matching_dialog import (
             DuplicateReviewDialog,
         )
+        from processing.core.Processing import Processing
 
+        Processing.initialize()
         cls.dialog_class = ArchDistributionDialog
+        cls.plugin_class = ArchDistribution
         cls.review_dialog_class = DuplicateReviewDialog
+        from ArchDistribution.attribute_classification import (
+            build_reference_name_index,
+        )
+        cls.build_reference_name_index = staticmethod(
+            build_reference_name_index
+        )
 
     def setUp(self):
         QgsProject.instance().clear()
@@ -213,6 +229,78 @@ class QgisDialogWorkflowTests(unittest.TestCase):
             ),
             "CP949",
         )
+
+    def test_attribute_scan_uses_local_reference_name_with_spacing(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186",
+            "주변유적",
+            "memory",
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("유적명", QVariant.String),
+        ])
+        layer.updateFields()
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromWkt(
+            "POLYGON((0 0,1 0,1 1,0 1,0 0))"
+        ))
+        feature["유적명"] = "공주 정지산 유적"
+        layer.dataProvider().addFeature(feature)
+        QgsProject.instance().addMapLayer(layer)
+
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        dialog.reference_data = {
+            "공주정지산유적": {
+                "e": "삼국시대",
+                "t": "주거유적",
+            },
+        }
+        dialog.reference_data_normalized = self.build_reference_name_index(
+            dialog.reference_data
+        )
+        layer_item = next(
+            dialog.listHeritageLayers.item(index)
+            for index in range(dialog.listHeritageLayers.count())
+            if dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            == layer.id()
+        )
+        layer_item.setCheckState(Qt.Checked)
+
+        dialog.scan_categories()
+
+        self.assertEqual(
+            [dialog.listEras.item(i).text()
+             for i in range(dialog.listEras.count())],
+            ["삼국시대"],
+        )
+        self.assertEqual(
+            [dialog.listTypes.item(i).text()
+             for i in range(dialog.listTypes.count())],
+            ["주거유적"],
+        )
+
+    def test_unchecked_reference_category_excludes_during_analysis(self):
+        plugin = self.plugin_class(None)
+        plugin.reference_data = {
+            "공주정지산유적": {
+                "e": "삼국시대",
+                "t": "주거유적",
+            },
+        }
+        plugin.reference_data_normalized = self.build_reference_name_index(
+            plugin.reference_data
+        )
+        plugin.smart_patterns = {"noise": [], "artifacts": {}}
+        selection = {
+            "available": {"ERA:삼국시대", "TYPE:주거유적"},
+            "allowed": {"TYPE:주거유적"},
+        }
+
+        self.assertTrue(plugin.should_exclude(
+            "공주 정지산 유적",
+            selection,
+        ))
 
     def test_existing_representative_result_has_dedicated_renumber_path(self):
         result = self._add_archdistribution_result(

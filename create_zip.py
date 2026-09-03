@@ -155,6 +155,7 @@ def create_plugin_zip():
         "heritage_identity_store.py",
         "heritage_matching.py",
         "heritage_matching_dialog.py",
+        "local_reference_assets.py",
         "matching_rules.json",
         "metric_context.py",
         "map_legend_styles.py",
