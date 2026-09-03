@@ -1,6 +1,7 @@
 import html
 import json
 import os
+from pathlib import Path
 
 from qgis.PyQt import uic, QtCore, QtGui
 from qgis.PyQt import QtWidgets
@@ -23,6 +24,7 @@ from .preservation_actions import (
     recognized_preservation_actions,
 )
 from .map_legend_styles import normalize_change_zone_code
+from .shapefile_encoding import declared_shapefile_encoding
 from .heritage_matching import (
     MATCH_PRESET_LABELS,
     MATCH_PRESET_LABELS_EN,
@@ -2881,6 +2883,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         layers = QgsProject.instance().mapLayers().values()
         for layer in layers:
             if layer.type() == 0:  # VectorLayer
+                # A CP949 DBF must be reloaded before field inspection and
+                # combo/list labels are constructed.  Waiting until the Run
+                # button is pressed leaves already-decoded mojibake in the
+                # field selector, which makes automatic zone detection fail.
+                self._apply_automatic_shapefile_encoding(layer)
                 # [FIX] Filter out generated/output layers to prevent feedback loops
                 l_name = layer.name()
                 keywords_to_skip = ['_Copy', 'Consolidated', 'Dissolved', 'Buffer', '도곽', '조사구역']
@@ -2933,6 +2940,44 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self._populate_previous_result_layers()
         self._populate_layer_role_table()
         self._update_previous_result_guidance()
+
+    @staticmethod
+    def _apply_automatic_shapefile_encoding(layer):
+        """Reload a CP949 shapefile before any UI reads its attributes.
+
+        This changes QGIS's provider interpretation only; it never rewrites
+        the user's SHP/DBF files.  A saved per-layer choice remains stronger
+        than automatic detection.
+        """
+        if not layer or layer.type() != 0:
+            return None
+        override = str(
+            layer.customProperty("ArchDistribution/encoding_override", "")
+            or ""
+        ).strip()
+        selected = override
+        if not selected:
+            source = str(layer.source() or "").split("|", 1)[0]
+            if source.casefold().startswith("file://"):
+                source = source[7:]
+            selected, _basis = declared_shapefile_encoding(Path(source))
+        if not selected:
+            return None
+        try:
+            provider = layer.dataProvider()
+            current = str(provider.encoding() or "").strip()
+            if current.casefold() == selected.casefold():
+                return selected
+            # Set both layer and provider encodings before reload.  Calling
+            # only one API can leave old DBF strings cached in QGIS.
+            layer.setProviderEncoding(selected)
+            provider.setEncoding(selected)
+            provider.reloadData()
+            layer.updateFields()
+            layer.triggerRepaint()
+            return selected
+        except (AttributeError, RuntimeError):
+            return None
 
     def _populate_layer_role_table(self):
         """Populate editable role overrides for heritage-capable layers."""

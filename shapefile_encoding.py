@@ -10,6 +10,42 @@ DBF_LANGUAGE_DRIVER_ENCODINGS = {
 }
 
 
+def _normalise_cpg_encoding(value):
+    """Return the QGIS/Python spelling for a .cpg declaration."""
+    aliases = {
+        "949": "CP949",
+        "CP-949": "CP949",
+        "EUC_KR": "EUC-KR",
+        "UTF8": "UTF-8",
+    }
+    declared = str(value or "").strip()
+    return aliases.get(declared.upper(), declared)
+
+
+def declared_shapefile_encoding(shp_path):
+    """Return ``(encoding, basis)`` before QGIS reads a shapefile's DBF.
+
+    The point of this helper is timing: QGIS must be told about CP949 before
+    callers inspect fields or attributes.  A .cpg declaration wins; absent
+    that, the DBF language driver or a high-confidence byte check is used.
+    """
+    path = Path(shp_path)
+    if path.suffix.casefold() != ".shp":
+        return None, None
+    cpg_path = path.with_suffix(".cpg")
+    if cpg_path.exists():
+        try:
+            declared = _normalise_cpg_encoding(
+                cpg_path.read_text(encoding="ascii", errors="ignore")
+            )
+        except OSError:
+            declared = ""
+        if declared:
+            return declared, ".cpg"
+    inferred = infer_dbf_encoding(path.with_suffix(".dbf"))
+    return (inferred, "DBF automatic detection") if inferred else (None, None)
+
+
 def infer_dbf_encoding(dbf_path, *, sample_size=65536):
     """Return a high-confidence DBF encoding or ``None``.
 

@@ -85,7 +85,7 @@ from .run_artifacts import (
     sha256_file,
     sha256_file_bundle,
 )
-from .shapefile_encoding import infer_dbf_encoding
+from .shapefile_encoding import declared_shapefile_encoding
 
 LEGACY_KOREAN_ENCODING = "CP949"
 ENCODING_OVERRIDE_PROPERTY = "ArchDistribution/encoding_override"
@@ -2287,38 +2287,15 @@ class ArchDistribution:
 
         source_path = cls._layer_file_path(layer)
         if source_path and source_path.suffix.casefold() == ".shp":
-            cpg_path = next(
-                (
-                    candidate
-                    for candidate in cls._shapefile_bundle_paths(source_path)
-                    if candidate.suffix.casefold() == ".cpg"
-                ),
-                None,
-            )
-            if cpg_path is not None:
-                try:
-                    declared = cpg_path.read_text(
-                        encoding="ascii",
-                        errors="ignore",
-                    ).strip()
-                except OSError:
-                    declared = ""
-                if declared:
-                    aliases = {
-                        "949": LEGACY_KOREAN_ENCODING,
-                        "CP-949": LEGACY_KOREAN_ENCODING,
-                        "EUC_KR": "EUC-KR",
-                        "UTF8": "UTF-8",
-                }
-                return aliases.get(declared.upper(), declared), ".cpg"
-
-            # Many Korean public shapefiles omit .cpg.  In that case the DBF
-            # language-driver byte is the next reliable declaration; only a
-            # high-confidence CP949 inference is accepted, so valid UTF-8
-            # sources and GeoPackages remain untouched.
-            inferred = infer_dbf_encoding(source_path.with_suffix(".dbf"))
-            if inferred:
-                return inferred, "DBF 자동 감지"
+            # Resolve it before inspecting any attributes.  The same resolver
+            # is also called while the dialog builds its layer list, so CP949
+            # DBF values are not allowed to enter the workflow as mojibake.
+            declared, basis = declared_shapefile_encoding(source_path)
+            if declared:
+                return declared, (
+                    "DBF 자동 감지" if basis == "DBF automatic detection"
+                    else basis
+                )
 
         try:
             provider_encoding = str(layer.dataProvider().encoding() or "").strip()
