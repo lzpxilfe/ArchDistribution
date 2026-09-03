@@ -2880,7 +2880,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.listTopoLayers.clear()
         self.listHeritageLayers.clear()
 
-        layers = QgsProject.instance().mapLayers().values()
+        layers = list(QgsProject.instance().mapLayers().values())
         for layer in layers:
             if layer.type() == 0:  # VectorLayer
                 # A CP949 DBF must be reloaded before field inspection and
@@ -2937,9 +2937,57 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     )
                     item_heritage.setCheckState(QtCore.Qt.Unchecked)
                     self.listHeritageLayers.addItem(item_heritage)
+        self._auto_assign_legal_layers(layers)
         self._populate_previous_result_layers()
         self._populate_layer_role_table()
         self._update_previous_result_guidance()
+
+    def _auto_assign_legal_layers(self, layers):
+        """Preselect the four NHA legal layers by their source-layer names.
+
+        The controls remain editable, but a project already containing the
+        standard Korean layer names should not require the user to rediscover
+        and select each layer on every run.  Memory outputs are deliberately
+        excluded so a prior result can never become the next input.
+        """
+        targets = (
+            ("zone", self.comboZoneLayer),
+            ("national_protection", self.comboNationalProtectionLayer),
+            ("local_protection", self.comboLocalProtectionLayer),
+            ("national_designated", self.comboNationalDesignatedLayer),
+            ("local_designated", self.comboLocalDesignatedLayer),
+        )
+        empty_targets = {
+            key: combo for key, combo in targets
+            if combo.currentLayer() is None
+        }
+        if not empty_targets:
+            return
+        for layer in layers:
+            if (
+                not layer
+                or layer.type() != 0
+                or layer.geometryType() != 2
+                or str(layer.providerType() or "").casefold() == "memory"
+            ):
+                continue
+            name = str(layer.name() or "").replace(" ", "")
+            if "현상변경" in name and "허용" in name:
+                key = "zone"
+            elif "보호구역" in name and "국가" in name:
+                key = "national_protection"
+            elif "보호구역" in name and ("시도" in name or "도지정" in name):
+                key = "local_protection"
+            elif "국가" in name and "지정" in name:
+                key = "national_designated"
+            elif ("시도" in name or "도지정" in name) and "지정" in name:
+                key = "local_designated"
+            else:
+                continue
+            combo = empty_targets.get(key)
+            if combo is not None:
+                combo.setLayer(layer)
+                empty_targets.pop(key, None)
 
     @staticmethod
     def _apply_automatic_shapefile_encoding(layer):

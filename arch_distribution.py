@@ -635,6 +635,11 @@ class ArchDistribution:
                         or ([consolidation.get("protection")]
                             if consolidation.get("protection") else [])
                     )
+                    designation_layers = (
+                        consolidation.get("designation_layers")
+                        or ([consolidation.get("designation")]
+                            if consolidation.get("designation") else [])
+                    )
                     audit_layers = (
                         consolidation.get("audit_layers")
                         or ([consolidation.get("audit")]
@@ -647,6 +652,7 @@ class ArchDistribution:
                     )
                     suppressed_layers = []
                     protection_layers = []
+                    designation_layers = []
                     audit_layers = []
 
                 if merged_heritage:
@@ -683,6 +689,23 @@ class ArchDistribution:
                 # They must be registered even when the operator deliberately
                 # selected no nearby-heritage layer, in which case
                 # ``merged_heritage`` is correctly empty.
+                for designation_layer in designation_layers:
+                    for separate_layer in self.split_designation_layers(
+                        designation_layer
+                    ):
+                        if separate_layer.featureCount() <= 0:
+                            continue
+                        self.apply_designation_layer_style(separate_layer)
+                        QgsProject.instance().addMapLayer(
+                            separate_layer,
+                            False,
+                        )
+                        her_group.addLayer(separate_layer)
+                        self.log(
+                            f"{separate_layer.name()}을(를) 공식 범례 "
+                            "레이어로 등록했습니다."
+                        )
+
                 for protection_layer in protection_layers:
                     for separate_layer in self.split_protection_zone_layers(
                         protection_layer
@@ -3273,6 +3296,7 @@ class ArchDistribution:
             return {
                 "main": layer,
                 "suppressed": None,
+                "designation": None,
                 "protection": None,
                 "audit": None,
                 "decision_store_dirty": False,
@@ -3968,6 +3992,10 @@ class ArchDistribution:
             "수집_및_병합된_주변유적",
             lambda feature: (
                 str(feature["SOURCE_ROLE"]) != ROLE_PROTECTION_ZONE
+                and str(feature["SOURCE_ROLE"]) not in {
+                    ROLE_NATIONAL_DESIGNATED,
+                    ROLE_LOCAL_DESIGNATED,
+                }
                 and int(feature["IS_REP"] or 0) == 1
             ),
         )
@@ -3986,11 +4014,20 @@ class ArchDistribution:
                 str(feature["SOURCE_ROLE"]) == ROLE_PROTECTION_ZONE
             ),
         )
+        designation = self._memory_layer_like(
+            layer,
+            "지정유산구역",
+            lambda feature: str(feature["SOURCE_ROLE"]) in {
+                ROLE_NATIONAL_DESIGNATED,
+                ROLE_LOCAL_DESIGNATED,
+            },
+        )
         audit = self._create_match_audit_layer(decisions)
         return {
             "main": main,
             "suppressed": suppressed,
             "protection": protection,
+            "designation": designation,
             "audit": audit,
             "decision_store_dirty": decision_store_dirty,
             "candidate_count": len(candidates),
@@ -5489,9 +5526,16 @@ class ArchDistribution:
             # The preservation workflow rejects non-polygons above.
             return results[0]["main"] if results else None
 
-        main_layers = [item["main"] for item in results if item.get("main")]
+        # A legal-layer-only run intentionally has no nearby-heritage main
+        # layer.  Do not expose that empty intermediate beside the four
+        # independent legal outputs.
+        main_layers = [
+            item["main"]
+            for item in results
+            if item.get("main") and item["main"].featureCount() > 0
+        ]
         auxiliary = {}
-        for key in ("suppressed", "protection", "audit"):
+        for key in ("suppressed", "designation", "protection", "audit"):
             auxiliary[f"{key}_layers"] = [
                 item[key] for item in results if item.get(key)
             ]
@@ -5563,6 +5607,7 @@ class ArchDistribution:
         merged_layer = result["OUTPUT"]
         auxiliary_layers = {
             "suppressed": None,
+            "designation": None,
             "protection": None,
             "audit": None,
         }
@@ -5597,6 +5642,7 @@ class ArchDistribution:
             merged_layer = match_result["main"]
             auxiliary_layers = {
                 "suppressed": match_result.get("suppressed"),
+                "designation": match_result.get("designation"),
                 "protection": match_result.get("protection"),
                 "audit": match_result.get("audit"),
             }
@@ -6698,6 +6744,46 @@ class ArchDistribution:
         if fallback.featureCount() > 0:
             outputs.append(fallback)
         return outputs
+
+    def split_designation_layers(self, layer):
+        """Keep national and provincial designated heritage as separate outputs."""
+        if not layer:
+            return []
+        role_field = "SOURCE_ROLE"
+        if layer.fields().indexFromName(role_field) < 0:
+            layer.setName("지정유산구역")
+            return [layer]
+        definitions = (
+            (ROLE_NATIONAL_DESIGNATED, "국가지정유산구역"),
+            (ROLE_LOCAL_DESIGNATED, "시도지정유산구역"),
+        )
+        outputs = []
+        for role, name in definitions:
+            output = self._memory_layer_like(
+                layer,
+                name,
+                lambda feature, value=role: (
+                    str(feature[role_field] or "") == value
+                ),
+            )
+            if output.featureCount() > 0:
+                outputs.append(output)
+        return outputs
+
+    def apply_designation_layer_style(self, layer):
+        """Apply the supplied official symbol without site numbering/labels."""
+        renderer = self.create_designation_role_renderer(
+            layer,
+            {
+                "fill_color": "#FFFFFF",
+                "stroke_color": "#525252",
+                "stroke_width": 0.35,
+            },
+        )
+        if renderer is not None:
+            layer.setRenderer(renderer)
+        layer.setLabelsEnabled(False)
+        layer.triggerRepaint()
 
     def apply_zone_categorical_style(self, layer):
         """Apply the supplied current-change legend to one categorical layer."""
