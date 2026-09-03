@@ -3119,21 +3119,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             if parsed is not None:
                 buffers.append(parsed)
 
-        filter_items = self.get_checked_items(None)
-        has_filter_tags = False
-        for i in range(self.listEras.count()):
-            data = self.listEras.item(i).data(QtCore.Qt.UserRole)
-            if isinstance(data, str) and data.startswith("ERA:"):
-                has_filter_tags = True
-                break
-        if not has_filter_tags:
-            for i in range(self.listTypes.count()):
-                data = self.listTypes.item(i).data(QtCore.Qt.UserRole)
-                if isinstance(data, str) and data.startswith("TYPE:"):
-                    has_filter_tags = True
-                    break
-        if not has_filter_tags:
-            filter_items = None
+        allowed_filter_tags = self.get_checked_items(None)
+        available_filter_tags = []
+        for widget in (self.listEras, self.listTypes):
+            for index in range(widget.count()):
+                data = widget.item(index).data(QtCore.Qt.UserRole)
+                if (
+                    isinstance(data, str)
+                    and data.startswith(("ERA:", "TYPE:"))
+                ):
+                    available_filter_tags.append(data)
+        filter_items = (
+            {
+                "allowed": allowed_filter_tags,
+                "available": available_filter_tags,
+            }
+            if available_filter_tags else None
+        )
 
         workflow_mode = (
             "preservation"
@@ -3466,8 +3468,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             name_field = find_semantic_field(fields, NAME_FIELD_KEYWORDS)
             era_field = find_semantic_field(fields, ERA_FIELD_KEYWORDS)
             type_field = find_semantic_field(fields, TYPE_FIELD_KEYWORDS)
+            string_fields = [
+                field.name() for field in layer.fields()
+                if field.type() == QtCore.QVariant.String
+            ]
 
-            if not any((name_field, era_field, type_field)):
+            if not any((name_field, era_field, type_field, string_fields)):
                 self.log(self._t(
                     "  ⚠️ 명칭·시대·유형 필드를 찾지 못해 건너뜁니다.",
                     "  ⚠️ No name, period, or type field found; skipping layer.",
@@ -3524,9 +3530,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 if name and name in self.reference_data:
                     matched = True
                     info = self.reference_data[name]
-                    if info.get('e') and info.get('e') != "시대미상":
+                    if (
+                        not direct_eras
+                        and info.get('e')
+                        and info.get('e') != "시대미상"
+                    ):
                         found_eras.add(info['e'])
-                    if info.get('t') and info.get('t') != "기타":
+                    if (
+                        not direct_types
+                        and info.get('t')
+                        and info.get('t') != "기타"
+                    ):
                         found_types.add(info['t'])
 
                 # 2. Keyword Refinement (Overrides/Additions)
@@ -3539,11 +3553,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 # Generic, auditable fallback: only terms visibly present in
                 # the source name are used; nothing is guessed from a private
                 # or unavailable lookup table.
-                inferred_eras, inferred_types = infer_categories_from_name(name)
-                if inferred_eras:
+                searchable_text = " ".join(
+                    str(feat[field_name] or "")
+                    for field_name in string_fields
+                )
+                inferred_eras, inferred_types = infer_categories_from_name(
+                    searchable_text
+                )
+                if inferred_eras and not direct_eras:
                     found_eras.update(inferred_eras)
                     matched = True
-                if inferred_types:
+                if inferred_types and not direct_types:
                     found_types.update(inferred_types)
                     matched = True
 

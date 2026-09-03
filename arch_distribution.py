@@ -25,6 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 from .cartographic_filtering import is_insignificant_extent_fragment
+from .attribute_classification import (
+    ERA_FIELD_KEYWORDS,
+    TYPE_FIELD_KEYWORDS,
+    category_values,
+    find_semantic_field,
+    infer_categories_from_name,
+    should_exclude_categories,
+)
 from .arch_distribution_dialog import ArchDistributionDialog, get_plugin_version
 from .heritage_grouping import (
     canonical_heritage_text,
@@ -2978,10 +2986,18 @@ class ArchDistribution:
             except (OSError, json.JSONDecodeError) as exc:
                 self.log(f"스마트 패턴 로드 실패, 기본값 사용: {exc}")
 
-    def should_exclude(self, name, filter_items):
+    def should_exclude(
+        self,
+        name,
+        filter_items,
+        *,
+        source_eras=None,
+        source_types=None,
+    ):
         """
-        Check if feature should be excluded based on name look-up.
-        filter_items: List of allowed strings e.g. ["ERA:고려", "TYPE:고분"]
+        Check if a feature should be excluded by displayed classification.
+        Source fields are authoritative; optional name lookups only augment
+        them. ``filter_items`` carries both displayed and checked tags.
         If filter_items is None, Allow all.
         """
         if filter_items is None:
@@ -2991,66 +3007,37 @@ class ArchDistribution:
         if not hasattr(self, 'reference_data'):
             self.load_reference_data()
 
-        if name not in self.reference_data:
-            return False  # Unknown items are allowed by default (or denied? Let's allow for safety)
+        name = str(name or "")
+        eras = set(source_eras or ())
+        types = set(source_types or ())
+        info = self.reference_data.get(name)
+        if isinstance(info, dict):
+            if (
+                not eras
+                and info.get("e")
+                and info.get("e") != "시대미상"
+            ):
+                eras.add(str(info["e"]))
+            if (
+                not types
+                and info.get("t")
+                and info.get("t") != "기타"
+            ):
+                types.add(str(info["t"]))
 
-        info = self.reference_data[name]
-        era_key = f"ERA:{info['e']}"
-        type_key = f"TYPE:{info['t']}"
+        inferred_eras, inferred_types = infer_categories_from_name(name)
+        if not eras:
+            eras.update(inferred_eras)
+        if not types:
+            types.update(inferred_types)
 
-        # [NEW] Keyword Override Logic
-        # Prioritize keyword inference over DB value if a match exists.
-        # This solves the "Temple Site containing Stone Buddha" issue.
-        effective_type = info['t']
         if hasattr(self, 'smart_patterns'):
             refinements = self.smart_patterns.get('artifacts', {})
             for key, val in refinements.items():
                 if key in name:
-                    effective_type = val
-                    break  # Use the first matching keyword
+                    types.add(str(val))
 
-        type_key = f"TYPE:{effective_type}"
-
-        # Logic:
-        # If the item has an Era, and that Era is NOT in the allowed list -> Exclude
-        # If the item has a Type, and that Type is NOT in the allowed list -> Exclude
-        # Wait, if I uncheck "Era: Goryeo", then Goryeo items should be gone.
-        # But what if I uncheck "Type: Tomb"? Then Tomb items gone.
-        # Basically, we need to check if the specific Era tag is present in filter_items (if applicable)
-        # AND if the specific Type tag is present in filter_items (if applicable).
-
-        # However, we only emitted tags that were found.
-        # So we can just check: IS the ERA present in the allowed list?
-
-        # Complication: filter_items contains only CHECKED items.
-        # So if era_key is valid (not an unknown era marker) and NOT in filter_items -> Exclude.
-
-        if info['e'] and info['e'] != "시대미상":
-            # Does the user care about eras? (i.e. are there any ERA tags in the list?)
-            # We can assume if filter_items provided, we enforce it.
-            # We need to know if "ERA:Goryeo" was presented to the user?
-            # Actually, simpler: if filter_items is passed, it represents the ALLOW LIST of properties.
-            # But if "ERA:Goryeo" was never in the list (not found in scan), we shouldn't block it?
-            # The Dialog only adds found items.
-            # So if it was found, it must be in the list?
-            # Correct.
-
-            # Optimization: We assume the Dialog passed ONLY the checked items.
-            # But we also need to know if the Era was even *candidate* for filtering.
-            # If "Goryeo" wasn't in the input layers, it wouldn't be in the list.
-            # But here we are processing features. If this feature is Goryeo, then "ERA:Goryeo" WOULD have been found by scan?
-            # YES, because we scan the same layers.
-
-            if era_key not in filter_items:
-                # Check if this era key was actually available to be unchecked?
-                # If we rely on the list containing ONLY checked items, then missing item = unchecked.
-                return True
-
-        if info['t'] and info['t'] != "기타":
-            if type_key not in filter_items:
-                return True
-
-        return False
+        return should_exclude_categories(eras, types, filter_items)
 
     def keyword_inference(self, name):
         """Infer category from name."""
@@ -4895,6 +4882,21 @@ class ArchDistribution:
                 layer,
                 ['사업명', '조사명', '공사명', 'PROJECT'],
             )
+            source_field_names = [
+                source_field.name() for source_field in layer.fields()
+            ]
+            string_source_fields = [
+                source_field.name() for source_field in layer.fields()
+                if source_field.type() == QVariant.String
+            ]
+            era_field = find_semantic_field(
+                source_field_names,
+                ERA_FIELD_KEYWORDS,
+            )
+            type_field = find_semantic_field(
+                source_field_names,
+                TYPE_FIELD_KEYWORDS,
+            )
 
             explicit_action_field = preservation_action_fields.get(lid)
             if explicit_action_field:
@@ -5119,6 +5121,24 @@ class ArchDistribution:
                     feat[name_field]
                     if name_field else layer.name()
                 )
+                source_eras = category_values(
+                    feat[era_field] if era_field else None,
+                    ignored=("시대미상",),
+                )
+                source_types = category_values(
+                    feat[type_field] if type_field else None,
+                    ignored=("기타", "미분류"),
+                )
+                inferred_eras, inferred_types = infer_categories_from_name(
+                    " ".join(
+                        str(feat[field_name] or "")
+                        for field_name in string_source_fields
+                    )
+                )
+                if not source_eras:
+                    source_eras.update(inferred_eras)
+                if not source_types:
+                    source_types.update(inferred_types)
 
                 # [NEW] Check Exclusion List (Specific Blacklist)
                 # If the name is in the user's exclusion list, skip it.
@@ -5128,7 +5148,12 @@ class ArchDistribution:
                     continue
 
                 # Check Category Filters (Legacy Reference Data)
-                if self.should_exclude(val_name, filter_categories):
+                if self.should_exclude(
+                    str(val_name or ""),
+                    filter_categories,
+                    source_eras=source_eras,
+                    source_types=source_types,
+                ):
                     continue
 
                 # The distribution-map workflow clips to its map extent. The
@@ -5215,11 +5240,6 @@ class ArchDistribution:
                         preservation_action = normalize_preservation_action(
                             raw_preservation_action
                         )
-                        # [NEW] Filtering Logic
-                        # 1. Smart Filter (Era/Type from JSON)
-                        if self.should_exclude(val_name, filter_categories):  # filter_categories is actually 'filter_items' list
-                            continue
-
                         # Group every record with the same project name before
                         # numbering. If the project field is empty, the helper
                         # falls back to heritage/site names and explicit area

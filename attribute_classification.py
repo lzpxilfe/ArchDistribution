@@ -70,3 +70,31 @@ def infer_categories_from_name(name):
     eras = {token for token in ERA_NAME_TOKENS if token in text}
     types = {token for token in TYPE_NAME_TOKENS if token in text}
     return eras, types
+
+
+def should_exclude_categories(eras, types, selection):
+    """Apply the dialog's checked-category allowlist to one source feature.
+
+    Only categories that were actually offered in the dialog participate.
+    Unknown source values therefore remain included instead of being silently
+    discarded.  A multi-valued field is retained when any displayed value in
+    that dimension remains checked.
+    """
+    if not selection:
+        return False
+    if isinstance(selection, dict):
+        allowed = set(selection.get("allowed") or [])
+        available = set(selection.get("available") or [])
+    else:
+        allowed = set(selection)
+        available = set(selection)
+
+    def dimension_excluded(prefix, values):
+        feature_tags = {f"{prefix}:{value}" for value in values if value}
+        offered = feature_tags.intersection(available)
+        return bool(offered) and not bool(offered.intersection(allowed))
+
+    return (
+        dimension_excluded("ERA", set(eras or ()))
+        or dimension_excluded("TYPE", set(types or ()))
+    )

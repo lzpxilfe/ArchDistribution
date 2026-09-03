@@ -7,6 +7,7 @@ from attribute_classification import (
     category_values,
     find_semantic_field,
     infer_categories_from_name,
+    should_exclude_categories,
 )
 
 
@@ -27,6 +28,27 @@ class AttributeClassificationTests(unittest.TestCase):
         self.assertEqual(
             infer_categories_from_name("청동기 유물산포지"),
             ({"청동기"}, {"유물산포지"}),
+        )
+
+    def test_unchecked_source_category_is_excluded(self):
+        selection = {
+            "available": {"ERA:청동기", "ERA:삼국", "TYPE:고분"},
+            "allowed": {"ERA:삼국", "TYPE:고분"},
+        }
+        self.assertTrue(
+            should_exclude_categories({"청동기"}, {"고분"}, selection)
+        )
+        self.assertFalse(
+            should_exclude_categories({"삼국"}, {"고분"}, selection)
+        )
+
+    def test_unknown_category_is_kept(self):
+        selection = {
+            "available": {"ERA:삼국"},
+            "allowed": {"ERA:삼국"},
+        }
+        self.assertFalse(
+            should_exclude_categories({"고려"}, set(), selection)
         )
 
 
