@@ -12,7 +12,8 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsSpatialIndex, QgsDistanceArea, QgsVectorFileWriter,
                        QgsApplication, Qgis,
                        QgsPrintLayout, QgsLayoutItemMap, QgsLayoutPoint,
-                       QgsLayoutSize, QgsUnitTypes, QgsLayoutExporter)
+                       QgsLayoutSize, QgsUnitTypes, QgsLayoutExporter,
+                       QgsLayoutItemLegend)
 
 import json
 import hashlib
@@ -35,6 +36,10 @@ from .heritage_matching import (
     DECISION_LINK,
     DECISION_MERGE,
     PRESET_BALANCED,
+    ROLE_LOCAL_DESIGNATED,
+    ROLE_LOCAL_REGISTERED,
+    ROLE_NATIONAL_DESIGNATED,
+    ROLE_NATIONAL_REGISTERED,
     ROLE_OTHER,
     ROLE_PROTECTION_ZONE,
     SOURCE_ROLE_LABELS,
@@ -62,6 +67,10 @@ from .preservation_actions import (
     PRESERVATION_ACTION_STYLES,
     normalize_preservation_action,
     recognized_preservation_actions,
+)
+from .map_legend_styles import (
+    DESIGNATION_LEGEND_STYLES,
+    change_zone_style,
 )
 from .run_artifacts import (
     build_run_manifest,
@@ -535,17 +544,47 @@ class ArchDistribution:
                 current_step += 1
                 progress.setValue(current_step)
 
+            # Build the geometric buffer masks once.  Zone-only jobs need
+            # these too, so this cannot live inside the heritage branch.
+            buffer_geoms = []
+            if settings.get('buffers'):
+                combined_study = QgsGeometry()
+                for feature in analysis_study_layer.getFeatures():
+                    if not feature.hasGeometry():
+                        continue
+                    combined_study = (
+                        QgsGeometry(feature.geometry())
+                        if combined_study.isNull()
+                        else combined_study.combine(feature.geometry())
+                    )
+                if not combined_study.isNull():
+                    for distance in sorted(settings['buffers']):
+                        buffer_geoms.append({
+                            'dist': distance,
+                            'geom': combined_study.buffer(
+                                distance,
+                                STUDY_BUFFER_SEGMENTS,
+                            ),
+                        })
+                    self.log(
+                        "버퍼 구간 처리 준비 완료 "
+                        f"({len(buffer_geoms)}단계)."
+                    )
+
+            # Keep the selected instance (rather than reopening its data
+            # source) so unsaved edits, provider subsets and encoding choices
+            # are honoured in both a full map and a zone-only map.
+            zone_layer_obj = None
+            if settings.get('zone_layer_id'):
+                zone_layer_obj = QgsProject.instance().mapLayer(
+                    settings.get('zone_layer_id')
+                )
+                if zone_layer_obj:
+                    self.fix_layer_encoding(zone_layer_obj)
+
             # Step 6: Heritage Consolidation & Numbering
             if settings['heritage_layer_ids']:
                 self.log("주변 유적 데이터 수집 및 병합 시작...")
-
-                # Pre-fetch the Zone layer while preserving its current QGIS
-                # provider, subset, edits, and declared encoding.
-                zone_layer_obj = None
-                if settings.get('zone_layer_id'):
-                    zone_layer_obj = QgsProject.instance().mapLayer(settings.get('zone_layer_id'))
-                    if zone_layer_obj:
-                        self.fix_layer_encoding(zone_layer_obj)
 
                 consolidation = self.consolidate_heritage_layers(
                     settings['heritage_layer_ids'],
@@ -607,27 +646,8 @@ class ArchDistribution:
 
                 if merged_heritage:
                     self.log(f"병합 완료 ({merged_heritage.featureCount()}개소).")
-
-                    buffer_geoms = []
-                    if settings.get('buffers'):
-                        combined_study = QgsGeometry()
-                        for f in analysis_study_layer.getFeatures():
-                            if not f.hasGeometry():
-                                continue
-                            if combined_study.isNull():
-                                combined_study = f.geometry()
-                            else:
-                                combined_study = combined_study.combine(f.geometry())
-
-                        if not combined_study.isNull():
-                            sorted_buffers = sorted(settings['buffers'])
-                            for dist in sorted_buffers:
-                                bg = combined_study.buffer(dist, STUDY_BUFFER_SEGMENTS)
-                                buffer_geoms.append({'dist': dist, 'geom': bg})
-                            self.log(f"버퍼 구간 처리 준비 완료 ({len(buffer_geoms)}단계).")
-
-                        if settings.get('sort_order') != 1:
-                            self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
+                    if settings.get('buffers') and settings.get('sort_order') != 1:
+                        self.log("주의: 버퍼가 설정되었으나 '정렬 기준'이 '거리순'이 아닙니다. 버퍼 구간별 번호 부여는 '거리순'에서만 적용됩니다.")
                     # [NEW] Pass restrict_to_buffer setting
                     self.number_heritage_layers_v4(
                         merged_heritage_layers,
@@ -683,33 +703,31 @@ class ArchDistribution:
                         audit_group.addLayer(audit_layer)
                     audit_group.setItemVisibilityChecked(False)
 
-                    # [NEW] Check Zone Layer and Add/Style it if present
-                    zone_id = settings.get('zone_layer_id')
-                    if zone_id:
-                        z_layer = QgsProject.instance().mapLayer(zone_id)
-                        if z_layer:
-                            self.log(
-                                "현상변경 허용구간 레이어 분할 및 "
-                                "스타일 적용 중..."
-                            )
-
-                            buffer_limit_geom = None
-                            if settings.get('clip_zone_to_buffer', False):
-                                if buffer_geoms:
-                                    buffer_limit_geom = buffer_geoms[-1]['geom']
-                                else:
-                                    self.log("⚠️ 경고: '버퍼 범위 내 자르기'가 켜졌지만 버퍼가 설정되지 않았습니다. 도곽(Extent)만으로 진행합니다.")
-
-                            self.split_and_style_zone_layer(
-                                z_layer,
-                                zone_merged_group,
-                                extent_geom,
-                                buffer_limit_geom,
-                                source_crs=metric_context.analysis_crs
-                            )
-
                 else:
                     self.log("알림: 영역 내에 수집된 유적이 없습니다.")
+
+            # A current-change standard map is meaningful without surrounding
+            # sites.  Previously this was accidentally nested under the
+            # heritage-result condition, which made a valid Zone selection a
+            # no-op whenever no heritage layer was checked or intersected.
+            if zone_layer_obj:
+                self.log("현상변경 허용구간 레이어 분할 및 스타일 적용 중...")
+                buffer_limit_geom = None
+                if settings.get('clip_zone_to_buffer', False):
+                    if buffer_geoms:
+                        buffer_limit_geom = buffer_geoms[-1]['geom']
+                    else:
+                        self.log(
+                            "⚠️ 경고: '버퍼 범위 내 자르기'가 켜졌지만 "
+                            "버퍼가 설정되지 않았습니다. 도곽(Extent)만으로 진행합니다."
+                        )
+                self.split_and_style_zone_layer(
+                    zone_layer_obj,
+                    zone_merged_group,
+                    extent_geom,
+                    buffer_limit_geom,
+                    source_crs=metric_context.analysis_crs,
+                )
 
             current_step = total_steps
             progress.setValue(current_step)
@@ -1853,6 +1871,36 @@ class ArchDistribution:
         map_item.setScale(scale)
         map_item.setFrameEnabled(False)
         map_item.refresh()
+
+        # Styles in the layer tree are not enough for an exported report.
+        # Add a real layout legend linked to this map, so current-change and
+        # national/provincial designation categories carry through to JPG/PDF.
+        try:
+            legend = QgsLayoutItemLegend(layout)
+            layout.addLayoutItem(legend)
+            legend.setTitle("범례")
+            legend.setLinkedMap(map_item)
+            if hasattr(legend, "setLegendFilterByMapEnabled"):
+                legend.setLegendFilterByMapEnabled(True)
+            legend.setFrameEnabled(True)
+            if hasattr(legend, "setBackgroundEnabled"):
+                legend.setBackgroundEnabled(True)
+            if hasattr(legend, "setBackgroundColor"):
+                legend.setBackgroundColor(QColor(255, 255, 255, 230))
+            legend.attemptMove(QgsLayoutPoint(
+                max(3.0, width - 62.0),
+                5,
+                QgsUnitTypes.LayoutMillimeters,
+            ))
+            legend.attemptResize(QgsLayoutSize(
+                min(58.0, max(35.0, width - 6.0)),
+                min(80.0, max(35.0, height - 10.0)),
+                QgsUnitTypes.LayoutMillimeters,
+            ))
+        except Exception as error:
+            # A layout is still useful if a particular QGIS build cannot
+            # construct a legend; never discard finished spatial output.
+            self.log(f"⚠️ 인쇄조판 범례 생성 실패: {error}")
         layout.refresh()
         project.layoutManager().addLayout(layout)
 
@@ -3071,10 +3119,26 @@ class ArchDistribution:
 
     @staticmethod
     def _designation_family_hint(source_name):
-        text = str(source_name or "").replace(" ", "").replace("·", "")
-        if "국가지정" in text or "국가등록" in text:
+        text = (
+            str(source_name or "")
+            .replace(" ", "")
+            .replace("·", "")
+            .replace("-", "")
+            .replace("_", "")
+        )
+        if (
+            "국가지정" in text
+            or "국가등록" in text
+            or "국가유산" in text
+            or "국가문화유산" in text
+        ):
             return "national"
-        if "시도지정" in text or "시도등록" in text:
+        if (
+            "시도지정" in text
+            or "시도등록" in text
+            or "시도유산" in text
+            or "시도문화유산" in text
+        ):
             return "local"
         return None
 
@@ -4816,6 +4880,7 @@ class ArchDistribution:
                 QgsField("SRC_UID", QVariant.String),
                 QgsField("SRC_FP", QVariant.String),
                 QgsField("SOURCE_ROLE", QVariant.String),
+                QgsField("PROTECTION_FAMILY", QVariant.String),
                 QgsField("INVESTIGATION_KEY", QVariant.String),
                 QgsField("SITE_ENTITY_KEY", QVariant.String),
                 QgsField("ENTITY_KEY", QVariant.String),
@@ -5135,6 +5200,14 @@ class ArchDistribution:
                             source_identity.content_fingerprint
                         )
                         new_feat["SOURCE_ROLE"] = source_role
+                        # Keep the generic protection role for matching and
+                        # numbering, but retain its national/provincial
+                        # family for the official map legend.
+                        new_feat["PROTECTION_FAMILY"] = (
+                            self._designation_family_hint(layer.name())
+                            if source_role == ROLE_PROTECTION_ZONE
+                            else None
+                        )
                         new_feat["INVESTIGATION_KEY"] = investigation_key
                         new_feat["SITE_ENTITY_KEY"] = site_entity_key
                         # ENTITY_KEY remains a documented compatibility alias.
@@ -6379,6 +6452,8 @@ class ArchDistribution:
             opacity=style.get("opacity", 1.0),
             field_name=style.get("preservation_action_field"),
         )
+        if renderer is None:
+            renderer = self.create_designation_role_renderer(layer, style)
         symbol = None
         if renderer is None and layer.geometryType() == 2:  # Polygon
             symbol = QgsFillSymbol.createSimple({
@@ -6443,30 +6518,137 @@ class ArchDistribution:
 
         layer.triggerRepaint()
 
+    @staticmethod
+    def _official_fill_symbol(definition):
+        """Build a polygon symbol from one supplied legend definition."""
+        return QgsFillSymbol.createSimple({
+            "color": definition["fill"],
+            "outline_color": definition["stroke"],
+            "outline_width": str(definition["width"]),
+            "outline_width_unit": "MM",
+            "style": definition.get("fill_style", "solid"),
+        })
+
+    def create_designation_role_renderer(self, layer, style):
+        """Use supplied NHA symbols when a merged layer has designations.
+
+        Merging sources is still useful for review and numbering, but it must
+        not erase the legal category at render time.  ``SOURCE_ROLE`` remains
+        the stable, auditable category field.
+        """
+        if not layer or layer.geometryType() != 2:
+            return None
+        field_name = "SOURCE_ROLE"
+        role_index = layer.fields().indexFromName(field_name)
+        if role_index < 0:
+            return None
+        role_values = {
+            str(value or "") for value in layer.uniqueValues(role_index)
+        }
+        official_roles = {
+            ROLE_NATIONAL_DESIGNATED,
+            ROLE_LOCAL_DESIGNATED,
+            ROLE_NATIONAL_REGISTERED,
+            ROLE_LOCAL_REGISTERED,
+        }
+        if not (role_values & official_roles):
+            return None
+
+        rgb_fill = QColor(style["fill_color"])
+        generic_definition = {
+            "fill": rgb_fill.name(),
+            "stroke": style["stroke_color"],
+            "width": style["stroke_width"],
+            "fill_style": "solid",
+        }
+        role_to_legend = {
+            ROLE_NATIONAL_DESIGNATED: "national_designated",
+            ROLE_LOCAL_DESIGNATED: "local_designated",
+            ROLE_NATIONAL_REGISTERED: "national_registered",
+            ROLE_LOCAL_REGISTERED: "local_registered",
+        }
+        categories = []
+        for role in sorted(role_values):
+            legend_key = role_to_legend.get(role)
+            definition = (
+                DESIGNATION_LEGEND_STYLES[legend_key]
+                if legend_key else generic_definition
+            )
+            label = (
+                DESIGNATION_LEGEND_STYLES[legend_key]["label"]
+                if legend_key else SOURCE_ROLE_LABELS.get(role, role or "기타")
+            )
+            categories.append(QgsRendererCategory(
+                role,
+                self._official_fill_symbol(definition),
+                label,
+            ))
+        return QgsCategorizedSymbolRenderer(field_name, categories)
+
     def apply_protection_zone_style(self, layer):
-        """Render designated-heritage protection zones without numbering."""
+        """Render national/local protection zones using their supplied legend."""
         if not layer or layer.geometryType() != 2:
             return
-        symbol = QgsFillSymbol.createSimple({
-            "color": "0,0,0,0",
-            "outline_color": "#2E8B57",
-            "outline_width": "0.35",
-            "outline_width_unit": "MM",
-            "outline_style": "dash",
-        })
-        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        family_field = "PROTECTION_FAMILY"
+        family_index = layer.fields().indexFromName(family_field)
+        if family_index >= 0:
+            family_to_legend = {
+                "national": "national_protection",
+                "local": "local_protection",
+            }
+            categories = []
+            for family in sorted(
+                str(value or "")
+                for value in layer.uniqueValues(family_index)
+            ):
+                legend_key = family_to_legend.get(family, "protection")
+                definition = DESIGNATION_LEGEND_STYLES[legend_key]
+                categories.append(QgsRendererCategory(
+                    family,
+                    self._official_fill_symbol(definition),
+                    definition["label"],
+                ))
+            if categories:
+                layer.setRenderer(QgsCategorizedSymbolRenderer(
+                    family_field,
+                    categories,
+                ))
+        else:
+            layer.setRenderer(QgsSingleSymbolRenderer(
+                self._official_fill_symbol(
+                    DESIGNATION_LEGEND_STYLES["protection"]
+                )
+            ))
         layer.setLabelsEnabled(False)
         layer.triggerRepaint()
 
     def apply_zone_categorical_style(self, layer):
-        """Apply categorical style to Zone Layer based on '구역' or 'NAME' matching user legend."""
+        """Apply the supplied current-change legend to one categorical layer."""
         field_name = self.find_field(layer, ['구역', '구역명', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
         if not field_name:
-            return
-
-        # Exact Color Map based on User Image
-        # 1, 2, 3, 4, 5, 6, 7, 8 -> Filled
-        # 2-1, 2-2, 2-3, 2-4, 2-5, 2-6 -> Outline (No Brush)
+            return False
+        categories = []
+        field_index = layer.fields().indexFromName(field_name)
+        for value in sorted(layer.uniqueValues(field_index), key=str):
+            definition = change_zone_style(value)
+            if definition is None:
+                continue
+            categories.append(QgsRendererCategory(
+                value,
+                QgsFillSymbol.createSimple({
+                    "color": definition["fill"],
+                    "outline_color": definition["stroke"],
+                    "outline_width": str(definition["width"]),
+                    "outline_width_unit": "MM",
+                    "style": "solid",
+                }),
+                str(value),
+            ))
+        if not categories:
+            return False
+        layer.setRenderer(QgsCategorizedSymbolRenderer(field_name, categories))
+        layer.triggerRepaint()
+        return True
 
     def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None, source_crs=None):
         """
@@ -6490,36 +6672,6 @@ class ArchDistribution:
             return
 
         self.log(f"DEBUG: 타겟 필드 식별됨 -> '{field_name}'")
-
-        # 2. Define Style Map (Updated based on User Legend - Image Analysis)
-        # 1구역 (Orange), 2구역 (Magenta) -> Filled
-        # 2-X구역 -> Transparent Fill + Colored Outline (Thick)
-        base_map = {
-            # Filled Types (Standard)
-            "1": {"fill": "#E67E22", "stroke": "#D35400", "width": 0.2, "style": "solid"},  # 1 (Orange)
-            "2": {"fill": "#E056FD", "stroke": "#BE2EDD", "width": 0.2, "style": "solid"},  # 2 (Magenta)
-            "3": {"fill": "#5D5FEF", "stroke": "#4834d4", "width": 0.2, "style": "solid"},  # 3 (Blue-Purple)
-            "4": {"fill": "#C06C84", "stroke": "#A6586C", "width": 0.2, "style": "solid"},  # 4 (Rose)
-            "5": {"fill": "#2ecc71", "stroke": "#27ae60", "width": 0.2, "style": "solid"},  # 5 (Green)
-            "6": {"fill": "#e74c3c", "stroke": "#c0392b", "width": 0.2, "style": "solid"},  # 6 (Red)
-            "7": {"fill": "#34D399", "stroke": "#1abc9c", "width": 0.2, "style": "solid"},  # 7 (Mint)
-            "8": {"fill": "#f1c40f", "stroke": "#f39c12", "width": 0.2, "style": "solid"},  # 8 (Yellow)
-
-            # Outline Types (2-X Sub-zones)
-            # Fill: Transparent/Light Pink, Stroke: Specific Colors, Width: 0.8
-            "2-1": {"fill": "#FFDDDD", "stroke": "#0000FF", "width": 0.8, "style": "solid", "opacity": 0.2},  # Blue Stroke, Faint Pink Fill
-            "2-2": {"fill": "#FFDDDD", "stroke": "#008000", "width": 0.8, "style": "solid", "opacity": 0.2},  # Green Stroke
-            "2-3": {"fill": "#FFDDDD", "stroke": "#C71585", "width": 0.8, "style": "solid", "opacity": 0.2},  # Magenta Stroke
-            "2-4": {"fill": "#FFDDDD", "stroke": "#008080", "width": 0.8, "style": "solid", "opacity": 0.2},  # Teal Stroke
-            "2-5": {"fill": "#FFDDDD", "stroke": "#8B4513", "width": 0.8, "style": "solid", "opacity": 0.2},  # Brown Stroke
-            "2-6": {"fill": "#FFDDDD", "stroke": "#808000", "width": 0.8, "style": "solid", "opacity": 0.2},  # Olive Stroke
-        }
-
-        style_map = {}
-        for k, v in base_map.items():
-            style_map[k] = v
-            style_map[f"{k}구역"] = v
-            style_map[f"제{k}구역"] = v
 
         # 3. Prepare Clipping Geometries
         project_crs = QgsProject.instance().crs()
@@ -6545,24 +6697,23 @@ class ArchDistribution:
             self.log("❌ 오류: 도곽(Extent) Geometry가 없습니다.")
             return
 
-        # Expand extent slightly to avoid precision loss on the border
-        safe_buffer_dist = SAFE_BUFFER_DIST_GEOGRAPHIC if layer_crs.isGeographic() else SAFE_BUFFER_DIST_PROJECTED
-        safe_extent = local_extent.buffer(safe_buffer_dist, 5)
-
-        clip_mask = safe_extent
+        # The saved result must end exactly at the requested scale-aware
+        # frame.  A former 0.01-m "safe" expansion left slivers outside the
+        # frame, which is visible on high-resolution exports.
+        clip_mask = local_extent
         if local_limit_buffer:
             if not local_limit_buffer.isGeosValid():
                 local_limit_buffer = local_limit_buffer.makeValid()
             if not local_limit_buffer.isEmpty():
                 try:
-                    clip_mask = safe_extent.intersection(local_limit_buffer)
+                    clip_mask = local_extent.intersection(local_limit_buffer)
                     if clip_mask.isEmpty():
                         self.log("⚠️ 경고: 버퍼와 도곽(Extent)의 교집합이 비어있습니다. 현상변경허용기준 레이어는 생성되지 않습니다.")
                         return
                     self.log("DEBUG: 버퍼 범위 내 자르기 적용됨.")
                 except Exception as e:
                     self.log(f"⚠️ 경고: 버퍼 클립 실패. 도곽(Extent)만으로 진행합니다. ({e})")
-                    clip_mask = safe_extent
+                    clip_mask = local_extent
 
         self.log(f"DEBUG: Clipping Mask Ready. BBox: {clip_mask.boundingBox().toString()}")
 
@@ -6671,54 +6822,23 @@ class ArchDistribution:
             pr.addFeatures(clipped_feats)
             vl.updateExtents()
 
-            # 4.4 Apply Style
-            # Find matching style
-            norm_val = val_str.replace("구역", "").replace(" ", "").strip()
-            style = None
-
-            # [FIX: Strict 2-X Matching]
-            # Detect pattern "2-X" (handles -, space, dot, underscore)
-            import re
-            match_2x = re.search(r"2[-\s._]+(\d+)", val_str)
-            if match_2x:
-                sub_code = match_2x.group(1)
-                target_key = f"2-{sub_code}"
-                if target_key in style_map:
-                    style = style_map[target_key]
-                else:
-                    self.log(f"   -> Regex Matched '2-{sub_code}' but not in style map.")
-
-            if not style:
-                if val_str in style_map:
-                    style = style_map[val_str]
-                elif norm_val in style_map:
-                    style = style_map[norm_val]
-                else:
-                    for k, v in sorted(style_map.items(), key=lambda item: len(item[0]), reverse=True):
-                        if k in val_str and len(k) > 0:
-                            style = v
-                            break
+            # 4.4 Apply the full supplied legend (1–8, 2-x, 3-x, and other).
+            style = change_zone_style(val_str)
 
             if style:
-                # Apply Style with Opacity
-                opacity = style.get('opacity', 0.4)  # Default 0.4 (40%)
-
-                symbol = QgsFillSymbol.createSimple({'outline_style': 'solid', 'style': 'solid'})
-
-                # Check if it's "transparent" fill or actual color
-                fill_col = style['fill']
-                if fill_col == 'transparent':
-                    symbol.setColor(QColor(0, 0, 0, 0))  # Transparent
-                else:
-                    symbol.setColor(QColor(fill_col))
-
-                symbol.setOpacity(opacity)
-
-                symbol.symbolLayer(0).setStrokeColor(QColor(style['stroke']))
-                symbol.symbolLayer(0).setStrokeWidth(style['width'])
+                symbol = QgsFillSymbol.createSimple({
+                    'color': style['fill'],
+                    'outline_color': style['stroke'],
+                    'outline_width': str(style['width']),
+                    'outline_width_unit': 'MM',
+                    'style': 'solid',
+                })
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
             else:
-                pass
+                self.log(
+                    f"⚠️ 현상변경 범례 미정의 값: {val_str} "
+                    "(원본 값으로 보존, 기본 심볼 사용)"
+                )
 
             vl.triggerRepaint()
 

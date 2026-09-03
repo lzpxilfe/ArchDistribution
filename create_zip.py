@@ -156,6 +156,7 @@ def create_plugin_zip():
         "heritage_matching_dialog.py",
         "matching_rules.json",
         "metric_context.py",
+        "map_legend_styles.py",
         "metadata.txt",
         "preservation_actions.py",
         "run_artifacts.py",
