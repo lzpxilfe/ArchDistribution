@@ -113,3 +113,17 @@ def change_zone_style(value):
     """Return a copy-safe style definition for a supplied zone label."""
     code = normalize_change_zone_code(value)
     return dict(CHANGE_ZONE_STYLES[code]) if code else None
+
+
+def change_zone_label(value):
+    """Return a clean, official Korean output-layer label when recognized.
+
+    Source DBFs sometimes contain a broken Korean suffix while their numeric
+    zone code is still intact (for example ``2-1���``).  The source attribute
+    remains preserved for audit, but QGIS output-layer names must never expose
+    that mojibake to the operator.
+    """
+    code = normalize_change_zone_code(value)
+    if not code:
+        return None
+    return "그외구역" if code == "other" else f"{code}구역"

@@ -3,6 +3,7 @@ import unittest
 from map_legend_styles import (
     CHANGE_ZONE_STYLES,
     DESIGNATION_LEGEND_STYLES,
+    change_zone_label,
     change_zone_style,
     normalize_change_zone_code,
 )
@@ -30,6 +31,8 @@ class MapLegendStyleTests(unittest.TestCase):
         self.assertEqual(normalize_change_zone_code("제2-1구역"), "2-1")
         self.assertEqual(normalize_change_zone_code("3_4 구역"), "3-4")
         self.assertEqual(normalize_change_zone_code("1���"), "1")
+        self.assertEqual(change_zone_label("1���"), "1구역")
+        self.assertEqual(change_zone_label("제2-1구역"), "2-1구역")
         self.assertEqual(normalize_change_zone_code("그외구역"), "other")
         self.assertEqual(change_zone_style("2-6구역"), {
             "fill": "#B5057D", "stroke": "#BAB645", "width": 0.8,

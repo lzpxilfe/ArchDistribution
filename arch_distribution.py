@@ -70,6 +70,7 @@ from .preservation_actions import (
 )
 from .map_legend_styles import (
     DESIGNATION_LEGEND_STYLES,
+    change_zone_label,
     change_zone_style,
     normalize_change_zone_code,
 )
@@ -6839,16 +6840,20 @@ class ArchDistribution:
             if isinstance(v, float) and v.is_integer():
                 val_str = str(int(v))
 
-            grouped_feats[val_str].append(f)
+            # Group by the official numeric code, not the supplier's display
+            # string.  This prevents a malformed CP949 suffix (``1���``) from
+            # becoming the visible result-layer name.
+            group_key = normalize_change_zone_code(val_str) or val_str
+            grouped_feats[group_key].append(f)
 
         self.log(f"DEBUG: 그룹화 완료. 총 {len(grouped_feats)}개 그룹 생성됨.")
 
         # Sort keys for consistent processing order
         sorted_keys = sorted(grouped_feats.keys())
 
-        for val_str in sorted_keys:
-            subset_feats = grouped_feats[val_str]
-            # self.log(f"DEBUG: Processing Group '{val_str}' (Count: {len(subset_feats)})")
+        for group_key in sorted_keys:
+            subset_feats = grouped_feats[group_key]
+            # self.log(f"DEBUG: Processing Group '{group_key}' (Count: {len(subset_feats)})")
 
             # 4.2 Clip Logic
             clipped_feats = []
@@ -6908,7 +6913,12 @@ class ArchDistribution:
             if not crs_def:
                 crs_def = layer.crs().toWkt()
 
-            vl = QgsVectorLayer(f"MultiPolygon?crs={crs_def}", val_str, "memory")
+            display_label = change_zone_label(group_key) or str(group_key)
+            vl = QgsVectorLayer(
+                f"MultiPolygon?crs={crs_def}",
+                display_label,
+                "memory",
+            )
             if not vl.isValid():
                 continue
 
@@ -6919,7 +6929,7 @@ class ArchDistribution:
             vl.updateExtents()
 
             # 4.4 Apply the full supplied legend (1–8, 2-x, 3-x, and other).
-            style = change_zone_style(val_str)
+            style = change_zone_style(group_key)
 
             if style:
                 symbol = QgsFillSymbol.createSimple({
@@ -6932,7 +6942,7 @@ class ArchDistribution:
                 vl.setRenderer(QgsSingleSymbolRenderer(symbol))
             else:
                 self.log(
-                    f"⚠️ 현상변경 범례 미정의 값: {val_str} "
+                    f"⚠️ 현상변경 범례 미정의 값: {group_key} "
                     "(원본 값으로 보존, 기본 심볼 사용)"
                 )
 
