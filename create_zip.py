@@ -160,6 +160,7 @@ def create_plugin_zip():
         "metadata.txt",
         "preservation_actions.py",
         "run_artifacts.py",
+        "shapefile_encoding.py",
     }
     optional_reference_assets = {
         "reference_data.json",

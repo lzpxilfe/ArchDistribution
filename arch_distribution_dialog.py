@@ -22,10 +22,14 @@ from .preservation_actions import (
     PRESERVATION_ACTION_STYLES,
     recognized_preservation_actions,
 )
+from .map_legend_styles import normalize_change_zone_code
 from .heritage_matching import (
     MATCH_PRESET_LABELS,
     MATCH_PRESET_LABELS_EN,
     PRESET_BALANCED,
+    ROLE_LOCAL_DESIGNATED,
+    ROLE_NATIONAL_DESIGNATED,
+    ROLE_PROTECTION_ZONE,
     SOURCE_ROLE_LABELS,
     SOURCE_ROLE_ORDER,
     detect_source_role,
@@ -203,45 +207,64 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self.groupSmartFilter.setLayout(self.vSmartLayout)
 
-        # [NEW] Zone Layer Selection (Optional)
-        self.lblZoneLayer = QtWidgets.QLabel(self._t("현상변경 허용구간 레이어 (선택):", "Zone Layer (optional):"))
-        self.comboZoneLayer = QgsMapLayerComboBox()
-        self.comboZoneLayer.setFilters(QgsMapLayerProxyModel.PolygonLayer)
-        self.comboZoneLayer.setAllowEmptyLayer(True)  # Optional
-        self.comboZoneLayer.setLayer(None)  # [FIX] Default to Empty Selection
+        # National Heritage Administration legal-map inputs are independent
+        # from the archaeological "nearby heritage" list.  A current-change
+        # check should never require the operator to feed those legal layers
+        # through a general-purpose duplicate/numbering list.
+        self.groupLegalLayers = QtWidgets.QGroupBox()
+        legal_layout = QtWidgets.QFormLayout(self.groupLegalLayers)
+        legal_layout.setFieldGrowthPolicy(
+            QtWidgets.QFormLayout.AllNonFixedFieldsGrow
+        )
 
-        # Insert into vTab1 (index 0 is groupBuffer, 1 is SmartFilter... let's check)
+        def legal_layer_combo():
+            combo = QgsMapLayerComboBox()
+            combo.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+            combo.setAllowEmptyLayer(True)
+            combo.setLayer(None)
+            return combo
+
+        self.lblZoneLayer = QtWidgets.QLabel()
+        self.comboZoneLayer = legal_layer_combo()
+        self.lblZoneField = QtWidgets.QLabel()
+        self.comboZoneField = QtWidgets.QComboBox()
+        self.comboZoneField.setStyleSheet(STYLE_FORCE_VISIBLE)
+        self.comboZoneField.addItem(self._t("자동 감지", "Auto detect"), None)
+        self.lblNationalDesignatedLayer = QtWidgets.QLabel()
+        self.comboNationalDesignatedLayer = legal_layer_combo()
+        self.lblNationalProtectionLayer = QtWidgets.QLabel()
+        self.comboNationalProtectionLayer = legal_layer_combo()
+        self.lblLocalDesignatedLayer = QtWidgets.QLabel()
+        self.comboLocalDesignatedLayer = legal_layer_combo()
+        self.lblLocalProtectionLayer = QtWidgets.QLabel()
+        self.comboLocalProtectionLayer = legal_layer_combo()
+
+        legal_layout.addRow(self.lblZoneLayer, self.comboZoneLayer)
+        legal_layout.addRow(self.lblZoneField, self.comboZoneField)
+        legal_layout.addRow(
+            self.lblNationalDesignatedLayer,
+            self.comboNationalDesignatedLayer,
+        )
+        legal_layout.addRow(
+            self.lblNationalProtectionLayer,
+            self.comboNationalProtectionLayer,
+        )
+        legal_layout.addRow(
+            self.lblLocalDesignatedLayer,
+            self.comboLocalDesignatedLayer,
+        )
+        legal_layout.addRow(
+            self.lblLocalProtectionLayer,
+            self.comboLocalProtectionLayer,
+        )
+
+        self.chkClipZoneToBuffer = QtWidgets.QCheckBox()
+        self.chkClipZoneToBuffer.setChecked(False)
+        legal_layout.addRow("", self.chkClipZoneToBuffer)
+        self.comboZoneLayer.layerChanged.connect(self._refresh_zone_fields)
+
         if hasattr(self, 'vTab1'):
-            # Insert before Smart Filter? Or after?
-            # Heritage List is likely index 0 in .ui or so.
-            # Smart Filter was inserted at 1.
-            # Buffer Toggle was inserted at 1.
-            # So order: 0(Original), 1(Toggle), 2(Smart).
-            # Let's put Zone Layer at index 0 (Top) or after Heritage List (which is inside 0).
-            # Since we can't easily put it *inside* the existing GroupBox (unless we find it),
-            # Putting it at the top of Tab1 or simply appending might be safest.
-            # But the user wants it with the inputs.
-            # Let's try adding it at index 1 (pushing others down).
-
-            # Create a container HBox or VBox for it?
-            self.vZoneLayout = QtWidgets.QVBoxLayout()
-            self.vZoneLayout.addWidget(self.lblZoneLayer)
-            self.vZoneLayout.addWidget(self.comboZoneLayer)
-
-            # [NEW] Clip to Buffer Checkbox
-            self.chkClipZoneToBuffer = QtWidgets.QCheckBox(self._t("버퍼 범위 내 자르기 (반경 내만 표시)", "Clip to buffer extent (inside radius only)"))
-            self.chkClipZoneToBuffer.setToolTip(
-                self._t(
-                    "체크 시, 도곽 전체가 아닌 조사 반경(가장 큰 버퍼) 내의 현상변경허용기준만 남기고 나머지는 잘라냅니다.",
-                    "Keep only zone features inside the largest survey buffer (instead of full extent).",
-                )
-            )
-            self.chkClipZoneToBuffer.setChecked(False)  # Default Off
-            self.vZoneLayout.addWidget(self.chkClipZoneToBuffer)
-
-            # Convert layout to widget to insert? No, insertLayout works for Box Layouts usually.
-            # QLayout.insertLayout(index, layout)
-            self.vTab1.insertLayout(1, self.vZoneLayout)
+            self.vTab1.insertWidget(1, self.groupLegalLayers)
 
         # Insert into the first tab layout (vTab1) before the Spec group (item index 1)
         if hasattr(self, 'vTab1'):
@@ -1213,6 +1236,59 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     return field_name
         return None
 
+    def _refresh_zone_fields(self, layer):
+        """Populate the explicit current-change category-field selector."""
+        if not hasattr(self, "comboZoneField"):
+            return
+        previous = self.comboZoneField.currentData()
+        self.comboZoneField.blockSignals(True)
+        self.comboZoneField.clear()
+        self.comboZoneField.addItem(
+            self._t("자동 감지", "Auto detect"),
+            None,
+        )
+        if layer:
+            for field in layer.fields():
+                self.comboZoneField.addItem(field.name(), field.name())
+            # Schema labels in legacy CP949 shapefiles are not reliable on
+            # their own.  Prefer the field whose actual values most often
+            # match the official 1–8 / 2-x / 3-x zone vocabulary.
+            zone_counts = {}
+            for feature_index, feature in enumerate(layer.getFeatures()):
+                if feature_index >= 250:
+                    break
+                for field in layer.fields():
+                    name = field.name()
+                    if normalize_change_zone_code(feature[name]):
+                        zone_counts[name] = zone_counts.get(name, 0) + 1
+            value_verified = (
+                max(zone_counts, key=zone_counts.get)
+                if zone_counts else None
+            )
+            preferred_names = (
+                "L3_CODE", "A_L3_CODE", "L2_CODE", "구역코드",
+                "구역명", "구역", "ZONENAME", "ZONE",
+            )
+            field_names = {field.name().casefold(): field.name()
+                           for field in layer.fields()}
+            preferred = next(
+                (
+                    field_names[name.casefold()]
+                    for name in preferred_names
+                    if name.casefold() in field_names
+                ),
+                None,
+            )
+            target = (
+                previous if previous in field_names.values()
+                else value_verified or preferred
+            )
+            if target:
+                self.comboZoneField.setCurrentIndex(
+                    max(0, self.comboZoneField.findData(target))
+                )
+        self.comboZoneField.blockSignals(False)
+
     def _refresh_preservation_fields(self, layer):
         """Populate the explicit field picker and preselect a verified field."""
         if not hasattr(self, "comboPreservationActionField"):
@@ -2129,8 +2205,41 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "lblExclusion"):
             self.lblExclusion.setText(self._t("제외 제안 목록 (체크시 제외됨):", "Suggested Exclusions (checked = exclude):"))
 
+        if hasattr(self, "groupLegalLayers"):
+            self.groupLegalLayers.setTitle(self._t(
+                "국가유산청 법정 레이어 (주변유적 선택 불필요)",
+                "National Heritage Administration legal layers (independent of nearby heritage)",
+            ))
         if hasattr(self, "lblZoneLayer"):
-            self.lblZoneLayer.setText(self._t("현상변경 허용구간 레이어 (선택):", "Zone Layer (optional):"))
+            self.lblZoneLayer.setText(self._t(
+                "현상변경 허용기준 레이어:",
+                "Current-change standard layer:",
+            ))
+        if hasattr(self, "lblZoneField"):
+            self.lblZoneField.setText(self._t(
+                "구역 분류 필드:",
+                "Zone category field:",
+            ))
+            self.comboZoneField.setToolTip(self._t(
+                "반드시 1구역, 2-1구역, 3-4구역 같은 값이 실제로 들어 있는 필드를 선택하세요. NAME 등 설명 필드를 고르면 단색으로 보일 수 있습니다.",
+                "Select the field that actually contains values such as Zone 1, 2-1, or 3-4. Selecting a descriptive NAME field can produce a single colour.",
+            ))
+        if hasattr(self, "lblNationalDesignatedLayer"):
+            self.lblNationalDesignatedLayer.setText(self._t(
+                "국가지정유산 레이어:", "Nationally designated heritage:",
+            ))
+        if hasattr(self, "lblNationalProtectionLayer"):
+            self.lblNationalProtectionLayer.setText(self._t(
+                "국가지정유산 보호구역:", "National protection zone:",
+            ))
+        if hasattr(self, "lblLocalDesignatedLayer"):
+            self.lblLocalDesignatedLayer.setText(self._t(
+                "시도지정유산 레이어:", "Provincially designated heritage:",
+            ))
+        if hasattr(self, "lblLocalProtectionLayer"):
+            self.lblLocalProtectionLayer.setText(self._t(
+                "시도지정유산 보호구역:", "Provincial protection zone:",
+            ))
         if hasattr(self, "chkClipZoneToBuffer"):
             self.chkClipZoneToBuffer.setText(self._t("버퍼 범위 내 자르기 (반경 내만 표시)", "Clip to buffer extent (inside radius only)"))
             self.chkClipZoneToBuffer.setToolTip(
@@ -2960,6 +3069,44 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             if hasattr(self, "comboPreservationStudyArea")
             else None
         )
+        source_roles = {
+            layer_id: (
+                self.layerRoleCombos[layer_id].currentData()
+                if layer_id in self.layerRoleCombos
+                else None
+            )
+            for layer_id in heritage_layer_ids
+        }
+        legal_layer_roles = {}
+        legal_inputs = (
+            ("national_designated_layer_id",
+             getattr(self, "comboNationalDesignatedLayer", None),
+             ROLE_NATIONAL_DESIGNATED, None),
+            ("national_protection_layer_id",
+             getattr(self, "comboNationalProtectionLayer", None),
+             ROLE_PROTECTION_ZONE, "national"),
+            ("local_designated_layer_id",
+             getattr(self, "comboLocalDesignatedLayer", None),
+             ROLE_LOCAL_DESIGNATED, None),
+            ("local_protection_layer_id",
+             getattr(self, "comboLocalProtectionLayer", None),
+             ROLE_PROTECTION_ZONE, "local"),
+        )
+        legal_layer_ids = {}
+        protection_families = {}
+        for setting_key, combo, role, protection_family in legal_inputs:
+            layer = combo.currentLayer() if combo else None
+            layer_id = layer.id() if layer else None
+            legal_layer_ids[setting_key] = layer_id
+            if layer_id:
+                legal_layer_roles[layer_id] = role
+                if layer_id not in heritage_layer_ids:
+                    heritage_layer_ids.append(layer_id)
+                # Dedicated legal inputs must win over a generic layer-role
+                # guess from the nearby-heritage table.
+                source_roles[layer_id] = role
+                if protection_family:
+                    protection_families[layer_id] = protection_family
 
         return {
             "workflow_mode": workflow_mode,
@@ -2969,14 +3116,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "analysis_crs_authid": self._analysis_crs_override_definition(),
             "topo_layer_ids": topo_layer_ids,
             "heritage_layer_ids": heritage_layer_ids,
-            "source_roles": {
-                layer_id: (
-                    self.layerRoleCombos[layer_id].currentData()
-                    if layer_id in self.layerRoleCombos
-                    else None
-                )
-                for layer_id in heritage_layer_ids
-            },
+            "source_roles": source_roles,
+            "legal_layer_roles": legal_layer_roles,
+            "protection_families": protection_families,
+            **legal_layer_ids,
             "source_encodings": {
                 layer_id: str(
                     self.layerEncodingCombos[layer_id].currentData() or ""
@@ -3054,6 +3197,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             ),
             # [NEW] Zone Layer ID
             "zone_layer_id": self.comboZoneLayer.currentLayer().id() if self.comboZoneLayer.currentLayer() else None,
+            "zone_field_name": (
+                self.comboZoneField.currentData()
+                if hasattr(self, "comboZoneField")
+                else None
+            ),
             "clip_zone_to_buffer": self.chkClipZoneToBuffer.isChecked() if hasattr(self, "chkClipZoneToBuffer") else False,
             # [NEW] Label Style
             "label_font_size": self.spinLabelFontSize.value(),

@@ -29,6 +29,7 @@ class MapLegendStyleTests(unittest.TestCase):
     def test_current_change_subzones_accept_common_korean_labels(self):
         self.assertEqual(normalize_change_zone_code("제2-1구역"), "2-1")
         self.assertEqual(normalize_change_zone_code("3_4 구역"), "3-4")
+        self.assertEqual(normalize_change_zone_code("1���"), "1")
         self.assertEqual(normalize_change_zone_code("그외구역"), "other")
         self.assertEqual(change_zone_style("2-6구역"), {
             "fill": "#B5057D", "stroke": "#BAB645", "width": 0.8,

@@ -71,6 +71,7 @@ from .preservation_actions import (
 from .map_legend_styles import (
     DESIGNATION_LEGEND_STYLES,
     change_zone_style,
+    normalize_change_zone_code,
 )
 from .run_artifacts import (
     build_run_manifest,
@@ -84,6 +85,7 @@ from .run_artifacts import (
     sha256_file,
     sha256_file_bundle,
 )
+from .shapefile_encoding import infer_dbf_encoding
 
 LEGACY_KOREAN_ENCODING = "CP949"
 ENCODING_OVERRIDE_PROPERTY = "ArchDistribution/encoding_override"
@@ -594,6 +596,8 @@ class ArchDistribution:
                     filter_categories=settings.get('filter_items', None),
                     exclusion_list=settings.get('exclusion_list', []),
                     zone_layer=zone_layer_obj,
+                    zone_field_name=settings.get("zone_field_name"),
+                    protection_families=settings.get("protection_families"),
                     exclude_extent_slivers=settings.get(
                         "exclude_extent_slivers",
                         True,
@@ -727,6 +731,7 @@ class ArchDistribution:
                     extent_geom,
                     buffer_limit_geom,
                     source_crs=metric_context.analysis_crs,
+                    zone_field_name=settings.get("zone_field_name"),
                 )
 
             current_step = total_steps
@@ -2304,8 +2309,16 @@ class ArchDistribution:
                         "CP-949": LEGACY_KOREAN_ENCODING,
                         "EUC_KR": "EUC-KR",
                         "UTF8": "UTF-8",
-                    }
-                    return aliases.get(declared.upper(), declared), ".cpg"
+                }
+                return aliases.get(declared.upper(), declared), ".cpg"
+
+            # Many Korean public shapefiles omit .cpg.  In that case the DBF
+            # language-driver byte is the next reliable declaration; only a
+            # high-confidence CP949 inference is accepted, so valid UTF-8
+            # sources and GeoPackages remain untouched.
+            inferred = infer_dbf_encoding(source_path.with_suffix(".dbf"))
+            if inferred:
+                return inferred, "DBF 자동 감지"
 
         try:
             provider_encoding = str(layer.dataProvider().encoding() or "").strip()
@@ -2706,6 +2719,46 @@ class ArchDistribution:
                 if k.upper() in f.upper():
                     return f
         return None
+
+    def find_change_zone_field(self, layer):
+        """Find the field with real official zone values, not just its name."""
+        if not layer:
+            return None
+        counts = {}
+        try:
+            fields = list(layer.fields())
+            for feature_index, feature in enumerate(layer.getFeatures()):
+                if feature_index >= 250:
+                    break
+                for field in fields:
+                    name = field.name()
+                    if normalize_change_zone_code(feature[name]):
+                        counts[name] = counts.get(name, 0) + 1
+        except (AttributeError, RuntimeError):
+            counts = {}
+        if counts:
+            # Deterministic tie-break keeps a code-labelled column ahead of a
+            # free-text label that happens to contain the same values.
+            preference = {
+                "l3_code": 4,
+                "a_l3_code": 4,
+                "l2_code": 3,
+                "구역코드": 3,
+                "구역명": 2,
+                "구역": 1,
+            }
+            return max(
+                counts,
+                key=lambda name: (
+                    counts[name],
+                    preference.get(name.casefold(), 0),
+                    name.casefold(),
+                ),
+            )
+        return self.find_field(layer, [
+            'L3_CODE', 'A_L3_CODE', 'L2_CODE', '구역코드', '구역명',
+            '구역', 'ZONENAME', 'ZONE', 'NAME',
+        ])
 
     def find_preservation_action_field(self, layer):
         """
@@ -4644,6 +4697,8 @@ class ArchDistribution:
         filter_categories=None,
         exclusion_list=None,
         zone_layer=None,
+        zone_field_name=None,
+        protection_families=None,
         preservation_only=False,
         preservation_action_fields=None,
         exclude_extent_slivers=False,
@@ -4664,6 +4719,8 @@ class ArchDistribution:
             source_roles = {}
         if source_encodings is None:
             source_encodings = {}
+        if protection_families is None:
+            protection_families = {}
         temp_layers = []
         selected_fingerprints = {}
         clip_filter_context = None
@@ -4714,19 +4771,17 @@ class ArchDistribution:
         zone_spatial_index = None
         zone_records = {}
         if zone_layer:
-            zone_name_field = self.find_field(
-                zone_layer,
-                [
-                    '구역',
-                    '구역명',
-                    'NAME',
-                    'ZONENAME',
-                    'ZONE',
-                    'L3_CODE',
-                    'A_L3_CODE',
-                    'L2_CODE',
-                ],
-            )
+            explicit_zone_field = str(zone_field_name or "").strip()
+            if (
+                explicit_zone_field
+                and zone_layer.fields().indexFromName(explicit_zone_field) >= 0
+            ):
+                zone_name_field = explicit_zone_field
+            else:
+                # Code fields come before generic NAME fields.  A generic
+                # field may contain the layer title for every feature and
+                # therefore cannot drive the supplied change-zone legend.
+                zone_name_field = self.find_change_zone_field(zone_layer)
             if zone_name_field:
                 zone_spatial_index, zone_records = (
                     self._build_zone_spatial_lookup(
@@ -5204,7 +5259,8 @@ class ArchDistribution:
                         # numbering, but retain its national/provincial
                         # family for the official map legend.
                         new_feat["PROTECTION_FAMILY"] = (
-                            self._designation_family_hint(layer.name())
+                            protection_families.get(lid)
+                            or self._designation_family_hint(layer.name())
                             if source_role == ROLE_PROTECTION_ZONE
                             else None
                         )
@@ -6650,7 +6706,15 @@ class ArchDistribution:
         layer.triggerRepaint()
         return True
 
-    def split_and_style_zone_layer(self, layer, parent_group, extent_geom, limit_buffer_geom=None, source_crs=None):
+    def split_and_style_zone_layer(
+        self,
+        layer,
+        parent_group,
+        extent_geom,
+        limit_buffer_geom=None,
+        source_crs=None,
+        zone_field_name=None,
+    ):
         """
         Split Zone Layer into separate layers for each category, clip to extent (and buffer if requested),
         and apply specific single-symbol style.
@@ -6663,8 +6727,20 @@ class ArchDistribution:
         # encodings.  A declared .cpg or explicit layer override is sufficient.
         self.fix_layer_encoding(layer)
 
-        # 1. Identify Field
-        field_name = self.find_field(layer, ['구역명', '구역', 'NAME', 'ZONENAME', 'ZONE', 'L3_CODE', 'A_L3_CODE', 'L2_CODE'])
+        # 1. Identify Field.  An explicit user selection is authoritative;
+        # it prevents a descriptive NAME column from collapsing all features
+        # into one incorrectly styled class.
+        requested_field = str(zone_field_name or "").strip()
+        if requested_field:
+            if layer.fields().indexFromName(requested_field) < 0:
+                self.log(
+                    "❌ 오류: 선택한 현상변경 구역 필드를 찾지 못했습니다: "
+                    f"{requested_field}"
+                )
+                return
+            field_name = requested_field
+        else:
+            field_name = self.find_change_zone_field(layer)
         if not field_name:
             self.log("❌ 오류: 구역 필드 찾기 실패.")
             self.log(f"   - 현재 인코딩: {layer.dataProvider().encoding()}")

@@ -97,6 +97,13 @@ def normalize_change_zone_code(value):
     match = re.fullmatch(r"([1-8])(?:구역)?", compact)
     if match:
         return match.group(1)
+    # A malformed DBF encoding can turn the Korean suffix in ``1구역`` into
+    # replacement characters while leaving the numeric official code intact.
+    # Treat a single valid zone digit followed only by non-digits as a code;
+    # never reinterpret values such as 10 or 101 as Zone 1.
+    match = re.fullmatch(r"([1-8])[^0-9]+", compact)
+    if match:
+        return match.group(1)
     if any(token in compact for token in ("그외", "기타", "외구역")):
         return "other"
     return None

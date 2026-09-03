@@ -11,7 +11,7 @@
 
 <p align="center">
   <img alt="QGIS declared 3.40-3.99" src="https://img.shields.io/badge/QGIS-declared%203.40--3.99-589632?logo=qgis&logoColor=white">
-  <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-0ea5e9">
+  <img alt="Version 1.0.6" src="https://img.shields.io/badge/version-1.0.6-0ea5e9">
   <img alt="License GPL-2.0-or-later" src="https://img.shields.io/badge/license-GPL--2.0--or--later-f59e0b">
 </p>
 
@@ -29,7 +29,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 현재 버전 | `1.0.5` |
+| 현재 버전 | `1.0.6` |
 | QGIS 호환성 | 선언 범위 `3.40` - `3.99`; 자동검증 Windows `3.40.5`, Linux `3.44.13` |
 | 지원 언어 | `자동(QGIS)` / `한국어` / `English` |
 | 주요 입력 | 조사구역, 지정·등록유산, 분포지도, 지표·발굴조사, 선택적 지형도·Zone 레이어 |
@@ -43,7 +43,7 @@
 | 하려는 작업 | 열 탭·기능 | 핵심 결과 |
 |---|---|---|
 | 조사대상지 주변의 지정유산·분포지도·발굴조사를 모아 번호가 있는 분포지도 만들기 | `문화유적분포지도` | 대표 유적 레이어, 중복 보존 레이어, 검수표, 버퍼·도곽, 인쇄조판 |
-| 주변유적 없이 대상지의 현상변경 허용기준만 도면화하기 | `문화유적분포지도` + Zone 레이어 | 축척 도곽으로 정확히 절단된 1~8·세부구역 공식 범례 레이어 |
+| 주변유적 없이 대상지의 법정 보호·현상변경 기준만 도면화하기 | `문화유적분포지도` + 국가유산청 법정 레이어 | 현상변경·국가/시도 지정·국가/시도 보호구역을 축척 도곽으로 정확히 절단한 공식 범례 레이어 |
 | 매장유산 유존지역을 보존조치 4종으로 나누어 표현하기 | `매장유산 유존지역` | 보존조치별 형상·심볼, 공유 번호, 인쇄조판 |
 | 이미 검토한 결과는 그대로 두고 번호 순서만 다시 정리하기 | 스타일 탭의 `기존 결과 후속 작업 — 번호만 다시 매기기` | 기존 판정키를 보존한 재번호 결과 |
 
@@ -72,7 +72,7 @@
 불러오는 공간 레이어가 아닙니다.
 
 1. QGIS `3.40` 이상을 열고 `Plugins → Manage and Install Plugins → Install from ZIP`을 선택합니다.
-2. `ArchDistribution-1.0.5.zip`을 설치하고 플러그인을 활성화합니다.
+2. `ArchDistribution-1.0.6.zip`을 설치하고 플러그인을 활성화합니다.
 3. QGIS 프로젝트에 조사구역과 주변 고고유산 레이어를 불러옵니다.
 4. ArchDistribution의 `문화유적분포지도` 탭에서 조사구역·유산 레이어를 선택합니다.
 5. 자동 추천된 자료 역할을 확인합니다. 모호한 레이어는 임의로 추정하지 말고 직접 역할을 지정합니다.
@@ -95,7 +95,7 @@ python verify_guardrails.py
 python create_zip.py
 ```
 
-`create_zip.py`는 바탕화면에 `ArchDistribution-1.0.5.zip`을 만들며, ZIP 안에는
+`create_zip.py`는 바탕화면에 `ArchDistribution-1.0.6.zip`을 만들며, ZIP 안에는
 QGIS가 요구하는 최상위 `ArchDistribution/` 폴더 하나만 들어갑니다.
 
 **English quick path:** Install the versioned ZIP through QGIS Plugin Manager,
@@ -365,7 +365,7 @@ area and width, so complete small sites inside the map remain included.
 
 정식 GitHub Release가 만들어지기 전에는 저장소에서 임의의 ZIP을 받지 말고,
 이 저장소를 clone하여 아래 `python create_zip.py`로 직접 만들거나 저자가
-제공한 커밋·체크섬이 명시된 `1.0.5` 시험 ZIP을 사용하세요. JOSS 심사 중에는
+제공한 커밋·체크섬이 명시된 `1.0.6` 시험 ZIP을 사용하세요. JOSS 심사 중에는
 GitHub Actions가 같은 소스에서 만든 설치 ZIP도 확인할 수 있습니다.
 
 **KR**
@@ -421,12 +421,12 @@ not the source of record. The repository commit, manuscript source, tests, and
 review history are the materials reviewed by JOSS.
 
 **KR**
-- `create_zip.py`는 `metadata.txt`의 버전을 읽어 `~/Desktop/ArchDistribution-1.0.5.zip` 형태로 패키징합니다.
+- `create_zip.py`는 `metadata.txt`의 버전을 읽어 `~/Desktop/ArchDistribution-1.0.6.zip` 형태로 패키징합니다.
 - ZIP 내부 루트는 반드시 `ArchDistribution/` 폴더 1개만 들어가도록 구성됩니다.
 - 배포용 ZIP에는 플러그인 런타임에 필요한 추적 파일만 포함됩니다.
 
 **EN**
-- `create_zip.py` reads the version from `metadata.txt` and builds `~/Desktop/ArchDistribution-1.0.5.zip`.
+- `create_zip.py` reads the version from `metadata.txt` and builds `~/Desktop/ArchDistribution-1.0.6.zip`.
 - The archive is created with a single top-level `ArchDistribution/` folder for QGIS compatibility.
 - Only tracked runtime files needed by the plugin are packaged.
 
@@ -556,13 +556,13 @@ source datasets and real site coordinates are not distributed here.
   title = {ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
-  version = {1.0.5}
+  version = {1.0.6}
 }
 ```
 
 ## ℹ️ 프로젝트 정보 | Project Info
 
-- Version: `1.0.5`
+- Version: `1.0.6`
 - Author: `Jinseo Hwang (lzpxilfe / balguljang2)`
 - ORCID: [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083)
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
