@@ -1,10 +1,14 @@
 # Changelog
 
 All notable changes to ArchDistribution are documented here. This project uses
-plugin version `1.0.6`; research tags do not change the installable plugin
+plugin version `1.0.5`; research tags do not change the installable plugin
 version.
 
-## 1.0.6 — Research preparation and duplicate review
+## 1.0.5 — Research preparation and duplicate review
+
+First release in the QGIS plugin repository after 1.0.4. It also carries the
+mapping, preservation-area, duplicate-review, and renumbering workflow changes
+committed as 1.0.5 on 2026-07-31; see Git history for those.
 
 ### Added
 
@@ -142,12 +146,10 @@ version.
   (`unspecific_names`), or share their distinctive core under a different
   qualifier.
 
-## 1.0.5
+## 1.0.4
 
-- Previous plugin release line. See Git history and README for the implemented
-  mapping, preservation-area, duplicate-review, and renumbering workflow.
-- Research documentation and journal metadata are versioned separately and do
-  not change the installable plugin version.
+- Previous version published in the QGIS plugin repository. See Git history
+  for its changes.
 
 ## Historical tags
 

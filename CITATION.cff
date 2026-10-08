@@ -9,7 +9,7 @@ authors:
     affiliation: "Nuri Institute for Archaeology, Republic of Korea"
 repository-code: "https://github.com/lzpxilfe/ArchDistribution"
 url: "https://github.com/lzpxilfe/ArchDistribution"
-version: 1.0.6
+version: 1.0.5
 license: GPL-2.0-or-later
 abstract: >
   A QGIS plugin for reproducible, human-in-the-loop production of

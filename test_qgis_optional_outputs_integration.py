@@ -415,7 +415,7 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
         manifest = json.loads(
             paths_by_suffix[".json"].read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["plugin"]["version"], "1.0.6")
+        self.assertEqual(manifest["plugin"]["version"], "1.0.5")
         self.assertEqual(
             manifest["plugin"]["version"],
             self.get_plugin_version(),
