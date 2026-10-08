@@ -25,7 +25,7 @@ above is a descriptive translation, not a bibliographic title.
 
 ## ArchDistribution use reported by the author
 
-- User and author: Jinseo Hwang, archaeological researcher
+- User and author: lzpxilfe(balguljang2), archaeological researcher
 - Institution: Nuri Institute for Archaeology, Republic of Korea
 - Date of software use/report preparation: 11 August 2026
 - Purpose: preparation of the surrounding-site distribution map for the

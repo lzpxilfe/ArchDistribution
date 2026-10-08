@@ -8,9 +8,7 @@ tags:
   - spatial data
   - record linkage
 authors:
-  - given-names: Jinseo
-    surname: Hwang
-    orcid: 0009-0000-8228-4083
+  - name: "lzpxilfe(balguljang2)"
     corresponding: true
     affiliation: "1"
 affiliations:
@@ -24,7 +22,7 @@ bibliography: paper.bib
 
 Archaeological distribution maps show a proposed investigation or development area in relation to previously documented heritage. Preparing one may require legal designations, inventory areas, surface surveys, excavation projects, and protection boundaries. The same place can appear once as a protected monument, again as an inventory polygon, and several more times as fieldwork records. Treating every intersecting feature as a separate site duplicates labels. Dissolving every overlap can erase independent investigations, component monuments, or legal relationships.
 
-ArchDistribution [@hwang2026archdistribution] is a QGIS plugin that prepares numbered, print-ready map layers while keeping these distinctions explicit. It assigns a role to each input, restricts comparison to the requested map extent, and applies versioned spatial and textual rules to suggest possible relationships. Users inspect uncertain cases and decide whether the source entries remain separate, are linked, or share a displayed number. Original geometries, attributes, decisions, and investigation histories remain available in audit outputs and a run manifest.
+ArchDistribution [@lzpxilfe2026archdistribution] is a QGIS plugin that prepares numbered, print-ready map layers while keeping these distinctions explicit. It assigns a role to each input, restricts comparison to the requested map extent, and applies versioned spatial and textual rules to suggest possible relationships. Users inspect uncertain cases and decide whether the source entries remain separate, are linked, or share a displayed number. Original geometries, attributes, decisions, and investigation histories remain available in audit outputs and a run manifest.
 
 The plugin was developed for Korean archaeological reporting, where shapefiles from several administrative and research systems must be reconciled for individual projects. Its data model separates archaeological entities, investigation events, geometry groups, and map numbers. A map can therefore be simplified without claiming that the underlying entries are identical.
 
@@ -72,7 +70,7 @@ The available evidence demonstrates developer-led operational use and reproducib
 
 OpenAI Codex, including the `gpt-5.6-sol` model for the August 2026 software and manuscript revision recorded in this repository, assisted with code suggestions and refactoring, test scaffolding, documentation organization, and language editing. Historical Codex session records did not retain every underlying model identifier, so unavailable identifiers were not reconstructed.
 
-Jinseo Hwang defined the archaeological problem and domain policy and made the principal design decisions. He reviewed and modified the assisted outputs, then checked them through code inspection, expected cases derived from the written rules, static analysis, and QGIS execution. AI output was not used as archaeological evidence or as a reference label. The author accepts responsibility for the accuracy, originality, licensing, and ethical compliance of the software and manuscript. The repository contains a detailed use record in `docs/research/ai-usage.md`.
+lzpxilfe(balguljang2) defined the archaeological problem and domain policy and made the principal design decisions. He reviewed and modified the assisted outputs, then checked them through code inspection, expected cases derived from the written rules, static analysis, and QGIS execution. AI output was not used as archaeological evidence or as a reference label. The author accepts responsibility for the accuracy, originality, licensing, and ethical compliance of the software and manuscript. The repository contains a detailed use record in `docs/research/ai-usage.md`.
 
 # Acknowledgements
 

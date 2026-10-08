@@ -10,11 +10,11 @@ manuscript revision. Historical Codex sessions did not retain every underlying
 model identifier; unavailable identifiers have not been reconstructed or
 guessed.
 
-Jinseo Hwang defined the archaeological problem and domain policy, made the
+lzpxilfe(balguljang2) defined the archaeological problem and domain policy, made the
 principal design decisions, reviewed and modified AI-assisted outputs, and
 verified them through code inspection, expected cases derived from the written
 rules, static analysis, and QGIS execution. AI output is not archaeological
-evidence and was not used as a reference label. Jinseo Hwang remains
+evidence and was not used as a reference label. lzpxilfe(balguljang2) remains
 responsible for the software, validation, manuscript, licensing, and ethical
 compliance.
 
@@ -22,7 +22,7 @@ compliance.
 
 1. AI가 제안한 코드는 사람이 diff와 테스트 결과를 검토한다.
 2. AI가 작성하거나 교정한 문장은 출처, 수치, 과장, 실제 완료 여부를 사람이 확인한다.
-3. 고고학적 동일성·대표성 정책과 최종 판정 책임은 Jinseo Hwang에게 있다.
+3. 고고학적 동일성·대표성 정책과 최종 판정 책임은 lzpxilfe(balguljang2)에게 있다.
 4. AI 제안을 검증자료의 정답 라벨이나 고고학적 근거로 사용하지 않는다.
 5. 확인할 수 없는 과거 모델명·버전·프롬프트는 추측해 복원하지 않는다.
 
@@ -44,7 +44,7 @@ compliance.
 | 확인 가능한 모델 | `gpt-5.6-sol` |
 | 확인 근거 | 2026-08-13 Codex desktop session metadata |
 | 적용 범위 | 연구 소프트웨어 점검, 테스트·CI 보강, JOSS 문서와 `paper/paper.md` 교정 |
-| 인간 검토자 | Jinseo Hwang |
+| 인간 검토자 | lzpxilfe(balguljang2) |
 | 검증 | diff 검토, 정적 검사, 순수 Python 테스트, QGIS 통합 테스트, 합성 정책 사례, JOSS PDF 빌드 |
 
 과거 Codex 사용도 같은 범주에 포함되지만, 당시 session metadata에 남지 않은

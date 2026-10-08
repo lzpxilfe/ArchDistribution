@@ -27,12 +27,11 @@ must not be described as complete until it has actually occurred.
 
 | Field | Submission value |
 | --- | --- |
-| Published name | Jinseo Hwang |
+| Published name | lzpxilfe(balguljang2) |
 | Corresponding author | Yes |
 | GitHub account | `lzpxilfe` |
 | Affiliation | Nuri Institute for Archaeology, Republic of Korea |
 | Role | Archaeological researcher |
-| ORCID | [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083) |
 | Email | `lzpxilfe@gmail.com` (already published in `metadata.txt`; confirm in the JOSS account) |
 | Other authors | None reported |
 | External funding | None |
@@ -88,7 +87,7 @@ The manuscript and [`ai-usage.md`](ai-usage.md) disclose OpenAI Codex use in
 code suggestions, refactoring, tests, documentation, repository maintenance,
 and language editing. The recoverable model identifier for the August 2026
 revision is `gpt-5.6-sol`. Historical identifiers that were not retained are
-not guessed. Jinseo Hwang made the archaeological and architectural decisions,
+not guessed. lzpxilfe(balguljang2) made the archaeological and architectural decisions,
 reviewed and modified assisted output, and remains responsible for all
 submitted material.
 
@@ -107,7 +106,7 @@ must make and communicate the evaluative judgement.
 - **Submission type:** New submission
 - **Main subject:** Choose the closest live option to Archaeology, Digital
   Humanities, or Geographic Information Systems.
-- **Corresponding author:** Jinseo Hwang
+- **Corresponding author:** lzpxilfe(balguljang2)
 
 ### Message to editors
 
@@ -133,7 +132,7 @@ and results rather than duplicate this software paper.
 
 Generative AI use is disclosed in the manuscript and repository. OpenAI Codex
 assisted with code proposals, test scaffolding, documentation, and language
-editing. Jinseo Hwang framed the problem, made the domain and architectural
+editing. lzpxilfe(balguljang2) framed the problem, made the domain and architectural
 decisions, reviewed and modified assisted output, and verified the software
 through static checks, synthetic policy cases, and QGIS execution.
 
@@ -144,8 +143,7 @@ declares no competing interests.
 
 ## Final author actions / 최종 제출 동작
 
-1. Confirm `lzpxilfe@gmail.com` in the JOSS account and verify that the ORCID
-   shown there is `0009-0000-8228-4083`.
+1. Confirm `lzpxilfe@gmail.com` in the JOSS account.
 2. Confirm that the public `main` commit passes Python, QGIS, package-install,
    and paper-build workflows.
 3. Download and inspect the CI-built PDF, especially the workflow figure,

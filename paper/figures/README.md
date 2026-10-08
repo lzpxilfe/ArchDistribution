@@ -7,7 +7,7 @@ No real-site coordinates or restricted source data may be embedded in a figure.
 ## `archdistribution-workflow.svg`
 
 - Purpose: Figure 1, the role-aware reconciliation and output workflow.
-- Creator: Jinseo Hwang, with OpenAI Codex drafting assistance and human review.
+- Creator: lzpxilfe(balguljang2), with OpenAI Codex drafting assistance and human review.
 - Source: the versioned ArchDistribution 1.0.5 software design; no external or
   restricted spatial data are embedded.
 - Licence: CC BY 4.0 under `paper/LICENSE`.

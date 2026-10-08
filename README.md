@@ -689,7 +689,7 @@ source datasets and real site coordinates are not distributed here.
 
 ```bibtex
 @software{ArchDistribution2026,
-  author = {Hwang, Jinseo},
+  author = {{lzpxilfe(balguljang2)}},
   title = {ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records},
   year = {2026},
   url = {https://github.com/lzpxilfe/ArchDistribution},
@@ -701,7 +701,6 @@ source datasets and real site coordinates are not distributed here.
 
 - Version: `1.0.5`
 - Author: `lzpxilfe(balguljang2)`
-- ORCID: [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083)
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)
 - License: `GPL-2.0-or-later` (paper and research documents: `CC-BY-4.0`)
