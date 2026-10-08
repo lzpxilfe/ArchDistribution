@@ -78,11 +78,16 @@ _DIRECTIONS_KO = ("북", "북동", "동", "남동", "남", "남서", "서", "북
 _DIRECTIONS_EN = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 
 
+def clockwise_azimuth(dx, dy):
+    """Return degrees clockwise from north (0-360) for a planar offset."""
+    return math.degrees(math.atan2(dx, dy)) % 360.0
+
+
 def compass_direction(dx, dy, language="ko"):
     """Return an eight-point bearing for a planar offset (north is +y)."""
     if not dx and not dy:
         return ""
-    angle = math.degrees(math.atan2(dx, dy)) % 360.0
+    angle = clockwise_azimuth(dx, dy)
     labels = _DIRECTIONS_EN if language == "en" else _DIRECTIONS_KO
     return labels[int((angle + 22.5) // 45) % 8]
 

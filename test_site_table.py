@@ -7,6 +7,7 @@ from xml.dom import minidom
 
 from site_table import (
     build_site_table,
+    clockwise_azimuth,
     compass_direction,
     drop_shared_province,
     format_distance,
@@ -141,6 +142,13 @@ class TableTests(unittest.TestCase):
         self.assertEqual(second[3], "무덤유적")
         self.assertEqual(second[5], "북동 350m")
         self.assertIn("2건 통합", second[7])
+
+    def test_clockwise_azimuth_starts_north(self):
+        self.assertEqual(clockwise_azimuth(0, 1), 0)
+        self.assertEqual(clockwise_azimuth(1, 0), 90)
+        self.assertEqual(clockwise_azimuth(0, -1), 180)
+        self.assertEqual(clockwise_azimuth(-1, 0), 270)
+        self.assertAlmostEqual(clockwise_azimuth(1, 1), 45)
 
     def test_distance_and_direction(self):
         self.assertEqual(compass_direction(1, 1), "북동")

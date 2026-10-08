@@ -56,6 +56,10 @@ tags do not change the installable plugin version.
   Its legal boundary stays in the designated-area layer either way, excavated
   parts always keep their own number, and decisions saved under the other
   choice are not reused.
+- Numbering can follow the compass, clockwise from north (sites touching the
+  study area first), and can put groups made only of excavation or survey
+  records after the known sites in the same order. Both patterns were found
+  in published nearby-site tables.
 - Optional report-style nearby-site table (number, name, period, type,
   location, distance, source, remarks) written as Hangul HWPX and UTF-8 CSV.
   Period and address cells are summarised by rules in `table_lexicon.json`.

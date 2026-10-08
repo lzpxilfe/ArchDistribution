@@ -104,8 +104,8 @@ BUFFER_STYLE_OPTIONS = {
     "en": ["Solid", "Dot", "Dash"],
 }
 SORT_ORDER_OPTIONS = {
-    "ko": ["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)"],
-    "en": ["Top to bottom (N->S)", "Nearest to study area (distance)", "Alphabetical (site name)"],
+    "ko": ["위에서 아래로 (북→남)", "조사지역에서 가까운 순 (거리순)", "가나다 순 (유적명)", "북쪽부터 시계방향 (방위각순)"],
+    "en": ["Top to bottom (N->S)", "Nearest to study area (distance)", "Alphabetical (site name)", "Clockwise from north (azimuth)"],
 }
 STYLE_FORCE_VISIBLE = """
     QComboBox {
@@ -130,6 +130,7 @@ PRESERVATION_STYLE_PREF_KEY = "ArchDistribution/preservation_action_styles"
 MATCH_PRESET_PREF_KEY = "ArchDistribution/match_preset"
 REUSE_REVIEW_PREF_KEY = "ArchDistribution/reuse_review_decisions"
 DESIGNATED_PARTS_PREF_KEY = "ArchDistribution/designated_parts"
+INVESTIGATIONS_LAST_PREF_KEY = "ArchDistribution/investigations_last"
 OUTPUT_DIRECTORY_PREF_KEY = "ArchDistribution/output_directory"
 SAVE_GPKG_PREF_KEY = "ArchDistribution/save_gpkg_manifest"
 EXPORT_JPG_PREF_KEY = "ArchDistribution/export_layout_jpg"
@@ -320,6 +321,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self._build_duplicate_policy_controls()
         self._build_previous_result_controls()
         self._build_output_artifact_controls()
+        self._build_numbering_controls()
         self._build_metric_crs_controls()
 
         # Default colors (Matching professional archaeological standards)
@@ -571,6 +573,25 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         # "renumber the active layer" button duplicated it.
         if hasattr(self, "btnRenumber"):
             self.btnRenumber.setVisible(False)
+
+    def _build_numbering_controls(self):
+        """Offer report-style numbering of previous investigations."""
+        self.chkInvestigationsLast = QtWidgets.QCheckBox()
+        saved = QtCore.QSettings().value(INVESTIGATIONS_LAST_PREF_KEY, False)
+        if isinstance(saved, str):
+            saved = saved.strip().casefold() in {"1", "true", "yes", "on"}
+        self.chkInvestigationsLast.setChecked(bool(saved))
+        self.chkInvestigationsLast.toggled.connect(
+            lambda checked: QtCore.QSettings().setValue(
+                INVESTIGATIONS_LAST_PREF_KEY, checked
+            )
+        )
+        if hasattr(self, "gNum"):
+            self.gNum.addWidget(
+                self.chkInvestigationsLast,
+                self.gNum.rowCount(), 0, 1,
+                max(1, self.gNum.columnCount()),
+            )
 
     def _populate_designated_parts_combo(self, selected=None):
         """Fill the designated-part choice in the current language."""
@@ -1846,6 +1867,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.groupBuffer.setTitle(self._t("버퍼 정밀 스타일 (Buffer Analysis)", "Buffer Analysis"))
         if hasattr(self, "groupNumbering"):
             self.groupNumbering.setTitle(self._t("유적 번호 매기기 기준 (Numbering Rules)", "Numbering Rules"))
+        if hasattr(self, "chkInvestigationsLast"):
+            self.chkInvestigationsLast.setText(self._t(
+                "발굴·지표조사 기록은 유적 다음에 이어서 번호 매기기",
+                "Number excavation and survey records after the sites",
+            ))
+            self.chkInvestigationsLast.setToolTip(self._t(
+                "지정·등록유산과 분포지도 유적에 먼저 번호를 매기고, 발굴·지표조사 "
+                "기록만으로 된 번호는 그 뒤에 같은 정렬 순서로 이어 붙입니다. "
+                "보고서에서 '주변 조사 현황'을 유적 뒤에 따로 싣는 방식입니다.",
+                "Number designated, registered and distribution-map sites first; "
+                "groups made only of excavation or survey records follow in the "
+                "same order, as reports list previous investigations after sites.",
+            ))
         if hasattr(self, "groupLog"):
             self.groupLog.setTitle(self._t("🚀 진행 상태 로그", "🚀 Progress Log"))
 
@@ -3455,6 +3489,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.comboDesignatedParts.currentData()
                 if hasattr(self, "comboDesignatedParts")
                 else DESIGNATED_PARTS_SEPARATE
+            ),
+            "investigations_last": (
+                self.chkInvestigationsLast.isChecked()
+                if hasattr(self, "chkInvestigationsLast")
+                else False
             ),
             "output_directory": (
                 self.lineOutputDirectory.text().strip()

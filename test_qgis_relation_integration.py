@@ -165,6 +165,72 @@ class QgisRelationIntegrationTests(unittest.TestCase):
         )
         self.assertIn("parent_child", suppressed["tomb"]["RELATION_TYPE"])
 
+    def numbering_layer(self, rows, name="numbering_input"):
+        layer = self.make_matching_layer(rows)
+        layer.setName(name)
+        layer.dataProvider().addAttributes([QgsField("번호", QVariant.Int)])
+        layer.updateFields()
+        QgsProject.instance().addMapLayer(layer)
+        return layer
+
+    def numbering_study(self):
+        study = QgsVectorLayer("Polygon?crs=EPSG:5186", "study", "memory")
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromWkt(square(0, 0, 10)))
+        study.dataProvider().addFeature(feature)
+        study.updateExtents()
+        QgsProject.instance().addMapLayer(study)
+        return study
+
+    COMPASS_SITES = [
+        ("west", "서 유적", square(-110, 0, 10)),
+        ("south", "남 유적", square(0, -110, 10)),
+        ("north", "북 유적", square(0, 110, 10)),
+        ("east", "동 유적", square(110, 0, 10)),
+    ]
+
+    def numbers(self, *layers):
+        return {
+            feature["SRC_UID"]: feature["번호"]
+            for layer in layers for feature in layer.getFeatures()
+        }
+
+    def test_clockwise_numbering_and_investigations_after_sites(self):
+        clockwise = 3
+        rows = [
+            {"uid": uid, "role": self.distribution, "name": name, "wkt": wkt}
+            for uid, name, wkt in self.COMPASS_SITES
+        ] + [{"uid": "dig", "role": self.excavation, "name": "북동 발굴",
+              "wkt": square(80, 80, 10)}]
+        for last, expected in (
+            (False, {"north": 1, "dig": 2, "east": 3, "south": 4, "west": 5}),
+            (True, {"north": 1, "east": 2, "south": 3, "west": 4, "dig": 5}),
+        ):
+            layer = self.numbering_layer(rows)
+            self.make_plugin().number_heritage_v4(
+                layer, self.numbering_study(), clockwise,
+                restrict_to_buffer=False, investigations_last=last,
+            )
+            self.assertEqual(self.numbers(layer), expected)
+
+    def test_investigations_follow_sites_across_geometry_layers(self):
+        sites = self.numbering_layer([
+            {"uid": uid, "role": self.distribution, "name": name, "wkt": wkt}
+            for uid, name, wkt in self.COMPASS_SITES
+        ], "sites")
+        digs = self.numbering_layer([
+            {"uid": "dig", "role": self.excavation, "name": "가까운 발굴",
+             "wkt": square(12, 0, 5)},
+        ], "digs")
+        distance = 1
+        self.make_plugin().number_heritage_layers_v4(
+            [sites, digs], self.numbering_study(), distance,
+            restrict_to_buffer=False, investigations_last=True,
+        )
+        numbers = self.numbers(sites, digs)
+        self.assertEqual(numbers["dig"], 5)
+        self.assertEqual(sorted(numbers.values()), [1, 2, 3, 4, 5])
+
     def test_designated_part_numbering_follows_the_operator_choice(self):
         from ArchDistribution.heritage_matching import (
             DESIGNATED_PARTS_JOIN,

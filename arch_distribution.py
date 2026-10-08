@@ -101,7 +101,13 @@ from .run_artifacts import (
     sha256_file_bundle,
 )
 from .shapefile_encoding import declared_shapefile_encoding
-from .site_table import build_site_table, compass_direction, write_csv, write_hwpx
+from .site_table import (
+    build_site_table,
+    clockwise_azimuth,
+    compass_direction,
+    write_csv,
+    write_hwpx,
+)
 from .source_exclusion import (
     USER_EXCLUDED_CATEGORY,
     USER_EXCLUDED_NAME,
@@ -114,6 +120,13 @@ from .source_exclusion import (
 )
 
 LEGACY_KOREAN_ENCODING = "CP949"
+# Numbering orders offered in the dialog (index of the sort combo).
+SORT_NORTH_TO_SOUTH = 0
+SORT_DISTANCE = 1
+SORT_NAME = 2
+SORT_CLOCKWISE = 3
+# Records of an investigation rather than of a known site.
+INVESTIGATION_ROLES = frozenset({"excavation", "surface_survey"})
 ENCODING_OVERRIDE_PROPERTY = "ArchDistribution/encoding_override"
 DEFAULT_LABEL_FONT_FAMILY = "Malgun Gothic"
 DEFAULT_LABEL_FONT_SIZE = 10
@@ -733,6 +746,9 @@ class ArchDistribution:
                         buffer_geoms,
                         restrict_to_buffer=settings.get('restrict_to_buffer', True),
                         metric_context=metric_context,
+                        investigations_last=settings.get(
+                            "investigations_last", False
+                        ),
                     )
                     self.log("유적 번호 부여 완료. 스타일 및 라벨 적용 중...")
                     for result_layer in merged_heritage_layers:
@@ -1305,6 +1321,7 @@ class ArchDistribution:
                 buffer_geoms,
                 restrict_to_buffer=settings.get('restrict_to_buffer', True),
                 metric_context=metric_context,
+                investigations_last=settings.get("investigations_last", False),
             )
 
             # 4. Refresh & Re-Apply Style (to update font/labels)
@@ -6330,6 +6347,55 @@ class ArchDistribution:
                 layer.setName(f"{layer.name()}{suffix}")
         return {"main": final_layer, **auxiliary_layers}
 
+    @staticmethod
+    def _feature_number_key(feature, number_key_idx):
+        raw_number_key = (
+            feature[number_key_idx] if number_key_idx >= 0 else None
+        )
+        number_key = str(raw_number_key or f"feature:{feature.id()}").strip()
+        if number_key.casefold() in {"", "null", "none", "<null>"}:
+            number_key = f"feature:{feature.id()}"
+        return number_key
+
+    def _feature_source_roles(self, feature):
+        """Return the source roles of a feature and every record it absorbed."""
+        names = set(feature.fields().names())
+        roles = set()
+        if "SOURCE_ROLE" in names and feature["SOURCE_ROLE"]:
+            roles.add(str(feature["SOURCE_ROLE"]))
+        if "SRC_JSON" in names:
+            try:
+                records = json.loads(feature["SRC_JSON"] or "[]")
+            except (TypeError, ValueError):
+                records = []
+            for record in records if isinstance(records, list) else []:
+                if isinstance(record, dict):
+                    role = self._source_role_from_uid(record.get("_source_uid"))
+                    if role:
+                        roles.add(role)
+        return roles
+
+    @staticmethod
+    def _investigation_groups(group_roles):
+        """Return number groups made only of excavation or survey records."""
+        return {
+            key for key, roles in group_roles.items()
+            if roles and roles <= INVESTIGATION_ROLES
+        }
+
+    @staticmethod
+    def _clockwise_sort_key(point, origin, distance, tiebreak):
+        """Sites touching the study area first, then clockwise from north."""
+        if origin is None:
+            azimuth = 0.0
+        else:
+            azimuth = clockwise_azimuth(
+                point.x() - origin.x(), point.y() - origin.y()
+            )
+        return (0 if distance <= 0 else 1, round(azimuth, 6), distance) + tuple(
+            tiebreak
+        )
+
     def number_heritage_layers_v4(
         self,
         layers,
@@ -6340,8 +6406,14 @@ class ArchDistribution:
         buffer_geoms=None,
         restrict_to_buffer=True,
         metric_context=None,
+        investigations_last=False,
     ):
-        """Assign one continuous number sequence across geometry families."""
+        """Assign one continuous number sequence across geometry families.
+
+        ``investigations_last`` numbers groups made only of excavation or
+        survey records after the known sites, in the same order, as many
+        reports list "previous investigations" after the sites.
+        """
         layers = [layer for layer in (layers or []) if layer is not None]
         if not layers:
             return {
@@ -6359,6 +6431,7 @@ class ArchDistribution:
                 buffer_geoms,
                 restrict_to_buffer,
                 metric_context,
+                investigations_last=investigations_last,
             )
         if metric_context is None:
             metric_context = self._build_metric_context(layers[0], {})
@@ -6381,8 +6454,13 @@ class ArchDistribution:
                     study_layer_or_centroid.crs(),
                 )
 
+        origin = (
+            base_analysis.centroid().asPoint()
+            if base_analysis is not None else None
+        )
         records = []
         layer_states = []
+        group_roles = {}
         for layer_index, layer in enumerate(layers):
             for field in (
                 QgsField("이격거리(m)", QVariant.String),
@@ -6528,13 +6606,22 @@ class ArchDistribution:
                     raw_key or uid or f"layer:{layer_index}:feature:{feature.id()}"
                 )
                 centroid = analysis_geometry.centroid().asPoint()
-                if sort_order == 1:
+                group_roles.setdefault(number_key, set()).update(
+                    self._feature_source_roles(feature)
+                )
+                if sort_order == SORT_DISTANCE:
                     sort_key = (
                         tier, distance, name.casefold(), layer_index,
                         feature.id(),
                     )
                     distance_text = f"{distance:.1f}m"
-                elif sort_order == 0:
+                elif sort_order == SORT_CLOCKWISE:
+                    sort_key = self._clockwise_sort_key(
+                        centroid, origin, distance,
+                        (name.casefold(), layer_index, feature.id()),
+                    )
+                    distance_text = None
+                elif sort_order == SORT_NORTH_TO_SOUTH:
                     sort_key = (
                         -centroid.y(), centroid.x(), name.casefold(),
                         layer_index, feature.id(),
@@ -6572,7 +6659,14 @@ class ArchDistribution:
                 "property_name": property_name,
             })
 
-        records.sort(key=lambda item: item["sort_key"])
+        investigation_groups = (
+            self._investigation_groups(group_roles)
+            if investigations_last else set()
+        )
+        records.sort(key=lambda item: (
+            item["number_key"] in investigation_groups,
+            item["sort_key"],
+        ))
         numbers = {}
         anchors = {}
         for record in records:
@@ -6651,6 +6745,7 @@ class ArchDistribution:
         buffer_geoms=None,
         restrict_to_buffer=True,
         metric_context=None,
+        investigations_last=False,
     ):
         """
         Sort features and assign numbers to '번호' field with Buffer Tiers.
@@ -6933,6 +7028,29 @@ class ArchDistribution:
                 feat_dists.sort(key=lambda x: x['dist'])
                 sorted_features = feat_dists
 
+        elif sort_order == SORT_CLOCKWISE:
+            origin = (
+                measurement_base_geom.centroid().asPoint()
+                if measurement_base_geom else measurement_origin
+            )
+            temp = []
+            for f in all_features:
+                distance = get_dist(f.geometry())
+                point = metric_context.to_analysis_geometry(
+                    f.geometry(),
+                    layer.crs(),
+                ).centroid().asPoint()
+                temp.append({
+                    'feat': f,
+                    'sort_val': self._clockwise_sort_key(
+                        point, origin, distance, (str(f["유적명"] or ""),),
+                    ),
+                    'dist_str': None,
+                    'dist': distance,
+                })
+            temp.sort(key=lambda x: x['sort_val'])
+            sorted_features = temp
+
         elif sort_order == 0:  # Top-to-Bottom in the analysis CRS
             temp = [
                 {
@@ -6988,6 +7106,20 @@ class ArchDistribution:
         # Collect IDs to delete
         # ids_to_delete already initialized above
 
+        if investigations_last:
+            group_roles = {}
+            for item in sorted_features:
+                group_roles.setdefault(
+                    self._feature_number_key(item['feat'], number_key_idx),
+                    set(),
+                ).update(self._feature_source_roles(item['feat']))
+            investigation_groups = self._investigation_groups(group_roles)
+            # Stable: the chosen order holds inside each block.
+            sorted_features.sort(key=lambda item: (
+                self._feature_number_key(item['feat'], number_key_idx)
+                in investigation_groups
+            ))
+
         # Identify Name Field for Soft Deduplication
         idx_name = layer.fields().indexOf("유적명")
         if idx_name == -1:
@@ -7019,12 +7151,7 @@ class ArchDistribution:
                     is_inside = False
 
             if is_inside:
-                raw_number_key = (
-                    feat[number_key_idx] if number_key_idx >= 0 else None
-                )
-                number_key = str(raw_number_key or f"feature:{feat.id()}").strip()
-                if number_key.casefold() in {"", "null", "none", "<null>"}:
-                    number_key = f"feature:{feat.id()}"
+                number_key = self._feature_number_key(feat, number_key_idx)
 
                 if number_key not in number_by_key:
                     number_by_key[number_key] = current_id

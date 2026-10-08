@@ -157,7 +157,9 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - `보존조치` 4종의 채움색·외곽선색·두께·불투명도 사용자 설정 및 저장
 - 같은 유적의 조치별 경계는 유지하면서 하나의 번호를 공유
 - 모든 원본 속성과 그룹 구성원 정보를 결과 레이어에 보존
-- `거리순 / 북→남 / 가나다순` 정렬 기준 선택
+- `거리순 / 북→남 / 가나다순 / 북쪽부터 시계방향(방위각순)` 정렬 기준 선택
+- 선택하면 발굴·지표조사 기록만으로 된 번호를 지정·분포지도 유적 다음에 같은
+  순서로 이어 매김(보고서의 '주변 조사 현황'을 유적 뒤에 싣는 방식)
 - 도곽에 걸쳐 잘린 미세 폴리곤 조각을 축척·판형 기준으로 자동 제외
 - 버퍼 밖 유적 숨김 처리와 연속 번호 재정렬
 - `기존 결과 후속 작업 — 번호만 다시 매기기`로 판정을 유지한 채 수정 후 재번호
@@ -216,7 +218,9 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Customize and persist fill, outline, width, and opacity for all four actions
 - Keep action-specific boundaries while sharing one number per heritage site
 - Preserve all source attributes and grouped source records in the output
-- Choose sort order: distance, north-to-south, or alphabetical
+- Choose sort order: distance, north-to-south, alphabetical, or clockwise from north
+- Optionally number groups made only of excavation or survey records after the
+  known sites, in the same order, as reports list previous investigations
 - Exclude insignificant map-edge clip fragments using print-scale metrics
 - Hide sites outside the outermost buffer and keep numbering continuous
 - Dedicated renumber-only follow-up that preserves match decisions
