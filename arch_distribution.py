@@ -2554,6 +2554,11 @@ class ArchDistribution:
     def _layer_file_path(cls, layer):
         if not layer:
             return None
+        provider_type = getattr(layer, "providerType", None)
+        if callable(provider_type) and provider_type() == "memory":
+            # A memory layer's URI lists every field; with many source fields
+            # it exceeds the file-name limit, and it is never a file anyway.
+            return None
         source = str(layer.source() or "").split("|", 1)[0]
         if source.casefold().startswith("file://"):
             source = source[7:]
@@ -2569,7 +2574,11 @@ class ArchDistribution:
                 ),
                 path.with_suffix(".shp"),
             )
-        return path if path.exists() else None
+        try:
+            return path if path.exists() else None
+        except OSError:
+            # Not a usable local path (too long, or a provider URI).
+            return None
 
     @classmethod
     def _declared_layer_encoding(cls, layer):

@@ -104,6 +104,10 @@ tags do not change the installable plugin version.
 - Shapefile sidecars with upper-case extensions (`.DBF`, `.CPG`) were not
   found during encoding detection.
 - Change-zone field detection scanned every feature twice.
+- With a JPG, PDF, GeoPackage or site-table output enabled, a run could end
+  in a fatal error when the source layers had many fields: the run summary
+  probed each result layer's memory URI as a file path, which exceeds the
+  file-name length limit. Memory layers are no longer treated as files.
 - A record repeated by two regional downloads (same source identity) no
   longer appears as a review candidate against itself.
 - A numbered feature named after its place ("<place> 44호분",

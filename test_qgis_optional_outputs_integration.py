@@ -525,6 +525,21 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
             ("UTF-8", ".cpg"),
         )
 
+    def test_memory_layer_with_many_fields_is_not_a_file(self):
+        # Result layers copy every source field; the memory URI then exceeds
+        # the file-name limit and must not be probed as a path.
+        fields = "&".join(
+            f"field=가상필드이름{index:03d}:string" for index in range(80)
+        )
+        layer = QgsVectorLayer(
+            f"Polygon?crs=EPSG:5186&{fields}", "많은_필드", "memory"
+        )
+        self.assertTrue(layer.isValid())
+        # Longer than one path component may be (255 bytes).
+        self.assertGreater(len(layer.source().encode("utf-8")), 255)
+        self.assertIsNone(self.plugin._layer_file_path(layer))
+        self.plugin._declared_layer_encoding(layer)
+
     def test_terminal_manifests_record_cancelled_and_failed_runs(self):
         settings = self._distribution_layout_settings(
             self.output_directory
