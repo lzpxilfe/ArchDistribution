@@ -64,6 +64,7 @@ from .heritage_matching import (
     canonical_name,
     evaluate_candidate,
     is_designated_role,
+    is_union_merge,
     is_generic_name,
     load_matching_rules,
     matching_rules_metadata,
@@ -98,6 +99,14 @@ from .run_artifacts import (
     sha256_file_bundle,
 )
 from .shapefile_encoding import declared_shapefile_encoding
+from .source_exclusion import (
+    default_enabled_rules,
+    exclusion_reason,
+    load_exclusion_rules,
+    outcome_field_candidates,
+    prepare_layer_plan,
+    rule_definitions,
+)
 
 LEGACY_KOREAN_ENCODING = "CP949"
 ENCODING_OVERRIDE_PROPERTY = "ArchDistribution/encoding_override"
@@ -658,6 +667,8 @@ class ArchDistribution:
                         "reuse_review_decisions",
                         True,
                     ),
+                    number_designated=self._run_numbers_designated(settings),
+                    exclusion_rules=settings.get("exclusion_rules"),
                 )
 
                 if isinstance(consolidation, dict):
@@ -685,6 +696,10 @@ class ArchDistribution:
                         consolidation.get("audit_layers")
                         or ([consolidation.get("audit")]
                             if consolidation.get("audit") else [])
+                    )
+                    audit_layers = (
+                        list(audit_layers)
+                        + list(consolidation.get("excluded_layers") or [])
                     )
                 else:
                     merged_heritage = consolidation
@@ -1320,6 +1335,22 @@ class ArchDistribution:
         except Exception as e:
             self.log(f"오류 발생: {str(e)}")
             QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
+
+    @staticmethod
+    def _run_numbers_designated(settings):
+        """Return whether designated heritage receives site numbers.
+
+        A run made only of the dedicated legal inputs is a legal-boundary map
+        and stays unnumbered.  As soon as one nearby-heritage source is
+        selected, designated heritage is part of the numbered site list.
+        """
+        legal_ids = set((settings.get("legal_layer_roles") or {}).keys())
+        nearby_ids = [
+            layer_id
+            for layer_id in settings.get("heritage_layer_ids") or []
+            if layer_id not in legal_ids
+        ]
+        return bool(nearby_ids) or not legal_ids
 
     def perform_scan(self, settings):
         """Execute smart scan and update dialog."""
@@ -2776,15 +2807,18 @@ class ArchDistribution:
             return None
         counts = {}
         try:
-            fields = list(layer.fields())
-            for feature_index, feature in enumerate(layer.getFeatures()):
-                if feature_index >= 250:
-                    break
-                for field in fields:
-                    name = field.name()
-                    if normalize_change_zone_code(feature[name]):
-                        counts[name] = counts.get(name, 0) + 1
-        except (AttributeError, RuntimeError):
+            # Distinct values come from the provider without fetching any
+            # geometry.  A nationwide change-zone layer is large; it is read
+            # once afterwards to build the spatial index.
+            for field_index, field in enumerate(layer.fields()):
+                recognized = sum(
+                    1
+                    for value in layer.uniqueValues(field_index, 500)
+                    if normalize_change_zone_code(value)
+                )
+                if recognized:
+                    counts[field.name()] = recognized
+        except (AttributeError, RuntimeError, TypeError):
             counts = {}
         if counts:
             # Deterministic tie-break keeps a code-labelled column ahead of a
@@ -3120,6 +3154,63 @@ class ArchDistribution:
         output.updateExtents()
         return output
 
+    def _create_exclusion_audit_layers(self, records, target_crs):
+        """Keep rule-excluded records as hidden, reviewable map layers."""
+        if not records or target_crs is None:
+            return []
+        family_names = {0: ("Point", "점"), 1: ("LineString", "선"),
+                        2: ("Polygon", "면")}
+        grouped = {}
+        for record in records:
+            family = QgsWkbTypes.geometryType(record["geometry"].wkbType())
+            if family not in family_names:
+                continue
+            grouped.setdefault(family, []).append(record)
+        layers = []
+        crs_value = target_crs.authid() or target_crs.toWkt()
+        for family in sorted(grouped):
+            geometry_name, family_label = family_names[family]
+            name = (
+                "제외_기록"
+                if len(grouped) == 1
+                else f"제외_기록_{family_label}"
+            )
+            layer = QgsVectorLayer(
+                f"{geometry_name}?crs={crs_value}", name, "memory"
+            )
+            provider = layer.dataProvider()
+            provider.addAttributes([
+                QgsField("EXCLUDE_RULE", QVariant.String),
+                QgsField("제외사유", QVariant.String),
+                QgsField("유적명", QVariant.String),
+                QgsField("원본레이어", QVariant.String),
+                QgsField("SOURCE_ROLE", QVariant.String),
+                QgsField("HERITAGE_CODE", QVariant.String),
+                QgsField("SRC_JSON", QVariant.String),
+            ])
+            layer.updateFields()
+            features = []
+            for record in grouped[family]:
+                feature = QgsFeature(layer.fields())
+                feature.setGeometry(record["geometry"])
+                feature["EXCLUDE_RULE"] = record["rule"]
+                feature["제외사유"] = record["rule_label"]
+                feature["유적명"] = record["name"]
+                feature["원본레이어"] = record["layer"]
+                feature["SOURCE_ROLE"] = record["role"]
+                feature["HERITAGE_CODE"] = record["code"]
+                feature["SRC_JSON"] = json.dumps(
+                    [record["attributes"]],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                features.append(feature)
+            provider.addFeatures(features)
+            layer.updateExtents()
+            layers.append(layer)
+        return layers
+
     def _create_match_audit_layer(self, candidates):
         """Build a non-spatial, exportable audit table."""
         layer = QgsVectorLayer("None", "중복_판정_검수표", "memory")
@@ -3143,6 +3234,8 @@ class ArchDistribution:
             QgsField("BOUNDARY_M", QVariant.Double),
             QgsField("GEOM_PAIR", QVariant.String),
             QgsField("REL_TYPE", QVariant.String),
+            QgsField("NAME_REL", QVariant.String),
+            QgsField("GEOM_REL", QVariant.String),
             QgsField("RULE", QVariant.String),
             QgsField("DECISION", QVariant.String),
             QgsField("DEC_SOURCE", QVariant.String),
@@ -3174,6 +3267,8 @@ class ArchDistribution:
             feature["BOUNDARY_M"] = candidate.get("boundary_distance")
             feature["GEOM_PAIR"] = candidate.get("geometry_pair")
             feature["REL_TYPE"] = candidate.get("relation_type")
+            feature["NAME_REL"] = candidate.get("name_relation")
+            feature["GEOM_REL"] = candidate.get("geometry_relation")
             feature["RULE"] = candidate.get("rule")
             feature["DECISION"] = candidate.get("decision")
             feature["DEC_SOURCE"] = candidate.get("decision_source")
@@ -3211,6 +3306,26 @@ class ArchDistribution:
         if left_boundary.isEmpty() or right_boundary.isEmpty():
             return left_geometry.distance(right_geometry)
         return left_boundary.distance(right_boundary)
+
+    @staticmethod
+    def _non_areal_coverage(left_geom, right_geom, left_family, right_family):
+        """Report a point or line lying inside the other footprint as covered.
+
+        Areal coverage is undefined for points and lines, yet "this point lies
+        inside that site" is exactly the containment evidence the relation
+        rules need.  Polygon-polygon pairs never reach this branch.
+        """
+        polygon = QgsWkbTypes.PolygonGeometry
+        coverage_left = 0.0
+        coverage_right = 0.0
+        try:
+            if left_family != polygon and left_geom.within(right_geom):
+                coverage_left = 1.0
+            if right_family != polygon and right_geom.within(left_geom):
+                coverage_right = 1.0
+        except Exception:
+            return 0.0, 0.0
+        return coverage_left, coverage_right
 
     @staticmethod
     def _protection_name_key(value):
@@ -3289,8 +3404,14 @@ class ArchDistribution:
         decision_store=None,
         reuse_saved_decisions=True,
         policy_version=None,
+        number_designated=True,
     ):
-        """Find candidates with a spatial index, review them, and apply decisions."""
+        """Find candidates with a spatial index, review them, and apply decisions.
+
+        ``number_designated`` keeps designated representatives in the numbered
+        main layer.  Only a legal-boundary-only run (no nearby-heritage source)
+        turns it off, because those maps deliberately carry no site numbers.
+        """
         policy_version = (
             str(policy_version)
             if policy_version
@@ -3493,6 +3614,12 @@ class ArchDistribution:
                 other = records.get(other_id)
                 if not other or other["role"] == ROLE_PROTECTION_ZONE:
                     continue
+                if other["uid"] == record["uid"]:
+                    # The same source record delivered twice (for example a
+                    # site on the border of two regional downloads).  Its
+                    # shared identity keys already give it one number and
+                    # one dissolved footprint; there is nothing to review.
+                    continue
                 other_geom = geometries[other_id]
                 try:
                     intersects = geom.intersects(other_geom)
@@ -3553,6 +3680,14 @@ class ArchDistribution:
                                 # Point/line candidates remain reviewable but
                                 # the ruleset forbids their automatic merge.
                                 overlap_ratio = 1.0
+                                coverage_left, coverage_right = (
+                                    self._non_areal_coverage(
+                                        geom,
+                                        other_geom,
+                                        left_family,
+                                        right_family,
+                                    )
+                                )
                 except Exception as exc:
                     self.log(
                         "⚠️ 중복 후보 도형 비교 실패: "
@@ -3771,6 +3906,27 @@ class ArchDistribution:
         # One lower-priority record may be near several excavation projects or
         # parent/child designated assets.  Never use it to fuse those separate
         # high-priority entities: only the best accepted representative wins.
+        suppressed_relation = {}
+
+        def representative_root(uid, same_entity_only=False):
+            """Follow accepted merges to the record that carries the number.
+
+            A child may be merged into a record that is itself merged into a
+            parent (item -> site -> designated site).  Every record in such a
+            chain must end on the final representative's number; entity keys
+            follow only explicit same-entity edges.
+            """
+            seen = set()
+            while uid in suppressed_by and uid not in seen:
+                if (
+                    same_entity_only
+                    and suppressed_relation.get(uid) != "same_entity"
+                ):
+                    break
+                seen.add(uid)
+                uid = suppressed_by[uid]
+            return uid
+
         merge_decisions = sorted(
             (
                 item for item in decisions
@@ -3790,10 +3946,10 @@ class ArchDistribution:
             ),
         )
         for item in merge_decisions:
-            if item.get("pair_kind") == "excavation_area_parts":
-                # Confirmed parts of one excavation site must remain visible;
-                # they are dissolved later through their shared geometry key
-                # instead of suppressing one part as a duplicate source.
+            if is_union_merge(item):
+                # Confirmed parts or revisions of one site must remain
+                # visible; they are dissolved later through their shared
+                # geometry key instead of suppressing one footprint.
                 continue
             representative_uid = str(item["representative_uid"])
             other_uid = (
@@ -3804,11 +3960,16 @@ class ArchDistribution:
             if (
                 other_uid in suppressed_by
                 and suppressed_by[other_uid] != representative_uid
-            ):
+            ) or representative_root(representative_uid) == other_uid:
+                # The second condition would make a representative its own
+                # descendant (A->B->A); keep the pair as a recorded link.
                 item["decision"] = DECISION_LINK
                 item["decision_source"] = "conflict_to_link"
                 continue
             suppressed_by[other_uid] = representative_uid
+            suppressed_relation[other_uid] = str(
+                item.get("relation_type") or "uncertain"
+            )
 
         # Confirmed I/II excavation parts form a true equivalence component.
         # Resolve the whole component once so three or more pair decisions do
@@ -3833,13 +3994,35 @@ class ArchDistribution:
         for item in decisions:
             if (
                 item.get("decision") == DECISION_MERGE
-                and item.get("pair_kind") == "excavation_area_parts"
+                and is_union_merge(item)
                 and item.get("relation_type") == "same_entity"
             ):
-                area_union(
-                    str(item["left_uid"]),
-                    str(item["right_uid"]),
-                )
+                left_uid = str(item["left_uid"])
+                right_uid = str(item["right_uid"])
+                if left_uid in suppressed_by or right_uid in suppressed_by:
+                    # A footprint already folded into another representative
+                    # cannot also anchor a visible union; keep the relation.
+                    item["decision"] = DECISION_LINK
+                    item["decision_source"] = "conflict_to_link"
+                    continue
+                area_union(left_uid, right_uid)
+
+        area_members = {}
+        for uid in list(area_parent):
+            area_members.setdefault(area_find(uid), []).append(uid)
+        area_owner = {}
+        for members in area_members.values():
+            owner = min(
+                members,
+                key=lambda uid: (
+                    -source_priority(
+                        records[uid_to_feature_id[uid]]["role"]
+                    ),
+                    uid,
+                ),
+            )
+            for uid in members:
+                area_owner[uid] = owner
 
         layer.startEditing()
         for item in decisions:
@@ -3873,15 +4056,22 @@ class ArchDistribution:
                     if left_uid == representative_uid
                     else left_uid
                 )
-                representative_id = uid_to_feature_id[representative_uid]
                 suppressed_id = uid_to_feature_id[suppressed_uid]
-                representative = features[representative_id]
-
-                entity_key = representative[indexes["SITE_ENTITY_KEY"]]
-                number_key = representative[indexes["NUMBER_KEY"]]
-                representative_role = representative[
-                    indexes["SOURCE_ROLE"]
+                root_uid = representative_root(representative_uid)
+                root = features[
+                    uid_to_feature_id[area_owner.get(root_uid, root_uid)]
                 ]
+                entity_root_uid = representative_root(
+                    representative_uid,
+                    same_entity_only=True,
+                )
+                entity_root = features[uid_to_feature_id[
+                    area_owner.get(entity_root_uid, entity_root_uid)
+                ]]
+
+                entity_key = entity_root[indexes["SITE_ENTITY_KEY"]]
+                number_key = root[indexes["NUMBER_KEY"]]
+                representative_role = root[indexes["SOURCE_ROLE"]]
                 status = (
                     STATUS_AUTO_MERGED
                     if item.get("decision_source") == "auto"
@@ -3889,10 +4079,7 @@ class ArchDistribution:
                 )
                 statuses[representative_uid] = status
                 statuses[suppressed_uid] = status
-                area_parts_merge = (
-                    item.get("pair_kind") == "excavation_area_parts"
-                )
-                if area_parts_merge:
+                if is_union_merge(item):
                     # Component keys are applied in one deterministic pass
                     # after every pair has been reviewed.
                     continue
@@ -4035,15 +4222,22 @@ class ArchDistribution:
         # lower-priority source record in SRC_JSON.
         self.aggregate_source_metadata(layer)
 
+        # A designated record that represents a merged group carries that
+        # group's only number.  Dropping it from the numbered layer (while the
+        # merged distribution record sits in the audit layer) silently removed
+        # the site from the map list, so designated representatives stay here
+        # and are additionally drawn in the official legal layers below.
+        unnumbered_roles = {ROLE_PROTECTION_ZONE}
+        if not number_designated:
+            unnumbered_roles.update({
+                ROLE_NATIONAL_DESIGNATED,
+                ROLE_LOCAL_DESIGNATED,
+            })
         main = self._memory_layer_like(
             layer,
             "수집_및_병합된_주변유적",
             lambda feature: (
-                str(feature["SOURCE_ROLE"]) != ROLE_PROTECTION_ZONE
-                and str(feature["SOURCE_ROLE"]) not in {
-                    ROLE_NATIONAL_DESIGNATED,
-                    ROLE_LOCAL_DESIGNATED,
-                }
+                str(feature["SOURCE_ROLE"]) not in unnumbered_roles
                 and int(feature["IS_REP"] or 0) == 1
             ),
         )
@@ -4779,6 +4973,8 @@ class ArchDistribution:
         match_preset=PRESET_BALANCED,
         matching_decision_provider=None,
         reuse_review_decisions=False,
+        number_designated=True,
+        exclusion_rules=None,
     ):
         """Merge selected heritage layers and filter by extent, study area, and user exclusions. Also tags Zone."""
         """Merge selected heritage layers and filter by extent, study area, and user exclusions."""
@@ -4792,6 +4988,28 @@ class ArchDistribution:
             source_encodings = {}
         if protection_families is None:
             protection_families = {}
+        # Names reviewed in the exclusion list are compared on the same
+        # whitespace/width-folded key as matching, so "A 유적" and "A유적"
+        # are one reviewed entry.
+        excluded_name_keys = {
+            canonical_name(item)
+            for item in exclusion_list
+            if canonical_name(item)
+        }
+        exclusion_lexicon = load_exclusion_rules()
+        enabled_exclusion_rules = (
+            []
+            if preservation_only
+            else default_enabled_rules(exclusion_lexicon)
+            if exclusion_rules is None
+            else [str(rule) for rule in exclusion_rules]
+        )
+        rule_labels = {
+            rule_id: label_ko
+            for rule_id, label_ko, _label_en, _default
+            in rule_definitions(exclusion_lexicon)
+        }
+        excluded_records = []
         temp_layers = []
         selected_fingerprints = {}
         clip_filter_context = None
@@ -5095,6 +5313,41 @@ class ArchDistribution:
                 self.find_preservation_site_id_field(layer)
                 if preservation_only else None
             )
+            exclusion_plan = None
+            rule_exclusions = {}
+            if (
+                enabled_exclusion_rules
+                and source_role != ROLE_PROTECTION_ZONE
+            ):
+                distinct_counts = {}
+                for candidate_name in outcome_field_candidates(
+                    source_field_names,
+                    exclusion_lexicon,
+                ):
+                    candidate_index = layer.fields().indexFromName(
+                        candidate_name
+                    )
+                    limit = int(
+                        (exclusion_lexicon.get("outcome") or {}).get(
+                            "max_distinct_values", 12
+                        )
+                    ) + 1
+                    distinct_counts[candidate_name] = len(
+                        layer.uniqueValues(candidate_index, limit)
+                    )
+                exclusion_plan = prepare_layer_plan(
+                    source_field_names,
+                    enabled_exclusion_rules,
+                    distinct_value_counts=distinct_counts,
+                    rules=exclusion_lexicon,
+                )
+                if exclusion_plan.is_active:
+                    self.log(
+                        "  -> 기록 제외 규칙 적용 필드: "
+                        f"결과={exclusion_plan.outcome_field or '-'}, "
+                        "분류="
+                        f"{', '.join(exclusion_plan.class_fields) or '-'}"
+                    )
             feature_request, used_extent_filter = (
                 self._feature_request_for_extent(
                     layer,
@@ -5173,9 +5426,9 @@ class ArchDistribution:
 
                 # [NEW] Check Exclusion List (Specific Blacklist)
                 # If the name is in the user's exclusion list, skip it.
-                if exclusion_list and val_name in exclusion_list:
-                    # Log removed item occasionally?
-                    # self.log(f"  - 사용자 제외: {val_name}")
+                if excluded_name_keys and (
+                    canonical_name(val_name) in excluded_name_keys
+                ):
                     continue
 
                 # Check Category Filters (Legacy Reference Data)
@@ -5214,6 +5467,34 @@ class ArchDistribution:
                         ):
                             excluded_extent_slivers += 1
                             continue
+
+                    rule_id = exclusion_reason(exclusion_plan, feat)
+                    if rule_id:
+                        # Not a mappable place for this map (for example an
+                        # investigation without remains).  Keep it for audit.
+                        rule_exclusions[rule_id] = (
+                            rule_exclusions.get(rule_id, 0) + 1
+                        )
+                        excluded_records.append({
+                            "geometry": QgsGeometry(clipped_geom),
+                            "rule": rule_id,
+                            "rule_label": rule_labels.get(rule_id, rule_id),
+                            "layer": layer.name(),
+                            "role": source_role,
+                            "name": str(val_name or ""),
+                            "code": (
+                                str(feat[code_field])
+                                if code_field and feat[code_field] is not None
+                                else None
+                            ),
+                            "attributes": {
+                                source_field.name(): _json_safe_attribute(
+                                    feat[source_field.name()]
+                                )
+                                for source_field in layer.fields()
+                            },
+                        })
+                        continue
 
                     # We exclude sites that are entirely within the study area (as they are 'internal')
                     # But we include ones that overlap or are outside
@@ -5518,6 +5799,28 @@ class ArchDistribution:
                     f"후보 {candidate_feature_count}건, "
                     f"{elapsed_seconds:.2f}초)"
                 )
+            if rule_exclusions:
+                processing_stats = getattr(
+                    self,
+                    "_current_processing_stats",
+                    None,
+                )
+                if isinstance(processing_stats, dict):
+                    for rule_id, count in sorted(rule_exclusions.items()):
+                        processing_stats.setdefault(
+                            "rule_exclusions", []
+                        ).append({
+                            "layer": layer.name(),
+                            "role": source_role,
+                            "rule": rule_id,
+                            "excluded_feature_count": count,
+                        })
+                self.log(
+                    "  -> 기록 제외 규칙: " + ", ".join(
+                        f"{rule_labels.get(rule_id, rule_id)} {count}건"
+                        for rule_id, count in sorted(rule_exclusions.items())
+                    ) + " (06_중복_검수/제외_기록에 보존)"
+                )
             if excluded_extent_slivers:
                 processing_stats = getattr(
                     self,
@@ -5569,7 +5872,17 @@ class ArchDistribution:
 
             self.move_layer_to_group(layer, src_group)
 
+        excluded_layers = self._create_exclusion_audit_layers(
+            excluded_records,
+            target_crs,
+        )
         if not temp_layers:
+            if excluded_layers and not preservation_only:
+                return {
+                    "main": None,
+                    "main_layers": [],
+                    "excluded_layers": excluded_layers,
+                }
             return None
 
         # A QGIS vector layer has one geometry family.  Mixing point, line,
@@ -5621,6 +5934,7 @@ class ArchDistribution:
                     family_labels[family]
                     if len(family_inputs) > 1 else ""
                 ),
+                number_designated=number_designated,
             ))
 
         if preservation_only:
@@ -5681,6 +5995,7 @@ class ArchDistribution:
         return {
             "main": main_layers[0] if main_layers else None,
             "main_layers": main_layers,
+            "excluded_layers": excluded_layers,
             **auxiliary,
         }
 
@@ -5696,6 +6011,7 @@ class ArchDistribution:
         decision_store,
         decision_store_path,
         family_label="",
+        number_designated=True,
     ):
         """Merge, match, and dissolve one homogeneous geometry family."""
         suffix = f"_{family_label}" if family_label else ""
@@ -5722,6 +6038,7 @@ class ArchDistribution:
                 decision_store=decision_store,
                 reuse_saved_decisions=reuse_review_decisions,
                 policy_version=self._matching_policy_key(match_preset),
+                number_designated=number_designated,
             )
             statistics = getattr(self, "_current_processing_stats", None)
             if not isinstance(statistics, dict):

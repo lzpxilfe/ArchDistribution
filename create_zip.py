@@ -63,6 +63,38 @@ def get_git_build_info():
         return {"git_commit": "unknown", "built_at": None, "dirty": True}
 
 
+# Root files that make up the installable plugin.  Every module imported by
+# another runtime module (and every JSON ruleset it loads) must be listed;
+# ``test_create_zip`` checks this so a new module cannot be left out.
+RUNTIME_FILES = frozenset({
+    "LICENSE",
+    "LICENSES.md",
+    "README.md",
+    "__init__.py",
+    "arch_distribution.py",
+    "arch_distribution_dialog.py",
+    "arch_distribution_dialog_base.ui",
+    "attribute_classification.py",
+    "cartographic_filtering.py",
+    "exclusion_rules.json",
+    "icon.png",
+    "heritage_grouping.py",
+    "heritage_identity_store.py",
+    "heritage_matching.py",
+    "heritage_matching_dialog.py",
+    "heritage_relations.py",
+    "local_reference_assets.py",
+    "matching_rules.json",
+    "metric_context.py",
+    "map_legend_styles.py",
+    "metadata.txt",
+    "preservation_actions.py",
+    "run_artifacts.py",
+    "shapefile_encoding.py",
+    "source_exclusion.py",
+})
+
+
 def select_runtime_files(git_files, runtime_files):
     """Select only explicitly declared root runtime paths.
 
@@ -140,30 +172,7 @@ def create_plugin_zip():
     # Try to get files from git
     git_files = get_git_files()
 
-    runtime_files = {
-        "LICENSE",
-        "LICENSES.md",
-        "README.md",
-        "__init__.py",
-        "arch_distribution.py",
-        "arch_distribution_dialog.py",
-        "arch_distribution_dialog_base.ui",
-        "attribute_classification.py",
-        "cartographic_filtering.py",
-        "icon.png",
-        "heritage_grouping.py",
-        "heritage_identity_store.py",
-        "heritage_matching.py",
-        "heritage_matching_dialog.py",
-        "local_reference_assets.py",
-        "matching_rules.json",
-        "metric_context.py",
-        "map_legend_styles.py",
-        "metadata.txt",
-        "preservation_actions.py",
-        "run_artifacts.py",
-        "shapefile_encoding.py",
-    }
+    runtime_files = set(RUNTIME_FILES)
     optional_reference_assets = {
         "reference_data.json",
         "smart_patterns.json",

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "rules_version": "1.0.0",
+  "description": "Record-level exclusion signals for nearby-heritage maps. The engine is language neutral; every term below is replaceable data.",
+  "outcome": {
+    "id": "no_remains",
+    "label_ko": "조사 결과 유적 없음",
+    "label_en": "Investigation found no remains",
+    "default_enabled": false,
+    "field_keywords": ["유적유무", "유무", "조사결과", "outcome", "result", "finding", "remains", "resultado"],
+    "max_distinct_values": 12,
+    "negative_markers": ["유적없음", "없음", "noremains", "none", "absent", "negative", "notfound", "sinrestos", "negativo"],
+    "positive_markers": ["유적있음", "있음", "유적분포가능지", "분포가능", "present", "positive", "possible", "potential", "positivo", "posible"]
+  },
+  "class_field_keywords": ["분류", "유형", "종류", "성격", "종목", "type", "class", "category", "kind", "tipo", "categoria"],
+  "classes": [
+    {
+      "id": "intangible",
+      "label_ko": "무형유산(지점 범위 없음)",
+      "label_en": "Intangible heritage (no site extent)",
+      "default_enabled": true,
+      "values": ["무형유산", "무형문화유산", "공예기술", "의식", "음악", "음식", "연극", "무용", "놀이", "무예", "의례", "구비전승", "생활관습", "전통지식", "intangible", "intangible heritage", "patrimonio inmaterial"]
+    },
+    {
+      "id": "movable",
+      "label_ko": "동산유산(소장처 위치)",
+      "label_en": "Movable heritage (holding location)",
+      "default_enabled": true,
+      "values": ["동산문화유산", "동산유산", "회화", "조각", "공예", "전적/서적류", "서적", "고문서", "서예", "movable", "movable heritage", "bien mueble"]
+    },
+    {
+      "id": "natural",
+      "label_ko": "자연유산(동·식물·지질)",
+      "label_en": "Natural heritage (fauna, flora, geology)",
+      "default_enabled": false,
+      "values": ["식물", "동물", "지질광물(동굴)", "지질", "광물", "노거수", "수림지", "자생지", "서식지", "조류", "천연기념물", "시도자연유산", "시도자연유산자료", "natural", "natural heritage", "patrimonio natural"]
+    }
+  ]
+}

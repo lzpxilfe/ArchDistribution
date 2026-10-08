@@ -1,0 +1,376 @@
+import json
+import sys
+import unittest
+from pathlib import Path
+
+
+try:
+    from qgis.PyQt.QtCore import QVariant
+    from qgis.core import (
+        QgsApplication,
+        QgsFeature,
+        QgsField,
+        QgsGeometry,
+        QgsProject,
+        QgsRectangle,
+        QgsVectorLayer,
+    )
+
+    QGIS_AVAILABLE = True
+except ImportError:
+    QGIS_AVAILABLE = False
+
+
+def square(x, y, size):
+    return (
+        f"POLYGON(({x} {y},{x + size} {y},{x + size} {y + size},"
+        f"{x} {y + size},{x} {y}))"
+    )
+
+
+@unittest.skipUnless(QGIS_AVAILABLE, "QGIS Python runtime is not available")
+class QgisRelationIntegrationTests(unittest.TestCase):
+    """Wholly synthetic checks of over-marking, chains and rule exclusion."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QgsApplication.instance() or QgsApplication([], False)
+        cls.app.initQgis()
+
+        qgis_python_plugins = str(
+            Path(QgsApplication.prefixPath()) / "python" / "plugins"
+        )
+        if qgis_python_plugins not in sys.path:
+            sys.path.insert(0, qgis_python_plugins)
+
+        plugin_parent = str(Path(__file__).resolve().parent.parent)
+        if plugin_parent not in sys.path:
+            sys.path.insert(0, plugin_parent)
+
+        from processing.core.Processing import Processing
+        from ArchDistribution.arch_distribution import ArchDistribution
+        from ArchDistribution.heritage_matching import (
+            DECISION_KEEP,
+            ROLE_DISTRIBUTION,
+            ROLE_EXCAVATION,
+            ROLE_NATIONAL_DESIGNATED,
+        )
+
+        Processing.initialize()
+        cls.plugin_class = ArchDistribution
+        cls.keep = DECISION_KEEP
+        cls.distribution = ROLE_DISTRIBUTION
+        cls.excavation = ROLE_EXCAVATION
+        cls.designated = ROLE_NATIONAL_DESIGNATED
+
+    def setUp(self):
+        QgsProject.instance().clear()
+
+    def make_plugin(self):
+        plugin = self.plugin_class(None)
+        plugin.log = lambda _message: None
+        plugin._active_progress = None
+        plugin._current_processing_stats = {}
+        return plugin
+
+    def accept_recommendations(self, candidates):
+        """Behave like the review dialog's initial selection."""
+        decisions = []
+        for candidate in candidates:
+            item = dict(candidate)
+            if candidate.get("auto_apply"):
+                item["decision"] = candidate["recommended_decision"]
+                item["decision_source"] = "auto"
+            else:
+                item["decision"] = self.keep
+                item["decision_source"] = "user"
+            decisions.append(item)
+        return decisions
+
+    def make_matching_layer(self, rows):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186", "relation_input", "memory"
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("유적명", QVariant.String),
+            QgsField("주소", QVariant.String),
+            QgsField("사업명", QVariant.String),
+            QgsField("SRC_NAME", QVariant.String),
+            QgsField("HERITAGE_CODE", QVariant.String),
+            QgsField("SRC_UID", QVariant.String),
+            QgsField("SOURCE_ROLE", QVariant.String),
+            QgsField("ENTITY_KEY", QVariant.String),
+            QgsField("RELATION_KEY", QVariant.String),
+            QgsField("MATCH_STATUS", QVariant.String),
+            QgsField("MATCH_SCORE", QVariant.Double),
+            QgsField("MATCH_RULE", QVariant.String),
+            QgsField("REP_SOURCE", QVariant.String),
+            QgsField("LINKED_IDS", QVariant.String),
+            QgsField("IS_REP", QVariant.Int),
+            QgsField("NUMBER_KEY", QVariant.String),
+            QgsField("GROUP_KEY", QVariant.String),
+            QgsField("SRC_COUNT", QVariant.Int),
+            QgsField("SRC_JSON", QVariant.String),
+        ])
+        layer.updateFields()
+        features = []
+        for row in rows:
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(row["wkt"]))
+            feature["유적명"] = row["name"]
+            feature["SRC_NAME"] = row["name"]
+            feature["SRC_UID"] = row["uid"]
+            feature["SOURCE_ROLE"] = row["role"]
+            feature["ENTITY_KEY"] = f"{row['role']}:{row['uid']}"
+            feature["MATCH_STATUS"] = "UNIQUE"
+            feature["REP_SOURCE"] = row["role"]
+            feature["IS_REP"] = 1
+            feature["NUMBER_KEY"] = f"{row['role']}:{row['uid']}"
+            feature["GROUP_KEY"] = f"{row['role']}:{row['uid']}"
+            feature["SRC_COUNT"] = 1
+            feature["SRC_JSON"] = json.dumps([{"uid": row["uid"]}])
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        return layer
+
+    @staticmethod
+    def by_uid(layer):
+        return {
+            feature["SRC_UID"]: feature for feature in layer.getFeatures()
+        }
+
+    def test_numbered_part_joins_site_and_unrelated_record_stays(self):
+        layer = self.make_matching_layer([
+            {"uid": "site", "role": self.distribution,
+             "name": "가상리 고분군", "wkt": square(0, 0, 100)},
+            {"uid": "tomb", "role": self.distribution,
+             "name": "가상리고분군 제14호", "wkt": square(10, 10, 2)},
+            {"uid": "dolmen", "role": self.distribution,
+             "name": "나상 고인돌", "wkt": square(50, 50, 2)},
+        ])
+        result = self.make_plugin().apply_source_aware_matching(
+            layer, decision_provider=self.accept_recommendations
+        )
+        main = self.by_uid(result["main"])
+        suppressed = self.by_uid(result["suppressed"])
+        self.assertEqual(set(main), {"site", "dolmen"})
+        self.assertEqual(set(suppressed), {"tomb"})
+        self.assertEqual(
+            suppressed["tomb"]["NUMBER_KEY"], main["site"]["NUMBER_KEY"]
+        )
+        # A part shares the number but stays its own archaeological entity.
+        self.assertNotEqual(
+            suppressed["tomb"]["SITE_ENTITY_KEY"],
+            main["site"]["SITE_ENTITY_KEY"],
+        )
+        self.assertIn("parent_child", suppressed["tomb"]["RELATION_TYPE"])
+
+    def test_part_site_and_designation_chain_ends_on_one_number(self):
+        layer = self.make_matching_layer([
+            {"uid": "legal", "role": self.designated,
+             "name": "가상리 고분군", "wkt": square(0, 0, 100)},
+            {"uid": "site", "role": self.distribution,
+             "name": "가상리 고분군", "wkt": square(0, 0, 100)},
+            {"uid": "tomb", "role": self.distribution,
+             "name": "가상리 고분군 제14호", "wkt": square(10, 10, 2)},
+        ])
+        result = self.make_plugin().apply_source_aware_matching(
+            layer, decision_provider=self.accept_recommendations
+        )
+        main = self.by_uid(result["main"])
+        suppressed = self.by_uid(result["suppressed"])
+        self.assertEqual(set(main), {"legal"})
+        self.assertEqual(set(suppressed), {"site", "tomb"})
+        number = main["legal"]["NUMBER_KEY"]
+        self.assertEqual(suppressed["site"]["NUMBER_KEY"], number)
+        self.assertEqual(suppressed["tomb"]["NUMBER_KEY"], number)
+
+    def test_spacing_variant_inside_one_register_is_one_number(self):
+        layer = self.make_matching_layer([
+            {"uid": "a", "role": self.distribution,
+             "name": "가상리 고분군 3", "wkt": square(0, 0, 50)},
+            {"uid": "b", "role": self.distribution,
+             "name": "가상리고분군3", "wkt": square(0, 0, 50)},
+            {"uid": "c", "role": self.distribution,
+             "name": "가상리 고분군 4", "wkt": square(0, 0, 50)},
+        ])
+        result = self.make_plugin().apply_source_aware_matching(
+            layer, decision_provider=self.accept_recommendations
+        )
+        main = self.by_uid(result["main"])
+        suppressed = self.by_uid(result["suppressed"])
+        # The spacing variant of "3" is the same record and is dissolved
+        # into it; "4" is a different numbered site drawn on the same
+        # footprint and stays separate until a reviewer groups it.
+        self.assertEqual(set(main), {"a", "b", "c"})
+        self.assertEqual(suppressed, {})
+        self.assertEqual(main["a"]["NUMBER_KEY"], main["b"]["NUMBER_KEY"])
+        self.assertEqual(main["a"]["GROUP_KEY"], main["b"]["GROUP_KEY"])
+        self.assertNotEqual(main["a"]["NUMBER_KEY"], main["c"]["NUMBER_KEY"])
+
+    def test_reviewed_survey_revision_keeps_both_footprints(self):
+        layer = self.make_matching_layer([
+            {"uid": "map", "role": self.surface_role("distribution"),
+             "name": "가상리 유물산포지 4", "wkt": square(0, 0, 50)},
+            {"uid": "survey", "role": self.surface_role("surface"),
+             "name": "가상리 유물산포지4(범위확장)",
+             "wkt": square(50, 0, 20)},
+        ])
+        offered = []
+
+        def apply_recommended(candidates):
+            offered.extend(candidates)
+            return [
+                {**candidate,
+                 "decision": candidate["recommended_decision"],
+                 "decision_source": "user"}
+                for candidate in candidates
+            ]
+
+        result = self.make_plugin().apply_source_aware_matching(
+            layer, decision_provider=apply_recommended
+        )
+        self.assertEqual(len(offered), 1)
+        self.assertEqual(offered[0]["rule"], "survey_revision_same_site")
+        self.assertFalse(offered[0]["auto_apply"])
+        main = self.by_uid(result["main"])
+        self.assertEqual(set(main), {"map", "survey"})
+        self.assertEqual(
+            main["map"]["NUMBER_KEY"], main["survey"]["NUMBER_KEY"]
+        )
+        self.assertEqual(main["map"]["GROUP_KEY"], main["survey"]["GROUP_KEY"])
+
+    def surface_role(self, name):
+        from ArchDistribution.heritage_matching import (
+            ROLE_DISTRIBUTION,
+            ROLE_SURFACE,
+        )
+        return ROLE_SURFACE if name == "surface" else ROLE_DISTRIBUTION
+
+    def test_record_repeated_by_adjacent_downloads_is_not_reviewed(self):
+        layer = self.make_matching_layer([
+            {"uid": "same", "role": self.distribution,
+             "name": "가상리 고분군", "wkt": square(0, 0, 30)},
+            {"uid": "same", "role": self.distribution,
+             "name": "가상리 고분군", "wkt": square(0, 0, 30)},
+        ])
+        offered = []
+
+        def record_offers(candidates):
+            offered.extend(candidates)
+            return self.accept_recommendations(candidates)
+
+        result = self.make_plugin().apply_source_aware_matching(
+            layer, decision_provider=record_offers
+        )
+        self.assertEqual(offered, [])
+        keys = {
+            (feature["NUMBER_KEY"], feature["GROUP_KEY"])
+            for feature in result["main"].getFeatures()
+        }
+        self.assertEqual(len(keys), 1)
+
+    def test_designated_record_without_counterpart_is_numbered(self):
+        layer = self.make_matching_layer([
+            {"uid": "legal", "role": self.designated,
+             "name": "가상산성", "wkt": square(0, 0, 40)},
+        ])
+        plugin = self.make_plugin()
+        numbered = plugin.apply_source_aware_matching(layer)
+        self.assertEqual(numbered["main"].featureCount(), 1)
+        self.assertEqual(numbered["designation"].featureCount(), 1)
+        legal_only = plugin.apply_source_aware_matching(
+            self.make_matching_layer([
+                {"uid": "legal", "role": self.designated,
+                 "name": "가상산성", "wkt": square(0, 0, 40)},
+            ]),
+            number_designated=False,
+        )
+        self.assertEqual(legal_only["main"].featureCount(), 0)
+        self.assertEqual(legal_only["designation"].featureCount(), 1)
+
+    def test_legal_only_settings_disable_designated_numbering(self):
+        decide = self.plugin_class._run_numbers_designated
+        self.assertFalse(decide({
+            "heritage_layer_ids": ["legal"],
+            "legal_layer_roles": {"legal": self.designated},
+        }))
+        self.assertTrue(decide({
+            "heritage_layer_ids": ["legal", "nearby"],
+            "legal_layer_roles": {"legal": self.designated},
+        }))
+        self.assertTrue(decide({"heritage_layer_ids": ["nearby"]}))
+
+    def make_survey_source(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186", "synthetic_excavation", "memory"
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("유적명", QVariant.String),
+            QgsField("사업명", QVariant.String),
+            QgsField("유적유무", QVariant.String),
+        ])
+        layer.updateFields()
+        rows = (
+            ("가상 유적", "가상 개발사업", "유적있음", square(200100, 450100, 20)),
+            ("나상 부지", "나상 개발사업", "유적없음", square(200300, 450300, 20)),
+        )
+        features = []
+        for name, project, outcome, wkt in rows:
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+            feature["유적명"] = name
+            feature["사업명"] = project
+            feature["유적유무"] = outcome
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        QgsProject.instance().addMapLayer(layer)
+        return layer
+
+    def consolidate(self, source, **options):
+        project = QgsProject.instance()
+        study = QgsVectorLayer("Polygon?crs=EPSG:5186", "study", "memory")
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromRect(
+            QgsRectangle(199900, 449900, 200000, 450000)
+        ))
+        study.dataProvider().addFeature(feature)
+        study.updateExtents()
+        project.addMapLayer(study)
+        return self.make_plugin().consolidate_heritage_layers(
+            [source.id()],
+            QgsGeometry.fromRect(QgsRectangle(199000, 449000, 202000, 452000)),
+            study,
+            project.layerTreeRoot().addGroup("sources"),
+            source_roles={source.id(): self.excavation},
+            matching_decision_provider=self.accept_recommendations,
+            **options,
+        )
+
+    def test_no_remains_investigation_is_excluded_but_preserved(self):
+        result = self.consolidate(
+            self.make_survey_source(), exclusion_rules=["no_remains"]
+        )
+        names = {
+            feature["SRC_NAME"]
+            for layer in result["main_layers"]
+            for feature in layer.getFeatures()
+        }
+        self.assertEqual(names, {"가상 유적"})
+        excluded = result["excluded_layers"]
+        self.assertEqual(len(excluded), 1)
+        record = next(excluded[0].getFeatures())
+        self.assertEqual(record["EXCLUDE_RULE"], "no_remains")
+        self.assertEqual(record["유적명"], "나상 부지")
+        self.assertIn("유적없음", record["SRC_JSON"])
+
+    def test_default_rules_keep_no_remains_investigations(self):
+        result = self.consolidate(self.make_survey_source())
+        count = sum(layer.featureCount() for layer in result["main_layers"])
+        self.assertEqual(count, 2)
+        self.assertEqual(result["excluded_layers"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

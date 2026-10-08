@@ -26,6 +26,36 @@ class AttributeClassificationTests(unittest.TestCase):
             {"청동기", "삼국"},
         )
 
+    def test_enumerated_cells_split_only_at_their_indexes(self):
+        self.assertEqual(
+            category_values("0)고려시대,1)조선시대"),
+            {"고려시대", "조선시대"},
+        )
+        self.assertEqual(
+            category_values("0)삼국시대,1)통일신라/발해시대"),
+            {"삼국시대", "통일신라/발해시대"},
+        )
+        self.assertEqual(
+            category_values("0)유교건축(서원,향교)"),
+            {"유교건축(서원,향교)"},
+        )
+        self.assertEqual(category_values("0)"), set())
+
+    def test_mid_level_and_designation_type_fields_are_preferred(self):
+        self.assertEqual(
+            find_semantic_field(
+                ["명칭", "유적대분류", "유적중분류", "유적소분류"],
+                TYPE_FIELD_KEYWORDS,
+            ),
+            "유적중분류",
+        )
+        self.assertEqual(
+            find_semantic_field(
+                ["종목코드", "지정종목", "국가유산명"], TYPE_FIELD_KEYWORDS
+            ),
+            "지정종목",
+        )
+
     def test_infers_visible_terms_from_site_name(self):
         self.assertEqual(
             infer_categories_from_name("청동기 유물산포지"),

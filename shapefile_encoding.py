@@ -22,6 +22,28 @@ def _normalise_cpg_encoding(value):
     return aliases.get(declared.upper(), declared)
 
 
+def _sidecar_path(path, suffix):
+    """Return a shapefile sidecar, matching the suffix case-insensitively.
+
+    Public downloads often use upper-case names (``SITE.SHP``/``SITE.CPG``).
+    Windows resolves either spelling, but case-sensitive file systems need the
+    directory entry itself.
+    """
+    candidate = path.with_suffix(suffix)
+    if candidate.exists():
+        return candidate
+    try:
+        for entry in path.parent.iterdir():
+            if (
+                entry.stem == path.stem
+                and entry.suffix.casefold() == suffix.casefold()
+            ):
+                return entry
+    except OSError:
+        pass
+    return candidate
+
+
 def declared_shapefile_encoding(shp_path):
     """Return ``(encoding, basis)`` before QGIS reads a shapefile's DBF.
 
@@ -37,11 +59,11 @@ def declared_shapefile_encoding(shp_path):
     # next to a CP949 DBF; trusting that sidecar first creates mojibake before
     # the plugin can inspect the zone values.  A positive CP949 DBF detection
     # therefore takes precedence over a conflicting sidecar declaration.
-    inferred = infer_dbf_encoding(path.with_suffix(".dbf"))
+    inferred = infer_dbf_encoding(_sidecar_path(path, ".dbf"))
     if inferred == "CP949":
         return inferred, "DBF automatic detection"
 
-    cpg_path = path.with_suffix(".cpg")
+    cpg_path = _sidecar_path(path, ".cpg")
     if cpg_path.exists():
         try:
             declared = _normalise_cpg_encoding(

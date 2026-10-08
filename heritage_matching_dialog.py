@@ -18,6 +18,9 @@ PAIR_KIND_LABELS = {
     "excavation_distribution": "발굴조사 ↔ 분포지도",
     "designated_excavation": "지정·등록유산 ↔ 발굴조사",
     "surface": "지표조사 관련",
+    "distribution_parts": "분포지도 내부(중복·부분)",
+    "designated_parts": "지정·등록유산 내부",
+    "excavation_area_parts": "발굴조사 구역 분할",
 }
 
 RULE_LABELS = {
@@ -27,12 +30,23 @@ RULE_LABELS = {
     "fuzzy_name_and_overlap": "유사 명칭 + 공간 중첩",
     "strong_overlap_and_address": "강한 중첩 + 동일 주소",
     "project_name_and_overlap": "사업명 연관 + 공간 중첩",
+    "normalized_name_and_overlap": "표기 정규화 후 동일 명칭 + 공간 중첩",
+    "normalized_name_within_50m": "표기 정규화 후 동일 명칭 + 50m 이내",
+    "affix_omitted_name_and_overlap": "행정구역 등 앞말 생략 명칭 + 동일 범위",
+    "same_register_duplicate": "같은 자료 안의 동일 명칭 중복",
+    "same_register_affix_duplicate": "같은 자료 안의 앞말 생략 중복",
+    "component_within_parent": "상위 유적 안의 부분(유구·건물·호수)",
+    "co_located_footprint": "같은 범위에 그려진 여러 기록",
+    "excavation_area_suffix_spatial_review": "발굴 구역 번호(I·II지역) 인접",
 }
 PAIR_KIND_LABELS_EN = {
     "designated_distribution": "Designated/registered ↔ Distribution",
     "excavation_distribution": "Excavation ↔ Distribution",
     "designated_excavation": "Designated/registered ↔ Excavation",
     "surface": "Surface-survey relation",
+    "distribution_parts": "Within distribution map (duplicate/part)",
+    "designated_parts": "Within designated/registered heritage",
+    "excavation_area_parts": "Excavation area parts",
 }
 RULE_LABELS_EN = {
     "exact_name_and_overlap": "Exact name + overlap",
@@ -41,6 +55,14 @@ RULE_LABELS_EN = {
     "fuzzy_name_and_overlap": "Similar name + overlap",
     "strong_overlap_and_address": "Strong overlap + same address",
     "project_name_and_overlap": "Related project name + overlap",
+    "normalized_name_and_overlap": "Same name after normalisation + overlap",
+    "normalized_name_within_50m": "Same name after normalisation + within 50 m",
+    "affix_omitted_name_and_overlap": "Name with omitted leading qualifier + same footprint",
+    "same_register_duplicate": "Duplicate name within one register",
+    "same_register_affix_duplicate": "Duplicate with omitted qualifier within one register",
+    "component_within_parent": "Part (feature, building, numbered item) inside its site",
+    "co_located_footprint": "Several records drawn on one footprint",
+    "excavation_area_suffix_spatial_review": "Adjacent excavation area numbers (I/II)",
 }
 
 LOGGER = logging.getLogger(__name__)

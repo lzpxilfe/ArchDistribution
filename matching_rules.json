@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "ruleset_version": "1.0.0",
-  "description": "ArchDistribution 1.0.5 conservative duplicate-candidate policy",
+  "ruleset_version": "1.1.0",
+  "description": "ArchDistribution conservative duplicate-candidate policy with language-neutral name and footprint relations",
   "thresholds": {
     "exact_name_distance_m": 50.0,
     "review_name_similarity": 0.9,
@@ -12,6 +12,32 @@
     "automation_overlap_ratio": 0.5,
     "name_containment_min_chars": 4,
     "name_containment_min_fraction": 0.6
+  },
+  "relation_thresholds": {
+    "identical_iou": 0.9,
+    "within_coverage": 0.9,
+    "similar_overlap": 0.5,
+    "similar_area_ratio": 0.3,
+    "near_distance_m": 50.0,
+    "component_auto_coverage": 0.95,
+    "co_located_iou": 0.95,
+    "affix_min_chars": 3,
+    "affix_min_extra_chars": 2,
+    "component_min_chars": 2,
+    "sibling_min_chars": 4
+  },
+  "name_lexicon": {
+    "ordinal_prefixes": ["제", "No.", "No", "#"],
+    "designator_units": [
+      "호분", "호", "기", "지점", "지역", "지구", "구역", "구간", "군", "차",
+      "site", "area", "zone", "locus", "sector", "trench", "tomb", "mound",
+      "zona", "sitio", "tumba"
+    ],
+    "ordinal_letters": "가나다라마바사아자차카타파하",
+    "equivalent_suffixes": [
+      ["유적지", "유적"],
+      ["터", "지"]
+    ]
   },
   "score_weights": {
     "name_similarity": 0.55,
@@ -27,7 +53,39 @@
     "사지",
     "보호구역",
     "유존지역",
-    "매장유산유존지역"
+    "매장유산유존지역",
+    "유물산포지",
+    "산성",
+    "성지",
+    "건물지",
+    "주거지",
+    "가마터",
+    "요지",
+    "지석묘",
+    "지석묘군",
+    "고인돌",
+    "선돌",
+    "봉수",
+    "봉수대",
+    "사찰",
+    "서원",
+    "향교",
+    "정자",
+    "누정",
+    "비석",
+    "비석군",
+    "묘",
+    "묘역",
+    "조사지역",
+    "조사구역",
+    "조사대상지",
+    "시굴조사지역",
+    "시굴조사대상지",
+    "표본조사지역",
+    "표본조사대상지",
+    "site",
+    "settlement",
+    "cemetery"
   ],
   "automatic_geometry_pairs": [
     "polygon_polygon"

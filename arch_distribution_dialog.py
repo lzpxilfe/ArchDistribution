@@ -36,6 +36,15 @@ from .preservation_actions import (
 from .map_legend_styles import normalize_change_zone_code
 from .local_reference_assets import resolve_local_reference_asset
 from .shapefile_encoding import declared_shapefile_encoding
+from .source_exclusion import (
+    RULE_TOKEN_PREFIX,
+    exclusion_reason,
+    load_exclusion_rules,
+    outcome_field_candidates,
+    prepare_layer_plan,
+    resolve_enabled_rules,
+    rule_definitions,
+)
 from .heritage_matching import (
     MATCH_PRESET_LABELS,
     MATCH_PRESET_LABELS_EN,
@@ -3283,10 +3292,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "scale": self.spinScale.value(),
             "sort_order": self.comboSortOrder.currentIndex(),
             "filter_items": filter_items,
-            # [NEW] Pass Exclusion List
-            "exclusion_list": [self.listExclusions.item(i).data(QtCore.Qt.UserRole)
-                               for i in range(self.listExclusions.count())
-                               if self.listExclusions.item(i).checkState() == QtCore.Qt.Checked],
+            # Reviewed name exclusions and record-level rule choices share
+            # one list; rule rows carry a "RULE:<id>" token.
+            "exclusion_list": [
+                data for data, checked in self._exclusion_list_entries()
+                if checked and not str(data).startswith(RULE_TOKEN_PREFIX)
+            ],
+            "exclusion_rules": resolve_enabled_rules({
+                str(data)[len(RULE_TOKEN_PREFIX):]: checked
+                for data, checked in self._exclusion_list_entries()
+                if str(data).startswith(RULE_TOKEN_PREFIX)
+            }),
             # [NEW] Restrict Toggle
             "restrict_to_buffer": self.chkRestrictToBuffer.isChecked(),
             "exclude_extent_slivers": (
@@ -3478,6 +3494,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         found_eras = set()
         found_types = set()
         found_exclusions = set()  # Store unique names to exclude
+        exclusion_lexicon = load_exclusion_rules()
+        rule_hits = {}
 
         total_feats = 0
         matched_feats = 0
@@ -3547,12 +3565,42 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 f"type={type_field or '-'}",
             ))
 
+            all_rule_ids = [
+                rule_id for rule_id, _ko, _en, _default
+                in rule_definitions(exclusion_lexicon)
+            ]
+            distinct_counts = {}
+            outcome_limit = int(
+                (exclusion_lexicon.get("outcome") or {}).get(
+                    "max_distinct_values", 12
+                )
+            ) + 1
+            for candidate_name in outcome_field_candidates(
+                fields,
+                exclusion_lexicon,
+            ):
+                distinct_counts[candidate_name] = len(layer.uniqueValues(
+                    layer.fields().indexFromName(candidate_name),
+                    outcome_limit,
+                ))
+            # Count every rule, including ones disabled by default, so the
+            # operator sees what each rule would remove before running.
+            exclusion_plan = prepare_layer_plan(
+                fields,
+                all_rule_ids,
+                distinct_value_counts=distinct_counts,
+                rules=exclusion_lexicon,
+            )
+
             layer_feats = 0
             layer_matched = 0
             for feat in layer.getFeatures():
                 layer_feats += 1
                 total_feats += 1
                 name = str(feat[name_field] or "") if name_field else ""
+                rule_id = exclusion_reason(exclusion_plan, feat)
+                if rule_id:
+                    rule_hits[rule_id] = rule_hits.get(rule_id, 0) + 1
 
                 # [NEW] Exclusion Logic with User Review
                 # Instead of silently skipping, add to exclusion list
@@ -3663,6 +3711,49 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             self.listTypes.addItem(self._t("(유형 정보 없음)", "(No type data)"))
 
+        # Record-level rules come first: they remove whole classes of
+        # non-mappable records (no remains, intangible, movable) and are
+        # reviewable here like any suggested name.
+        for rule_id, label_ko, label_en, default in rule_definitions(
+            exclusion_lexicon
+        ):
+            count = rule_hits.get(rule_id, 0)
+            if not count:
+                continue
+            item = QListWidgetItem(self._t(
+                f"[규칙] {label_ko} ({count:,}건)",
+                f"[Rule] {label_en} ({count:,})",
+            ))
+            item.setData(QtCore.Qt.UserRole, f"{RULE_TOKEN_PREFIX}{rule_id}")
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(
+                QtCore.Qt.Checked if default else QtCore.Qt.Unchecked
+            )
+            item.setToolTip(self._t(
+                "체크하면 해당 규칙에 걸린 기록을 번호에서 제외하고 "
+                "06_중복_검수/제외_기록에 보존합니다.",
+                "Checked records are left out of numbering and kept in "
+                "06_중복_검수/제외_기록.",
+            ))
+            self.listExclusions.addItem(item)
+        if rule_hits:
+            self.log(self._t(
+                "기록 제외 규칙 후보: " + ", ".join(
+                    f"{label_ko} {rule_hits[rule_id]:,}건"
+                    for rule_id, label_ko, _en, _d in rule_definitions(
+                        exclusion_lexicon
+                    )
+                    if rule_hits.get(rule_id)
+                ),
+                "Record exclusion rule candidates: " + ", ".join(
+                    f"{label_en} {rule_hits[rule_id]:,}"
+                    for rule_id, _ko, label_en, _d in rule_definitions(
+                        exclusion_lexicon
+                    )
+                    if rule_hits.get(rule_id)
+                ),
+            ))
+
         # [NEW] Populate Exclusion List
         if found_exclusions:
             for exc in sorted(list(found_exclusions)):
@@ -3677,8 +3768,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     f"⚠️ {len(found_exclusions)} suspicious exclusion items found. Check 'Suggested Exclusions'.",
                 )
             )
-        else:
+        elif not rule_hits:
             self.listExclusions.addItem(self._t("(제외 대상 없음)", "(No exclusion candidates)"))
+
+    def _exclusion_list_entries(self):
+        """Return ``(data, checked)`` for every reviewable exclusion row."""
+        entries = []
+        for index in range(self.listExclusions.count()):
+            item = self.listExclusions.item(index)
+            data = item.data(QtCore.Qt.UserRole)
+            if not data or not (item.flags() & QtCore.Qt.ItemIsUserCheckable):
+                continue
+            entries.append((data, item.checkState() == QtCore.Qt.Checked))
+        return entries
 
     def get_checked_items(self, _ignored):
         """Return list of checked items data from both Era and Type lists."""

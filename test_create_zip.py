@@ -1,13 +1,34 @@
 import json
 import hashlib
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-from create_zip import approved_reference_assets, select_runtime_files
+from create_zip import (
+    RUNTIME_FILES,
+    approved_reference_assets,
+    select_runtime_files,
+)
 
 
 class RuntimePackagingTests(unittest.TestCase):
+    def test_every_runtime_dependency_is_packaged(self):
+        root = Path(__file__).resolve().parent
+        missing = set()
+        for name in sorted(RUNTIME_FILES):
+            if not name.endswith(".py"):
+                continue
+            text = (root / name).read_text(encoding="utf-8")
+            for module in re.findall(r"^\s*from \.(\w+) import", text, re.M):
+                if f"{module}.py" not in RUNTIME_FILES:
+                    missing.add(f"{module}.py")
+            for asset in re.findall(r'with_name\(\s*"([\w.]+\.json)"', text):
+                if asset not in RUNTIME_FILES:
+                    missing.add(asset)
+        self.assertEqual(missing, set())
+        self.assertTrue(all((root / name).exists() for name in RUNTIME_FILES))
+
     def test_only_declared_root_paths_are_selected(self):
         selected = select_runtime_files(
             [

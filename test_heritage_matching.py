@@ -385,11 +385,173 @@ class MatchingPolicyTests(unittest.TestCase):
         ))
 
 
+def metrics(cov_left, cov_right, iou, area_ratio, overlap=None):
+    return {
+        "intersects": True,
+        "overlap_ratio": (
+            max(cov_left, cov_right) if overlap is None else overlap
+        ),
+        "coverage_left": cov_left,
+        "coverage_right": cov_right,
+        "iou": iou,
+        "area_ratio": area_ratio,
+    }
+
+
+IDENTICAL = metrics(1.0, 1.0, 1.0, 1.0)
+LEFT_INSIDE = metrics(1.0, 0.01, 0.01, 0.01)
+
+
+class SameRegisterRelationTests(unittest.TestCase):
+    def test_spacing_variant_duplicate_is_merged_automatically(self):
+        left = record("m1", ROLE_DISTRIBUTION, "가상리 고분군 3")
+        right = record("m2", ROLE_DISTRIBUTION, "가상리고분군3")
+        match = evaluate_candidate(left, right, **IDENTICAL)
+        self.assertEqual(match.pair_kind, "distribution_parts")
+        self.assertEqual(match.rule, "same_register_duplicate")
+        self.assertEqual(match.relation_type, RELATION_SAME_ENTITY)
+        self.assertEqual(match.recommended_decision, DECISION_MERGE)
+        self.assertEqual(match.merge_mode, "union")
+        self.assertTrue(match.auto_apply)
+
+    def test_numbered_feature_joins_its_site_number(self):
+        site = record("m1", ROLE_DISTRIBUTION, "가상리 고분군")
+        tomb = record("m2", ROLE_DISTRIBUTION, "가상리고분군 제14호")
+        match = evaluate_candidate(
+            tomb, site, **metrics(1.0, 0.001, 0.001, 0.001)
+        )
+        self.assertEqual(match.rule, "component_within_parent")
+        self.assertEqual(match.relation_type, RELATION_PARENT_CHILD)
+        self.assertEqual(match.representative_uid, "m1")
+        self.assertEqual(match.recommended_decision, DECISION_MERGE)
+        self.assertTrue(match.auto_apply)
+        self.assertFalse(evaluate_candidate(
+            tomb,
+            site,
+            preset=PRESET_CONSERVATIVE,
+            **metrics(1.0, 0.001, 0.001, 0.001),
+        ).auto_apply)
+
+    def test_numbered_siblings_are_never_candidates(self):
+        first = record("m1", ROLE_DISTRIBUTION, "가상리 고분군 제14호")
+        second = record("m2", ROLE_DISTRIBUTION, "가상리 고분군 제15호")
+        self.assertIsNone(evaluate_candidate(
+            first, second, **metrics(0.3, 0.3, 0.18, 1.0)
+        ))
+
+    def test_specific_name_outside_its_parent_is_not_a_component(self):
+        site = record("m1", ROLE_DISTRIBUTION, "가상사")
+        hall = record("m2", ROLE_DISTRIBUTION, "가상사 대웅전")
+        self.assertIsNone(evaluate_candidate(
+            hall, site, **metrics(0.3, 0.05, 0.04, 0.2)
+        ))
+
+    def test_unrelated_records_inside_a_site_stay_separate(self):
+        site = record("m1", ROLE_DISTRIBUTION, "가상리 유물산포지")
+        dolmen = record("m2", ROLE_DISTRIBUTION, "나상 고인돌")
+        self.assertIsNone(evaluate_candidate(dolmen, site, **LEFT_INSIDE))
+
+    def test_records_drawn_on_one_footprint_share_a_label(self):
+        first = record("m1", ROLE_DISTRIBUTION, "가상리 김공 선정비")
+        second = record("m2", ROLE_DISTRIBUTION, "가상리 이공 불망비")
+        match = evaluate_candidate(first, second, **IDENTICAL)
+        self.assertEqual(match.rule, "co_located_footprint")
+        self.assertEqual(match.relation_type, "co_located")
+        self.assertEqual(match.recommended_decision, DECISION_MERGE)
+        self.assertFalse(match.auto_apply)
+
+    def test_legal_designations_inside_each_other_are_only_linked(self):
+        parent = record("d1", ROLE_NATIONAL_DESIGNATED, "가상사")
+        child = record("d2", ROLE_LOCAL_DESIGNATED, "가상사 석탑")
+        match = evaluate_candidate(child, parent, **LEFT_INSIDE)
+        self.assertEqual(match.pair_kind, "designated_parts")
+        self.assertEqual(match.recommended_decision, DECISION_LINK)
+        co_located = evaluate_candidate(
+            record("d3", ROLE_LOCAL_DESIGNATED, "가상 누정"),
+            record("d4", ROLE_LOCAL_DESIGNATED, "나상 정자"),
+            **IDENTICAL,
+        )
+        self.assertEqual(co_located.recommended_decision, DECISION_LINK)
+
+    def test_legacy_callers_without_coverage_get_no_same_register_merge(self):
+        first = record("m1", ROLE_DISTRIBUTION, "가상리 고분군 제14호")
+        second = record("m2", ROLE_DISTRIBUTION, "가상리 고분군")
+        self.assertIsNone(evaluate_candidate(
+            first, second, intersects=True, overlap_ratio=1.0
+        ))
+
+
+class CrossRegisterRelationTests(unittest.TestCase):
+    def test_numbered_distribution_part_joins_designated_site(self):
+        designated = record("d1", ROLE_NATIONAL_DESIGNATED, "가상리 고분군")
+        tomb = record("m1", ROLE_DISTRIBUTION, "가상리고분군 제7호")
+        match = evaluate_candidate(designated, tomb, **metrics(
+            0.002, 1.0, 0.002, 0.002
+        ))
+        self.assertEqual(match.rule, "component_within_parent")
+        self.assertEqual(match.representative_uid, "d1")
+        self.assertEqual(match.recommended_decision, DECISION_MERGE)
+        self.assertTrue(match.auto_apply)
+
+    def test_designated_part_inside_mapped_site_keeps_its_number(self):
+        temple = record("m1", ROLE_DISTRIBUTION, "가상군 가상사")
+        pagoda = record("d1", ROLE_NATIONAL_DESIGNATED, "가상사 삼층석탑")
+        match = evaluate_candidate(pagoda, temple, **LEFT_INSIDE)
+        self.assertEqual(match.recommended_decision, DECISION_LINK)
+        self.assertEqual(match.relation_type, RELATION_PARENT_CHILD)
+
+    def test_numbered_siblings_across_registers_are_not_merged(self):
+        designated = record("d1", ROLE_LOCAL_DESIGNATED, "가상 지석묘 2호")
+        distribution = record("m1", ROLE_DISTRIBUTION, "가상지석묘 1호")
+        self.assertIsNone(evaluate_candidate(
+            designated, distribution, intersects=True, overlap_ratio=0.5
+        ))
+
+    def test_alias_and_omitted_prefix_count_as_the_same_name(self):
+        designated = record("d1", ROLE_LOCAL_DESIGNATED, "가상 누정")
+        distribution = record("m1", ROLE_DISTRIBUTION, "가상 누정(假想樓亭)")
+        match = evaluate_candidate(designated, distribution, **IDENTICAL)
+        self.assertEqual(match.rule, "normalized_name_and_overlap")
+        self.assertEqual(match.relation_type, RELATION_SAME_ENTITY)
+        self.assertTrue(match.auto_apply)
+
+        prefixed = evaluate_candidate(
+            record("d2", ROLE_LOCAL_DESIGNATED, "가상시 월영대"),
+            record("m2", ROLE_DISTRIBUTION, "월영대"),
+            **metrics(0.9, 0.95, 0.86, 0.95),
+        )
+        self.assertEqual(prefixed.rule, "affix_omitted_name_and_overlap")
+        self.assertTrue(prefixed.auto_apply)
+
+    def test_candidate_reports_name_and_geometry_relation(self):
+        designated = record("d1", ROLE_LOCAL_DESIGNATED, "봉업사지")
+        distribution = record("m1", ROLE_DISTRIBUTION, "봉업사지")
+        match = evaluate_candidate(designated, distribution, **IDENTICAL)
+        self.assertEqual(match.name_relation, "equal")
+        self.assertEqual(match.geometry_relation, "identical")
+
+
 class AddressSafetyTests(unittest.TestCase):
     def test_address_prefix_can_be_omitted(self):
         self.assertTrue(addresses_match(
             "공주시 가상동 1-1",
             "충청남도 공주시 가상동 1-1",
+        ))
+
+    def test_village_level_address_is_not_identity_evidence(self):
+        self.assertTrue(addresses_match("가상군 가상리", "가상리"))
+        self.assertFalse(addresses_match(
+            "가상군 가상리", "가상리", require_parcel=True
+        ))
+        self.assertTrue(addresses_match(
+            "가상군 가상리 12", "가상리 12", require_parcel=True
+        ))
+        first = record("m1", ROLE_DISTRIBUTION, "가상 산포지",
+                       address="가상군 가상리")
+        second = record("s1", ROLE_LOCAL_DESIGNATED, "나상 누정",
+                        address="가상리")
+        self.assertIsNone(evaluate_candidate(
+            first, second, intersects=True, overlap_ratio=0.9
         ))
 
     def test_numeric_parcel_substring_is_not_a_match(self):

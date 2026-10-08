@@ -20,6 +20,7 @@ try:
         canonical_heritage_text,
         clean_heritage_text,
     )
+    from . import heritage_relations as relations
 except ImportError:
     # Keep this policy module directly runnable by the validation scripts and
     # the normal-Python unit tests outside a loaded QGIS plugin package.
@@ -28,6 +29,7 @@ except ImportError:
         canonical_heritage_text,
         clean_heritage_text,
     )
+    import heritage_relations as relations
 
 
 ROLE_NATIONAL_DESIGNATED = "national_designated"
@@ -99,6 +101,10 @@ RELATION_PARENT_CHILD = "parent_child"
 RELATION_INVESTIGATION_SITE = "investigation_site"
 RELATION_LEGAL_BOUNDARY_SITE = "legal_boundary_site"
 RELATION_RELATED_SEPARATE = "related_separate"
+# Distinct records drawn on one footprint (for example several items that a
+# register locates at their host site).  They may share a map number while
+# keeping separate entities.
+RELATION_CO_LOCATED = "co_located"
 RELATION_UNCERTAIN = "uncertain"
 # Verbose aliases mirror the public output field name and make integration
 # code self-documenting.  The shorter names remain the canonical API.
@@ -107,6 +113,7 @@ RELATION_TYPE_PARENT_CHILD = RELATION_PARENT_CHILD
 RELATION_TYPE_INVESTIGATION_SITE = RELATION_INVESTIGATION_SITE
 RELATION_TYPE_LEGAL_BOUNDARY_SITE = RELATION_LEGAL_BOUNDARY_SITE
 RELATION_TYPE_RELATED_SEPARATE = RELATION_RELATED_SEPARATE
+RELATION_TYPE_CO_LOCATED = RELATION_CO_LOCATED
 RELATION_TYPE_UNCERTAIN = RELATION_UNCERTAIN
 RELATION_TYPES = frozenset({
     RELATION_SAME_ENTITY,
@@ -114,8 +121,29 @@ RELATION_TYPES = frozenset({
     RELATION_INVESTIGATION_SITE,
     RELATION_LEGAL_BOUNDARY_SITE,
     RELATION_RELATED_SEPARATE,
+    RELATION_CO_LOCATED,
     RELATION_UNCERTAIN,
 })
+
+# Same-register pairs.  Earlier releases never compared two records of one
+# role, so a register that lists a site and each of its numbered features,
+# buildings or movable items received one map number per record.
+PAIR_DISTRIBUTION_PARTS = "distribution_parts"
+PAIR_DESIGNATED_PARTS = "designated_parts"
+SAME_SOURCE_PAIR_KINDS = frozenset({
+    PAIR_DISTRIBUTION_PARTS,
+    PAIR_DESIGNATED_PARTS,
+})
+MERGE_MODE_SUPPRESS = "suppress"
+MERGE_MODE_UNION = "union"
+
+
+def is_union_merge(candidate):
+    """Return whether an accepted merge keeps both footprints visible."""
+    return (
+        candidate.get("merge_mode") == MERGE_MODE_UNION
+        or candidate.get("pair_kind") == "excavation_area_parts"
+    )
 
 DEFAULT_MATCHING_RULES_PATH = Path(__file__).with_name("matching_rules.json")
 
@@ -282,15 +310,22 @@ def canonical_address_tokens(value):
     return _address_tokens_cached("" if value is None else str(value))
 
 
-def addresses_match(left, right):
+def addresses_match(left, right, require_parcel=False):
     """Compare equal/contained addresses without partial parcel-number matches.
 
     Token sequence containment accepts an omitted administrative prefix, but
     never equates numeric substrings such as parcel ``24-17`` and ``24-171``.
+    With ``require_parcel`` both addresses must name a parcel number: two
+    records in the same village are neighbours, not evidence of identity.
     """
     left_tokens = canonical_address_tokens(left)
     right_tokens = canonical_address_tokens(right)
     if not left_tokens or not right_tokens:
+        return False
+    if require_parcel and not (
+        any(token.isdigit() for token in left_tokens)
+        and any(token.isdigit() for token in right_tokens)
+    ):
         return False
     if left_tokens == right_tokens:
         return True
@@ -365,6 +400,10 @@ def _pair_kind(left_role, right_role):
     roles = {left_role, right_role}
     if ROLE_SURFACE in roles:
         return "surface"
+    if left_role == ROLE_DISTRIBUTION and right_role == ROLE_DISTRIBUTION:
+        return PAIR_DISTRIBUTION_PARTS
+    if is_designated_role(left_role) and is_designated_role(right_role):
+        return PAIR_DESIGNATED_PARTS
     if ROLE_DISTRIBUTION in roles:
         other = right_role if left_role == ROLE_DISTRIBUTION else left_role
         if is_designated_role(other):
@@ -447,6 +486,12 @@ class MatchCandidate:
     boundary_distance: float = None
     geometry_pair: str = "polygon_polygon"
     relation_type: str = RELATION_UNCERTAIN
+    name_relation: str = None
+    geometry_relation: str = None
+    # "suppress": the representative carries the label and the other record
+    # moves to the audit layer.  "union": both footprints stay on the map and
+    # are dissolved under one number (parts or revisions of one site).
+    merge_mode: str = "suppress"
 
     def as_dict(self):
         return {
@@ -470,6 +515,9 @@ class MatchCandidate:
             "boundary_distance": self.boundary_distance,
             "geometry_pair": self.geometry_pair,
             "relation_type": self.relation_type,
+            "name_relation": self.name_relation,
+            "geometry_relation": self.geometry_relation,
+            "merge_mode": self.merge_mode,
         }
 
 
@@ -496,6 +544,273 @@ def _geometry_allows_automatic_decision(geometry_pair, rules):
     return _normalized_geometry_pair(geometry_pair) in allowed
 
 
+def _generic_identity_keys(rules):
+    return frozenset(
+        key for key in (
+            relations.identity_name_key(item, rules)
+            for item in rules.get("generic_names", ())
+        ) if key
+    )
+
+
+def _automatic(confidence, preset):
+    if preset == PRESET_CONSERVATIVE:
+        return False
+    return confidence == "high"
+
+
+def _same_register_relation(
+    pair_kind,
+    name_relation,
+    geometry_relation,
+    *,
+    coverage_left,
+    coverage_right,
+    iou,
+    generic_name,
+    rules,
+):
+    """Return ``(rule, confidence, decision, relation, parent_side, mode)``.
+
+    Records from one register are compared only through structural evidence:
+    the same normalised name, an omitted leading qualifier, a more specific
+    name lying inside its parent, or several records drawn on one footprint.
+    Fuzzy similarity alone is never used here because numbered siblings
+    ("tomb 12"/"tomb 13") are textually almost identical.
+    """
+    thresholds = relations.relation_thresholds(rules)
+    legal_pair = pair_kind == PAIR_DESIGNATED_PARTS
+    overlapping = geometry_relation in {
+        relations.GEOMETRY_IDENTICAL,
+        relations.GEOMETRY_SIMILAR,
+        relations.GEOMETRY_LEFT_WITHIN,
+        relations.GEOMETRY_RIGHT_WITHIN,
+        relations.GEOMETRY_OVERLAP,
+        relations.GEOMETRY_UNKNOWN,
+        relations.GEOMETRY_NEAR,
+    }
+    similar = geometry_relation in {
+        relations.GEOMETRY_IDENTICAL,
+        relations.GEOMETRY_SIMILAR,
+    }
+    if name_relation in {relations.NAME_EQUAL, relations.NAME_ALIAS}:
+        if not overlapping:
+            return None
+        confidence = "high" if similar and not generic_name else "medium"
+        # Same-named pieces of one register are one site: keep every piece
+        # visible (adjacent parts, split multiparts) under one number.
+        return (
+            "same_register_duplicate",
+            confidence,
+            DECISION_MERGE,
+            RELATION_SAME_ENTITY,
+            None,
+            MERGE_MODE_UNION,
+        )
+    if name_relation == relations.NAME_AFFIX_OMITTED and similar:
+        confidence = (
+            "high"
+            if geometry_relation == relations.GEOMETRY_IDENTICAL
+            and not generic_name
+            else "medium"
+        )
+        return (
+            "same_register_affix_duplicate",
+            confidence,
+            DECISION_MERGE,
+            RELATION_SAME_ENTITY,
+            None,
+            MERGE_MODE_UNION,
+        )
+    if name_relation in {
+        relations.NAME_LEFT_SPECIFIC,
+        relations.NAME_RIGHT_SPECIFIC,
+    }:
+        child_side = (
+            "left" if name_relation == relations.NAME_LEFT_SPECIFIC
+            else "right"
+        )
+        child_coverage = (
+            coverage_left if child_side == "left" else coverage_right
+        )
+        child_inside = (
+            geometry_relation == relations.GEOMETRY_IDENTICAL
+            or geometry_relation == f"{child_side}_within"
+            or (
+                geometry_relation == relations.GEOMETRY_SIMILAR
+                and child_coverage is not None
+                and float(child_coverage)
+                >= float(thresholds["within_coverage"])
+            )
+        )
+        if not child_inside:
+            return None
+        confidence = (
+            "high"
+            if child_coverage is not None
+            and float(child_coverage)
+            >= float(thresholds["component_auto_coverage"])
+            else "medium"
+        )
+        parent_side = "right" if child_side == "left" else "left"
+        return (
+            "component_within_parent",
+            confidence,
+            DECISION_LINK if legal_pair else DECISION_MERGE,
+            RELATION_PARENT_CHILD,
+            parent_side,
+            MERGE_MODE_SUPPRESS,
+        )
+    if (
+        iou is not None
+        and float(iou) >= float(thresholds["co_located_iou"])
+    ):
+        # Several distinct records on one footprint: sharing one label avoids
+        # stacking numbers on the same polygon, but published maps also list
+        # such items separately, so this stays a reviewed recommendation.
+        # Legal designations keep their own numbers and are only linked.
+        return (
+            "co_located_footprint",
+            "medium",
+            DECISION_LINK if legal_pair else DECISION_MERGE,
+            RELATION_CO_LOCATED,
+            None,
+            MERGE_MODE_SUPPRESS,
+        )
+    return None
+
+
+def _cross_register_component(
+    pair_kind,
+    name_relation,
+    geometry_relation,
+    left_role,
+    right_role,
+    *,
+    coverage_left,
+    coverage_right,
+    rules,
+):
+    """Return a component relation between records of different registers.
+
+    A more specific name lying inside a less specific one ("<site> tomb 12"
+    inside "<site>") is a part of that site.  A distribution-map part joins
+    its parent's number; a part with its own legal or investigation identity
+    keeps its number and is linked instead.
+    """
+    if pair_kind == "surface" or name_relation not in {
+        relations.NAME_LEFT_SPECIFIC,
+        relations.NAME_RIGHT_SPECIFIC,
+    }:
+        return None
+    child_side = (
+        "left" if name_relation == relations.NAME_LEFT_SPECIFIC else "right"
+    )
+    if geometry_relation != f"{child_side}_within":
+        return None
+    thresholds = relations.relation_thresholds(rules)
+    child_coverage = coverage_left if child_side == "left" else coverage_right
+    child_role = left_role if child_side == "left" else right_role
+    confidence = (
+        "high"
+        if child_coverage is not None
+        and float(child_coverage)
+        >= float(thresholds["component_auto_coverage"])
+        else "medium"
+    )
+    decision = (
+        DECISION_MERGE if child_role == ROLE_DISTRIBUTION else DECISION_LINK
+    )
+    parent_side = "right" if child_side == "left" else "left"
+    return (
+        "component_within_parent",
+        confidence,
+        decision,
+        RELATION_PARENT_CHILD,
+        parent_side,
+    )
+
+
+def _survey_relation(
+    left,
+    right,
+    name_relation,
+    geometry_relation,
+    *,
+    coverage_left,
+    coverage_right,
+    rules,
+    generic_keys,
+):
+    """Classify a surface-survey record against a mapped site or survey.
+
+    Surveys start from the distribution map and then redraw, extend or split
+    its sites, or mark action zones inside them.  Those are revisions of one
+    site, not new sites.  They stay review-only (a survey record is never
+    removed automatically) but the recommendation explains the relation:
+
+    * same or omitted-qualifier name sharing ground: one site, both
+      footprints kept under one number (``union``);
+    * a more specific name, or a bare zone label, lying inside the site:
+      a part that joins the site's number.
+    """
+    left_role = left.get("role")
+    right_role = right.get("role")
+    other_role = right_role if left_role == ROLE_SURFACE else left_role
+    if other_role not in {ROLE_DISTRIBUTION, ROLE_SURFACE}:
+        return None
+    thresholds = relations.relation_thresholds(rules)
+    touching = geometry_relation in {
+        relations.GEOMETRY_IDENTICAL,
+        relations.GEOMETRY_SIMILAR,
+        relations.GEOMETRY_LEFT_WITHIN,
+        relations.GEOMETRY_RIGHT_WITHIN,
+        relations.GEOMETRY_OVERLAP,
+        relations.GEOMETRY_NEAR,
+    }
+    if name_relation in {
+        relations.NAME_EQUAL,
+        relations.NAME_ALIAS,
+        relations.NAME_AFFIX_OMITTED,
+    } and touching:
+        confidence = (
+            "high"
+            if geometry_relation in {
+                relations.GEOMETRY_IDENTICAL,
+                relations.GEOMETRY_SIMILAR,
+            }
+            else "medium"
+        )
+        return (
+            "survey_revision_same_site",
+            confidence,
+            RELATION_SAME_ENTITY,
+            None,
+            MERGE_MODE_UNION,
+        )
+
+    within = float(thresholds["within_coverage"])
+    for side, record, coverage, specific in (
+        ("left", left, coverage_left, relations.NAME_LEFT_SPECIFIC),
+        ("right", right, coverage_right, relations.NAME_RIGHT_SPECIFIC),
+    ):
+        if record.get("role") != ROLE_SURFACE or coverage is None:
+            continue
+        inside = float(coverage) >= within
+        zone_label = relations.is_placeholder_name(
+            _record_name(record), rules, generic_keys
+        )
+        if inside and (name_relation == specific or zone_label):
+            return (
+                "survey_zone_within_site",
+                "medium",
+                RELATION_PARENT_CHILD,
+                "right" if side == "left" else "left",
+                MERGE_MODE_SUPPRESS,
+            )
+    return None
+
+
 def evaluate_candidate(
     left,
     right,
@@ -516,7 +831,10 @@ def evaluate_candidate(
     """Evaluate one spatially reduced pair.
 
     ``overlap_ratio`` is intersection area divided by the smaller polygon area.
-    The caller may pass zero for non-polygon geometries.
+    The caller may pass zero for non-polygon geometries.  When the coverage
+    metrics are supplied, name and footprint relations
+    (:mod:`heritage_relations`) take precedence; otherwise the original
+    name-similarity rules apply unchanged.
     """
     active_rules = rules or DEFAULT_MATCHING_RULES
     thresholds = active_rules["thresholds"]
@@ -535,8 +853,183 @@ def evaluate_candidate(
     generic_name = is_generic_name(left_name, active_rules) or is_generic_name(
         right_name, active_rules
     )
+    name_rel = relations.name_relation(
+        left_name,
+        right_name,
+        active_rules,
+        _generic_identity_keys(active_rules),
+    )
+    geometry_rel = relations.geometry_relation(
+        intersects=intersects,
+        distance=distance,
+        overlap_ratio=overlap_ratio,
+        coverage_left=coverage_left,
+        coverage_right=coverage_right,
+        iou=iou,
+        area_ratio=area_ratio,
+        rules=active_rules,
+    )
 
-    same_address = addresses_match(left.get("address"), right.get("address"))
+    same_address = addresses_match(
+        left.get("address"), right.get("address"), require_parcel=True
+    )
+    address_score = 1.0 if same_address else 0.0
+    score = round(min(
+        1.0,
+        (similarity * float(weights["name_similarity"]))
+        + (
+            min(max(float(overlap_ratio), 0.0), 1.0)
+            * float(weights["overlap_ratio"])
+        )
+        + (address_score * float(weights["address"])),
+    ), 4)
+    automatic_geometry = _geometry_allows_automatic_decision(
+        geometry_pair, active_rules
+    )
+
+    def build(
+        confidence,
+        rule,
+        recommended,
+        auto_apply,
+        relation_type,
+        representative_uid=None,
+        merge_mode=MERGE_MODE_SUPPRESS,
+    ):
+        if generic_name or not automatic_geometry:
+            auto_apply = False
+        return MatchCandidate(
+            left_uid=str(left.get("uid")),
+            right_uid=str(right.get("uid")),
+            pair_kind=pair_kind,
+            confidence=confidence,
+            score=score,
+            rule=rule,
+            recommended_decision=recommended,
+            representative_uid=(
+                representative_uid or _representative_uid(left, right)
+            ),
+            auto_apply=auto_apply,
+            name_similarity=round(similarity, 4),
+            overlap_ratio=round(float(overlap_ratio), 4),
+            distance=round(float(distance), 3),
+            coverage_left=_metric(coverage_left),
+            coverage_right=_metric(coverage_right),
+            iou=_metric(iou),
+            area_ratio=_metric(area_ratio),
+            centroid_distance=_metric(centroid_distance, 3),
+            boundary_distance=_metric(boundary_distance, 3),
+            geometry_pair=_normalized_geometry_pair(geometry_pair),
+            relation_type=relation_type,
+            name_relation=name_rel,
+            geometry_relation=geometry_rel,
+            merge_mode=merge_mode,
+        )
+
+    if pair_kind in SAME_SOURCE_PAIR_KINDS:
+        decided = _same_register_relation(
+            pair_kind,
+            name_rel,
+            geometry_rel,
+            coverage_left=coverage_left,
+            coverage_right=coverage_right,
+            iou=iou,
+            generic_name=generic_name,
+            rules=active_rules,
+        )
+        if decided is None:
+            return None
+        (
+            rule, confidence, recommended, relation_type, parent_side, mode,
+        ) = decided
+        representative = (
+            str(left.get("uid")) if parent_side == "left"
+            else str(right.get("uid")) if parent_side == "right"
+            else None
+        )
+        return build(
+            confidence,
+            rule,
+            recommended,
+            _automatic(confidence, preset),
+            relation_type,
+            representative,
+            mode,
+        )
+
+    # Explicit, different designators ("tomb 1"/"tomb 2", "I"/"II") name
+    # sibling records, never one entity.  Excavation area parts keep their
+    # dedicated review rule below.
+    if (
+        name_rel == relations.NAME_DESIGNATOR_CONFLICT
+        and pair_kind != "excavation_area_parts"
+    ):
+        return None
+
+    if pair_kind == "surface" and geometry_rel != relations.GEOMETRY_UNKNOWN:
+        survey = _survey_relation(
+            left,
+            right,
+            name_rel,
+            geometry_rel,
+            coverage_left=coverage_left,
+            coverage_right=coverage_right,
+            rules=active_rules,
+            generic_keys=_generic_identity_keys(active_rules),
+        )
+        if survey is not None:
+            rule, confidence, relation_type, parent_side, mode = survey
+            # Survey records are never suppressed automatically.
+            return build(
+                confidence,
+                rule,
+                DECISION_MERGE,
+                False,
+                relation_type,
+                (
+                    str(left.get("uid")) if parent_side == "left"
+                    else str(right.get("uid")) if parent_side == "right"
+                    else None
+                ),
+                mode,
+            )
+
+    component = _cross_register_component(
+        pair_kind,
+        name_rel,
+        geometry_rel,
+        left_role,
+        right_role,
+        coverage_left=coverage_left,
+        coverage_right=coverage_right,
+        rules=active_rules,
+    )
+    if component is not None:
+        rule, confidence, recommended, relation_type, parent_side = component
+        return build(
+            confidence,
+            rule,
+            recommended,
+            _automatic(confidence, preset),
+            relation_type,
+            str(left.get("uid")) if parent_side == "left"
+            else str(right.get("uid")),
+        )
+
+    # Spelling variants that survive whitespace folding (bracketed aliases,
+    # Roman numerals, punctuation, an omitted leading qualifier on a shared
+    # footprint) are equal names for the established rules below.
+    exact_rule_prefix = "exact"
+    if not exact and pair_kind != "excavation_area_parts":
+        if name_rel in {relations.NAME_EQUAL, relations.NAME_ALIAS}:
+            exact = True
+            exact_rule_prefix = "normalized"
+        elif name_rel == relations.NAME_AFFIX_OMITTED and geometry_rel in {
+            relations.GEOMETRY_IDENTICAL,
+            relations.GEOMETRY_SIMILAR,
+        }:
+            exact = True
+            exact_rule_prefix = "affix_omitted"
 
     project_signal = False
     if pair_kind == "excavation_distribution":
@@ -568,16 +1061,16 @@ def evaluate_candidate(
     elif exact and intersects and overlap_ratio > 0:
         confidence = "medium" if generic_name else "high"
         rule = (
-            "exact_generic_name_and_overlap"
+            f"{exact_rule_prefix}_generic_name_and_overlap"
             if generic_name
-            else "exact_name_and_overlap"
+            else f"{exact_rule_prefix}_name_and_overlap"
         )
     elif exact and distance <= float(thresholds["exact_name_distance_m"]):
         confidence = "medium"
         rule = (
-            "exact_generic_name_within_distance"
+            f"{exact_rule_prefix}_generic_name_within_distance"
             if generic_name
-            else "exact_name_within_50m"
+            else f"{exact_rule_prefix}_name_within_50m"
         )
     elif intersects and overlap_ratio >= float(
         thresholds["review_overlap_ratio"]
@@ -640,22 +1133,6 @@ def evaluate_candidate(
                 )
             )
 
-    if generic_name or not _geometry_allows_automatic_decision(
-        geometry_pair, active_rules
-    ):
-        auto_apply = False
-
-    address_score = 1.0 if same_address else 0.0
-    score = min(
-        1.0,
-        (similarity * float(weights["name_similarity"]))
-        + (
-            min(max(float(overlap_ratio), 0.0), 1.0)
-            * float(weights["overlap_ratio"])
-        )
-        + (address_score * float(weights["address"])),
-    )
-
     if pair_kind == "excavation_area_parts":
         relation_type = RELATION_SAME_ENTITY
     elif pair_kind == "designated_excavation" or rule == "project_name_and_overlap":
@@ -669,30 +1146,7 @@ def evaluate_candidate(
     else:
         relation_type = RELATION_UNCERTAIN
 
-    normalized_pair = _normalized_geometry_pair(geometry_pair)
-
-    return MatchCandidate(
-        left_uid=str(left.get("uid")),
-        right_uid=str(right.get("uid")),
-        pair_kind=pair_kind,
-        confidence=confidence,
-        score=round(score, 4),
-        rule=rule,
-        recommended_decision=recommended,
-        representative_uid=_representative_uid(left, right),
-        auto_apply=auto_apply,
-        name_similarity=round(similarity, 4),
-        overlap_ratio=round(float(overlap_ratio), 4),
-        distance=round(float(distance), 3),
-        coverage_left=_metric(coverage_left),
-        coverage_right=_metric(coverage_right),
-        iou=_metric(iou),
-        area_ratio=_metric(area_ratio),
-        centroid_distance=_metric(centroid_distance, 3),
-        boundary_distance=_metric(boundary_distance, 3),
-        geometry_pair=normalized_pair,
-        relation_type=relation_type,
-    )
+    return build(confidence, rule, recommended, auto_apply, relation_type)
 
 
 def selected_content_fingerprint(records):

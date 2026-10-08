@@ -12,7 +12,8 @@ ERA_FIELD_KEYWORDS = (
     "시대", "시기", "연대", "편년", "era", "period", "chronology", "age",
 )
 TYPE_FIELD_KEYWORDS = (
-    "성격", "유형", "종류", "유적분류", "분류", "type", "class", "category",
+    "성격", "유형", "종류", "유적분류", "중분류", "지정종목", "분류", "종목",
+    "type", "class", "category",
 )
 
 ERA_NAME_TOKENS = (
@@ -48,13 +49,25 @@ def find_semantic_field(field_names, keywords):
     return min(candidates)[2] if candidates else None
 
 
+# Enumerated multi-value cells ("0)Joseon,1)Goryeo") list one label per
+# index.  Their labels may themselves contain "/" or "," inside brackets, so
+# they are split only at the enumerators.
+_ENUMERATED_START_RE = re.compile(r"^\s*\d+\)")
+_ENUMERATOR_RE = re.compile(r"(?:^|[,;|\n\r])\s*\d+\)\s*")
+
+
 def category_values(value, *, ignored=()):
     """Split a supplier category cell into clean, non-placeholder labels."""
     if value is None:
         return set()
     ignored_keys = {_field_key(item) for item in ignored}
     result = set()
-    for part in re.split(r"[,;/|\n\r·]+", str(value)):
+    text = str(value)
+    if _ENUMERATED_START_RE.match(text):
+        parts = _ENUMERATOR_RE.split(text)
+    else:
+        parts = re.split(r"[,;/|\n\r·]+", text)
+    for part in parts:
         text = part.strip()
         if not text:
             continue
