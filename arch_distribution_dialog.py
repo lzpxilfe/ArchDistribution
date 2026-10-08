@@ -3991,12 +3991,13 @@ Arabic numerals and ordinal prefixes ("No. 12") are normalised first.</p>
 <p>Each example compares two names: <b>=</b> same site, <b>⊂</b> part of
 the site, <b>≠</b> different sites.</p>
 <table>
-<tr><th>Relation</th><th>Example pairs</th><th>Meaning</th></tr>
-<tr><td>Equal / alias</td><td>Villa 3 = Villa III<br>Old Mill (Mill Farm) = Old Mill</td><td>Same name</td></tr>
-<tr><td>Omitted qualifier</td><td>County A Hall = Hall</td><td>Same place, prefix left out</td></tr>
-<tr><td>More specific</td><td>Cemetery A tomb 12 ⊂ Cemetery A</td><td>A part of the site</td></tr>
-<tr><td>Different numbers</td><td>tomb 1 ≠ tomb 2<br>Area I ≠ Area II</td><td>Siblings, never one site</td></tr>
-<tr><td>Unrelated</td><td>Cemetery A ≠ Fort A<br>Cemetery A ≠ Mill B</td><td>Different sites, even on one footprint</td></tr>
+<tr><th width="20%">Relation</th><th width="48%">Example pairs</th><th>Meaning</th></tr>
+<tr><td>Equal / alias</td><td>Sungnyemun (Namdaemun) = Sungnyemun<br>Hadrian's Wall = Hadrians Wall</td><td>Same name</td></tr>
+<tr><td>Omitted qualifier</td><td>Gyeongju Cheomseongdae = Cheomseongdae</td><td>Same place, prefix left out</td></tr>
+<tr><td>More specific</td><td>Bulguksa Daeungjeon ⊂ Bulguksa<br>Jisandong tomb 44 ⊂ Jisandong tombs</td><td>A part of the site</td></tr>
+<tr><td>Different numbers</td><td>Jisandong tomb 44 ≠ Jisandong tomb 45<br>Site X Area I ≠ Site X Area II</td><td>Siblings, never one site</td></tr>
+<tr><td>Sibling</td><td>Bulguksa Dabotap ≠ Bulguksa Seokgatap</td><td>Different parts of one site; each keeps its number</td></tr>
+<tr><td>Unrelated</td><td>Cheomseongdae ≠ Gyerim</td><td>Different sites, even when adjacent or on one footprint</td></tr>
 </table>
 
 <h3>Step 2 — footprint relation</h3>
@@ -4081,12 +4082,13 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 <p>예는 모두 두 이름을 비교한 것입니다. <b>=</b> 같은 유적, <b>⊂</b> 상위
 유적의 일부, <b>≠</b> 다른 유적.</p>
 <table>
-<tr><th>관계</th><th>예(가상 이름 한 쌍씩)</th><th>뜻</th></tr>
-<tr><td>같음·별칭</td><td>가상리 고분군 3 = 가상리고분군3<br>가상 누정(假想樓亭) = 가상 누정</td><td>같은 이름</td></tr>
-<tr><td>앞말 생략</td><td>가상시 나상대 = 나상대</td><td>행정구역 등을 뺀 같은 이름</td></tr>
-<tr><td>더 구체적(부분)</td><td>가상리 고분군 제14호 ⊂ 가상리 고분군<br>가상사 대웅전 ⊂ 가상사</td><td>상위 유적의 일부</td></tr>
-<tr><td>번호가 다름</td><td>가상리 지석묘 1호 ≠ 가상리 지석묘 2호<br>가상리 I지역 ≠ 가상리 II지역</td><td>형제 유적, 같은 유적으로 보지 않음</td></tr>
-<tr><td>무관</td><td>가상리 고분군 ≠ 가상리 산성<br>가상리 고분군 ≠ 가상 누정</td><td>다른 유적. 범위가 같아도 각각 번호</td></tr>
+<tr><th width="19%">관계</th><th width="50%">예(한 쌍씩)</th><th>뜻</th></tr>
+<tr><td>같음·별칭</td><td>경주 첨성대 = 경주첨성대<br>서울 숭례문(崇禮門) = 서울 숭례문</td><td>같은 이름</td></tr>
+<tr><td>앞말 생략</td><td>경주 첨성대 = 첨성대<br>서울 숭례문 = 숭례문</td><td>지역명 등을 뺀 같은 이름</td></tr>
+<tr><td>더 구체적(부분)</td><td>경주 불국사 대웅전 ⊂ 경주 불국사<br>고령 지산동 44호분 ⊂ 고령 지산동 고분군</td><td>상위 유적의 일부</td></tr>
+<tr><td>번호가 다름</td><td>고령 지산동 44호분 ≠ 고령 지산동 45호분<br>○○ 유적 I지역 ≠ ○○ 유적 II지역</td><td>번호만 다른 별개 유적</td></tr>
+<tr><td>형제</td><td>경주 불국사 다보탑 ≠ 경주 불국사 삼층석탑</td><td>같은 유적 안의 서로 다른 부분, 각각 번호</td></tr>
+<tr><td>무관</td><td>경주 첨성대 ≠ 경주 계림</td><td>다른 유적. 바로 옆에 있거나 범위가 같아도 각각 번호</td></tr>
 </table>
 
 <h3>② 범위 관계</h3>

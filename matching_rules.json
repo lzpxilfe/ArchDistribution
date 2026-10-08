@@ -33,6 +33,7 @@
       "site", "area", "zone", "locus", "sector", "trench", "tomb", "mound",
       "zona", "sitio", "tumba"
     ],
+    "feature_units": ["호분", "호", "기", "tomb", "mound", "tumba"],
     "ordinal_letters": "가나다라마바사아자차카타파하",
     "equivalent_suffixes": [
       ["유적지", "유적"],

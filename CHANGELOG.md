@@ -100,6 +100,14 @@ tags do not change the installable plugin version.
 - Change-zone field detection scanned every feature twice.
 - A record repeated by two regional downloads (same source identity) no
   longer appears as a review candidate against itself.
+- A numbered feature named after its place ("<place> 44호분",
+  "<site> tomb 44") was read as the parent of its group ("<place> 고분군",
+  "<site> tombs"), so the tomb never joined the group. Feature units are now
+  data (`feature_units` in `matching_rules.json`); investigation rounds such
+  as `6차` are not features, and a group name that continues with a lot
+  number is not treated as the group.
+- The help's name-relation examples are explicit pairs checked against the
+  classifier by a test, and use public designated-heritage names only.
 
 ## 1.0.5
 

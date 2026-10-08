@@ -97,6 +97,34 @@ class NameRelationTests(unittest.TestCase):
             NAME_RIGHT_SPECIFIC,
         )
 
+    def test_numbered_tomb_is_part_of_its_group_not_the_reverse(self):
+        for tomb, group in (
+            ("가상 나상동 44호분", "가상 나상동 고분군"),
+            ("가상 나상동 2호분", "가상 나상동고분"),
+            ("가상 나상동7호분", "가상 나상동과 다상동 고분군"),
+            ("Site X tomb 44", "Site X tombs"),
+        ):
+            self.assertEqual(relation(tomb, group), NAME_LEFT_SPECIFIC)
+            self.assertEqual(relation(group, tomb), NAME_RIGHT_SPECIFIC)
+
+    def test_investigation_rounds_are_not_features(self):
+        # "10차" counts excavation campaigns; the campaign is not a part of
+        # a building inside the site, and a part still joins its site.
+        self.assertNotIn(
+            relation("가상사지 10차", "가상사지 중문지"),
+            {NAME_LEFT_SPECIFIC, NAME_RIGHT_SPECIFIC},
+        )
+        self.assertEqual(
+            relation("가상사지 괘불지주", "나상 가상사지(6차)"),
+            NAME_LEFT_SPECIFIC,
+        )
+
+    def test_numbered_tomb_is_not_part_of_a_lot_named_project(self):
+        self.assertNotIn(
+            relation("가상 나상동 19호분", "가상 나상동 669-1번지 일원 신축부지 내 유적"),
+            {NAME_LEFT_SPECIFIC, NAME_RIGHT_SPECIFIC},
+        )
+
     def test_different_numbers_are_siblings_not_one_entity(self):
         self.assertEqual(
             relation("가상리 고분군 제14호", "가상리 고분군 제15호"),

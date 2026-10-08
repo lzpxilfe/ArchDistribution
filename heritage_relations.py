@@ -57,6 +57,7 @@ DEFAULT_RELATION_THRESHOLDS = {
 DEFAULT_NAME_LEXICON = {
     "ordinal_prefixes": [],
     "designator_units": [],
+    "feature_units": [],
     "ordinal_letters": "",
     "equivalent_suffixes": [],
 }
@@ -133,6 +134,9 @@ class ParsedName:
     designators: tuple
     aliases: tuple
     tokens: tuple = ()
+    # The number names a physical feature ("tomb 44", "3호분"), not an
+    # investigation round or a report volume.
+    feature_numbered: bool = False
 
 
 def _lexicon_signature(lexicon):
@@ -191,7 +195,14 @@ def _compiled_lexicon(signature):
             if source:
                 suffixes.append((source, target))
     suffixes.sort(key=lambda item: len(item[0]), reverse=True)
+    feature_units = tuple(sorted(
+        {str(unit).casefold() for unit in lexicon.get("feature_units") or []
+         if str(unit).strip()},
+        key=len,
+        reverse=True,
+    ))
     return {
+        "feature_units": feature_units,
         "token_re": token_re,
         "glued_re": glued_re,
         "value_re": value_re,
@@ -252,6 +263,16 @@ def _designator_values(designators, compiled):
     return tuple(values)
 
 
+def _is_feature_numbered(designators, base_tokens, compiled):
+    units = compiled["feature_units"]
+    if not designators or not units:
+        return False
+    if any(designator.endswith(units) for designator in designators):
+        return True
+    # Unit before the number ("tomb 44"): the last base word is the unit.
+    return bool(base_tokens) and base_tokens[-1] in units
+
+
 def _is_designator_only(text, compiled):
     tokens = _tokens(text, compiled)
     return bool(tokens) and all(
@@ -305,6 +326,7 @@ def _parse_name_cached(value, signature):
         designators=_designator_values(designators, compiled),
         aliases=tuple(sorted(set(alias_keys))),
         tokens=tokens or ((base or key),),
+        feature_numbered=_is_feature_numbered(designators, tokens, compiled),
     )
 
 
@@ -385,6 +407,32 @@ def _qualifier_variant(left, right, thresholds, generic):
     )
 
 
+def _opens_within(short_tokens, long_tokens):
+    """Return whether ``short_tokens`` run inside ``long_tokens``.
+
+    The last word may be extended by the longer name ("tomb" in "tombs",
+    a feature word inside its collective form), so a numbered feature
+    finds the group it belongs to without a vocabulary of plural forms.
+    A longer name that continues with a number ("<village> 669-1 ...")
+    names a lot or another numbered place, not the group.
+    """
+    size = len(short_tokens)
+    if not size or size > len(long_tokens):
+        return False
+    head, last = tuple(short_tokens[:-1]), short_tokens[-1]
+    for start in range(len(long_tokens) - size + 1):
+        end = start + size
+        if (
+            tuple(long_tokens[start:end - 1]) == head
+            and long_tokens[end - 1].startswith(last)
+            and not any(
+                char.isdigit() for char in "".join(long_tokens[end - 1:end + 1])
+            )
+        ):
+            return True
+    return False
+
+
 def _trailing_cores(parsed, thresholds, generic):
     """Yield the name with leading qualifiers removed, longest first."""
     minimum = int(thresholds["affix_min_chars"])
@@ -463,12 +511,31 @@ def name_relation(left, right, rules=None, generic_keys=()):
                 if longer_key == left_key
                 else NAME_RIGHT_SPECIFIC
             )
+    # A numbered feature ("<site> tomb 44") is a part of the unnumbered name
+    # its base opens ("<site> tombs", "<county> <site> tombs"), never the
+    # other way round.  Investigation rounds and volumes are not features.
+    for numbered, plain, label in (
+        (parsed_left, parsed_right, NAME_LEFT_SPECIFIC),
+        (parsed_right, parsed_left, NAME_RIGHT_SPECIFIC),
+    ):
+        if (
+            numbered.feature_numbered
+            and not plain.designators
+            and len(numbered.base) >= int(thresholds["affix_min_chars"])
+            and numbered.base not in generic
+            and plain.key not in generic
+            and _opens_within(numbered.tokens, plain.tokens)
+        ):
+            return label
     # "<county> <temple>" versus "<temple> <hall>": the parent's core name,
     # without its leading qualifier, opens or sits inside the child's name.
     for parent, child, label in (
         (parsed_right, parsed_left, NAME_LEFT_SPECIFIC),
         (parsed_left, parsed_right, NAME_RIGHT_SPECIFIC),
     ):
+        if parent.feature_numbered and not child.designators:
+            # A numbered feature is never the parent of an unnumbered name.
+            continue
         for core in _trailing_cores(parent, thresholds, generic):
             if core in child.key and not child.base.endswith(core):
                 return label
