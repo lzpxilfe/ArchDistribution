@@ -6,6 +6,8 @@ from heritage_matching import (
     DECISION_KEEP,
     DECISION_LINK,
     DECISION_MERGE,
+    DESIGNATED_PARTS_JOIN,
+    DESIGNATED_PARTS_SEPARATE,
     PRESET_AUTOMATION,
     PRESET_BALANCED,
     PRESET_CONSERVATIVE,
@@ -485,6 +487,71 @@ class SameRegisterRelationTests(unittest.TestCase):
         self.assertIsNone(evaluate_candidate(
             first, second, intersects=True, overlap_ratio=1.0
         ))
+
+
+class NearDuplicateTests(unittest.TestCase):
+    NEAR = {"intersects": False, "overlap_ratio": 0.0, "distance": 3.0,
+            "coverage_left": 0.0, "coverage_right": 0.0, "iou": 0.0,
+            "area_ratio": 0.0}
+
+    def test_designated_heritage_redrawn_nearby_is_merged_automatically(self):
+        for map_name in ("가상시 나상루", "나상루"):
+            match = evaluate_candidate(
+                record("m1", ROLE_DISTRIBUTION, map_name),
+                record("d1", ROLE_LOCAL_DESIGNATED, "가상시 나상루"),
+                **self.NEAR,
+            )
+            self.assertEqual(match.recommended_decision, DECISION_MERGE)
+            self.assertTrue(match.auto_apply)
+            self.assertEqual(match.representative_uid, "d1")
+
+    def test_conservative_preset_still_reviews_near_duplicates(self):
+        match = evaluate_candidate(
+            record("m1", ROLE_DISTRIBUTION, "나상루"),
+            record("d1", ROLE_LOCAL_DESIGNATED, "가상시 나상루"),
+            preset=PRESET_CONSERVATIVE,
+            **self.NEAR,
+        )
+        self.assertFalse(match.auto_apply)
+
+    def test_village_site_and_nearby_lot_excavation_are_not_merged(self):
+        match = evaluate_candidate(
+            record("m1", ROLE_DISTRIBUTION, "가상동 유적"),
+            record("e1", ROLE_EXCAVATION, "나상 가상동 77번지 단독주택 신축부지 내 유적"),
+            **self.NEAR,
+        )
+        self.assertTrue(match is None or not match.auto_apply)
+
+
+class DesignatedPartChoiceTests(unittest.TestCase):
+    def evaluate(self, child, parent, parts):
+        return evaluate_candidate(child, parent, designated_parts=parts, **LEFT_INSIDE)
+
+    def test_designated_part_keeps_its_number_by_default(self):
+        child = record("d2", ROLE_LOCAL_DESIGNATED, "가상산성 광복루")
+        for parent in (
+            record("d1", ROLE_NATIONAL_DESIGNATED, "가상 가상산성"),
+            record("m1", ROLE_DISTRIBUTION, "가상 가상산성"),
+        ):
+            match = evaluate_candidate(child, parent, **LEFT_INSIDE)
+            self.assertEqual(match.recommended_decision, DECISION_LINK)
+
+    def test_operator_may_join_designated_parts_to_the_site(self):
+        child = record("d2", ROLE_LOCAL_DESIGNATED, "가상산성 광복루")
+        for parent in (
+            record("d1", ROLE_NATIONAL_DESIGNATED, "가상 가상산성"),
+            record("m1", ROLE_DISTRIBUTION, "가상 가상산성"),
+        ):
+            match = self.evaluate(child, parent, DESIGNATED_PARTS_JOIN)
+            self.assertEqual(match.recommended_decision, DECISION_MERGE)
+            self.assertEqual(match.representative_uid, parent["uid"])
+
+    def test_excavated_part_keeps_its_number_under_either_choice(self):
+        dig = record("e1", ROLE_EXCAVATION, "가상산성 북문지")
+        site = record("m1", ROLE_DISTRIBUTION, "가상 가상산성")
+        for parts in (DESIGNATED_PARTS_SEPARATE, DESIGNATED_PARTS_JOIN):
+            match = self.evaluate(dig, site, parts)
+            self.assertEqual(match.recommended_decision, DECISION_LINK)
 
 
 class CrossRegisterRelationTests(unittest.TestCase):

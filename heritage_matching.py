@@ -70,6 +70,12 @@ SOURCE_ROLE_ORDER = tuple(SOURCE_ROLE_LABELS)
 PRESET_BALANCED = "balanced"
 PRESET_CONSERVATIVE = "conservative"
 PRESET_AUTOMATION = "automation"
+
+# How a designated or registered part (a pavilion, a pagoda) inside its named
+# site is numbered.  Published maps do both, so the operator chooses.
+DESIGNATED_PARTS_SEPARATE = "separate"
+DESIGNATED_PARTS_JOIN = "join"
+DESIGNATED_PARTS_CHOICES = (DESIGNATED_PARTS_SEPARATE, DESIGNATED_PARTS_JOIN)
 MATCH_PRESET_LABELS = {
     PRESET_BALANCED: "균형형",
     PRESET_CONSERVATIVE: "보수형",
@@ -646,6 +652,7 @@ def _same_register_relation(
     iou,
     generic_name,
     rules,
+    designated_parts=DESIGNATED_PARTS_SEPARATE,
 ):
     """Return ``(rule, confidence, decision, relation, parent_side, mode)``.
 
@@ -730,10 +737,11 @@ def _same_register_relation(
             else "medium"
         )
         parent_side = "right" if child_side == "left" else "left"
+        joins = not legal_pair or designated_parts == DESIGNATED_PARTS_JOIN
         return (
             "component_within_parent",
             confidence,
-            DECISION_LINK if legal_pair else DECISION_MERGE,
+            DECISION_MERGE if joins else DECISION_LINK,
             RELATION_PARENT_CHILD,
             parent_side,
             MERGE_MODE_SUPPRESS,
@@ -767,13 +775,15 @@ def _cross_register_component(
     coverage_left,
     coverage_right,
     rules,
+    designated_parts=DESIGNATED_PARTS_SEPARATE,
 ):
     """Return a component relation between records of different registers.
 
     A more specific name lying inside a less specific one ("<site> tomb 12"
     inside "<site>") is a part of that site.  A distribution-map part joins
-    its parent's number; a part with its own legal or investigation identity
-    keeps its number and is linked instead.
+    its parent's number.  A designated or registered part joins it only when
+    the operator chose ``DESIGNATED_PARTS_JOIN``; otherwise, like an
+    excavation (its own investigation), it keeps its number and is linked.
     """
     if pair_kind == "surface" or name_relation not in {
         relations.NAME_LEFT_SPECIFIC,
@@ -795,9 +805,11 @@ def _cross_register_component(
         >= float(thresholds["component_auto_coverage"])
         else "medium"
     )
-    decision = (
-        DECISION_MERGE if child_role == ROLE_DISTRIBUTION else DECISION_LINK
+    joins = child_role == ROLE_DISTRIBUTION or (
+        child_role in DESIGNATED_ROLES
+        and designated_parts == DESIGNATED_PARTS_JOIN
     )
+    decision = DECISION_MERGE if joins else DECISION_LINK
     parent_side = "right" if child_side == "left" else "left"
     return (
         "component_within_parent",
@@ -904,6 +916,7 @@ def evaluate_candidate(
     boundary_distance=None,
     geometry_pair="polygon_polygon",
     rules=None,
+    designated_parts=DESIGNATED_PARTS_SEPARATE,
 ):
     """Evaluate one spatially reduced pair.
 
@@ -1013,6 +1026,7 @@ def evaluate_candidate(
             iou=iou,
             generic_name=generic_name,
             rules=active_rules,
+            designated_parts=designated_parts,
         )
         if decided is None:
             return None
@@ -1080,6 +1094,7 @@ def evaluate_candidate(
         coverage_left=coverage_left,
         coverage_right=coverage_right,
         rules=active_rules,
+        designated_parts=designated_parts,
     )
     if component is not None:
         rule, confidence, recommended, relation_type, parent_side = component
@@ -1104,7 +1119,13 @@ def evaluate_candidate(
         elif name_rel == relations.NAME_AFFIX_OMITTED and geometry_rel in {
             relations.GEOMETRY_IDENTICAL,
             relations.GEOMETRY_SIMILAR,
-        }:
+        } or (
+            # A designated heritage redrawn a few metres off in the
+            # distribution map ("<city> <pagoda>" / "<pagoda>").
+            name_rel == relations.NAME_AFFIX_OMITTED
+            and pair_kind == "designated_distribution"
+            and geometry_rel == relations.GEOMETRY_NEAR
+        ):
             exact = True
             exact_rule_prefix = "affix_omitted"
 
@@ -1143,7 +1164,14 @@ def evaluate_candidate(
             else f"{exact_rule_prefix}_name_and_overlap"
         )
     elif exact and distance <= float(thresholds["exact_name_distance_m"]):
-        confidence = "medium"
+        # One designated heritage and its distribution-map copy a few metres
+        # apart is a plain duplicate: two labels for one place.  Elsewhere a
+        # near namesake stays a reviewed candidate.
+        confidence = (
+            "high"
+            if pair_kind == "designated_distribution" and not generic_name
+            else "medium"
+        )
         rule = (
             f"{exact_rule_prefix}_generic_name_within_distance"
             if generic_name

@@ -46,6 +46,7 @@ from .heritage_matching import (
     DECISION_KEEP,
     DECISION_LINK,
     DECISION_MERGE,
+    DESIGNATED_PARTS_SEPARATE,
     PRESET_BALANCED,
     ROLE_LOCAL_DESIGNATED,
     ROLE_LOCAL_REGISTERED,
@@ -673,6 +674,9 @@ class ArchDistribution:
                     ),
                     number_designated=self._run_numbers_designated(settings),
                     exclusion_rules=settings.get("exclusion_rules"),
+                    designated_parts=settings.get(
+                        "designated_parts", DESIGNATED_PARTS_SEPARATE
+                    ),
                 )
 
                 if isinstance(consolidation, dict):
@@ -3575,14 +3579,19 @@ class ArchDistribution:
         return bool(family_hint and family_hint == target_family)
 
     @staticmethod
-    def _matching_policy_key(preset):
+    def _matching_policy_key(preset, designated_parts=DESIGNATED_PARTS_SEPARATE):
         metadata = matching_rules_metadata()
-        return ":".join((
+        key = ":".join((
             MATCH_POLICY_VERSION,
             str(preset),
             str(metadata.get("ruleset_version") or "unknown"),
             str(metadata.get("sha256") or "unknown"),
         ))
+        # Saved decisions made under the other designated-part choice are not
+        # reused; the default keeps existing keys valid.
+        if designated_parts != DESIGNATED_PARTS_SEPARATE:
+            key += f":designated_parts={designated_parts}"
+        return key
 
     def apply_source_aware_matching(
         self,
@@ -3593,6 +3602,7 @@ class ArchDistribution:
         reuse_saved_decisions=True,
         policy_version=None,
         number_designated=True,
+        designated_parts=DESIGNATED_PARTS_SEPARATE,
     ):
         """Find candidates with a spatial index, review them, and apply decisions.
 
@@ -3603,7 +3613,7 @@ class ArchDistribution:
         policy_version = (
             str(policy_version)
             if policy_version
-            else self._matching_policy_key(preset)
+            else self._matching_policy_key(preset, designated_parts)
         )
         # Migrate 1.0.5 result layers created before the research schema was
         # introduced.  ENTITY_KEY remains the source of the compatibility
@@ -3898,6 +3908,7 @@ class ArchDistribution:
                     boundary_distance=boundary_distance,
                     geometry_pair=geometry_pair,
                     rules=ruleset,
+                    designated_parts=designated_parts,
                 )
                 if not evaluated:
                     continue
@@ -4531,6 +4542,7 @@ class ArchDistribution:
         decision_store=None,
         reuse_saved_decisions=True,
         policy_version=None,
+        designated_parts=DESIGNATED_PARTS_SEPARATE,
     ):
         """Review cross-family candidates without coercing their geometries.
 
@@ -4551,7 +4563,7 @@ class ArchDistribution:
         policy_version = (
             str(policy_version)
             if policy_version
-            else f"{self._matching_policy_key(preset)}:cross-family-v1"
+            else f"{self._matching_policy_key(preset, designated_parts)}:cross-family-v1"
         )
         required = (
             "SRC_UID", "SRC_FP", "SOURCE_ROLE", "SITE_ENTITY_KEY",
@@ -4733,6 +4745,7 @@ class ArchDistribution:
                             boundary_distance=boundary_distance,
                             geometry_pair=geometry_pair,
                             rules=ruleset,
+                            designated_parts=designated_parts,
                         )
                         if not evaluated:
                             continue
@@ -5163,6 +5176,7 @@ class ArchDistribution:
         reuse_review_decisions=False,
         number_designated=True,
         exclusion_rules=None,
+        designated_parts=DESIGNATED_PARTS_SEPARATE,
     ):
         """Merge selected heritage layers and filter by extent, study area, and user exclusions. Also tags Zone."""
         """Merge selected heritage layers and filter by extent, study area, and user exclusions."""
@@ -6137,6 +6151,7 @@ class ArchDistribution:
                     if len(family_inputs) > 1 else ""
                 ),
                 number_designated=number_designated,
+                designated_parts=designated_parts,
             ))
 
         if preservation_only:
@@ -6167,8 +6182,10 @@ class ArchDistribution:
             decision_store=decision_store,
             reuse_saved_decisions=reuse_review_decisions,
             policy_version=(
-                f"{self._matching_policy_key(match_preset)}:cross-family-v1"
+                f"{self._matching_policy_key(match_preset, designated_parts)}"
+                ":cross-family-v1"
             ),
+            designated_parts=designated_parts,
         )
         cross_audit = cross_family_result.get("audit")
         if cross_audit is not None:
@@ -6214,6 +6231,7 @@ class ArchDistribution:
         decision_store_path,
         family_label="",
         number_designated=True,
+        designated_parts=DESIGNATED_PARTS_SEPARATE,
     ):
         """Merge, match, and dissolve one homogeneous geometry family."""
         suffix = f"_{family_label}" if family_label else ""
@@ -6239,8 +6257,11 @@ class ArchDistribution:
                 decision_provider=matching_decision_provider,
                 decision_store=decision_store,
                 reuse_saved_decisions=reuse_review_decisions,
-                policy_version=self._matching_policy_key(match_preset),
+                policy_version=self._matching_policy_key(
+                    match_preset, designated_parts
+                ),
                 number_designated=number_designated,
+                designated_parts=designated_parts,
             )
             statistics = getattr(self, "_current_processing_stats", None)
             if not isinstance(statistics, dict):

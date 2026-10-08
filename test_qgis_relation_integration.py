@@ -165,6 +165,33 @@ class QgisRelationIntegrationTests(unittest.TestCase):
         )
         self.assertIn("parent_child", suppressed["tomb"]["RELATION_TYPE"])
 
+    def test_designated_part_numbering_follows_the_operator_choice(self):
+        from ArchDistribution.heritage_matching import (
+            DESIGNATED_PARTS_JOIN,
+            ROLE_LOCAL_DESIGNATED,
+        )
+        rows = [
+            {"uid": "site", "role": self.designated,
+             "name": "가상 가상산성", "wkt": square(0, 0, 100)},
+            {"uid": "hall", "role": ROLE_LOCAL_DESIGNATED,
+             "name": "가상산성 광복루", "wkt": square(10, 10, 2)},
+        ]
+        separate = self.make_plugin().apply_source_aware_matching(
+            self.make_matching_layer(rows),
+            decision_provider=self.accept_recommendations,
+        )
+        self.assertEqual(set(self.by_uid(separate["main"])), {"site", "hall"})
+        joined = self.make_plugin().apply_source_aware_matching(
+            self.make_matching_layer(rows),
+            decision_provider=self.accept_recommendations,
+            designated_parts=DESIGNATED_PARTS_JOIN,
+        )
+        self.assertEqual(set(self.by_uid(joined["main"])), {"site"})
+        # The legal boundary of the joined part is still drawn.
+        self.assertEqual(
+            set(self.by_uid(joined["designation"])), {"site", "hall"}
+        )
+
     def test_part_site_and_designation_chain_ends_on_one_number(self):
         layer = self.make_matching_layer([
             {"uid": "legal", "role": self.designated,

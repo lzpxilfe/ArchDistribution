@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 try:
-    from qgis.PyQt import QtWidgets
+    from qgis.PyQt import QtCore, QtWidgets
     from qgis.PyQt.QtCore import Qt, QVariant
     from qgis.core import (
         QgsApplication,
@@ -415,6 +415,32 @@ class QgisDialogWorkflowTests(unittest.TestCase):
             dialog._request_renumber(protection)
         self.assertEqual(emitted, [])
         self.assertEqual(warning.call_count, 2)
+
+    def test_designated_part_choice_is_offered_and_remembered(self):
+        from ArchDistribution.heritage_matching import (
+            DESIGNATED_PARTS_JOIN,
+            DESIGNATED_PARTS_SEPARATE,
+        )
+        QtCore.QSettings().remove("ArchDistribution/designated_parts")
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        self.assertEqual(
+            dialog.get_settings()["designated_parts"],
+            DESIGNATED_PARTS_SEPARATE,
+        )
+        dialog.comboDesignatedParts.setCurrentIndex(
+            dialog.comboDesignatedParts.findData(DESIGNATED_PARTS_JOIN)
+        )
+        self.assertEqual(
+            dialog.get_settings()["designated_parts"], DESIGNATED_PARTS_JOIN
+        )
+        reopened = self.dialog_class()
+        self.addCleanup(reopened.close)
+        self.assertEqual(
+            reopened.get_settings()["designated_parts"],
+            DESIGNATED_PARTS_JOIN,
+        )
+        QtCore.QSettings().remove("ArchDistribution/designated_parts")
 
     def test_matching_help_explains_decisions_and_renumbering_boundary(self):
         dialog = self.dialog_class()

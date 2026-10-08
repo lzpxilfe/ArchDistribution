@@ -46,6 +46,8 @@ from .source_exclusion import (
     rule_definitions,
 )
 from .heritage_matching import (
+    DESIGNATED_PARTS_JOIN,
+    DESIGNATED_PARTS_SEPARATE,
     MATCH_PRESET_LABELS,
     MATCH_PRESET_LABELS_EN,
     PRESET_BALANCED,
@@ -127,6 +129,7 @@ LANG_PREF_OPTIONS = ("auto", "ko", "en")
 PRESERVATION_STYLE_PREF_KEY = "ArchDistribution/preservation_action_styles"
 MATCH_PRESET_PREF_KEY = "ArchDistribution/match_preset"
 REUSE_REVIEW_PREF_KEY = "ArchDistribution/reuse_review_decisions"
+DESIGNATED_PARTS_PREF_KEY = "ArchDistribution/designated_parts"
 OUTPUT_DIRECTORY_PREF_KEY = "ArchDistribution/output_directory"
 SAVE_GPKG_PREF_KEY = "ArchDistribution/save_gpkg_manifest"
 EXPORT_JPG_PREF_KEY = "ArchDistribution/export_layout_jpg"
@@ -569,6 +572,25 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "btnRenumber"):
             self.btnRenumber.setVisible(False)
 
+    def _populate_designated_parts_combo(self, selected=None):
+        """Fill the designated-part choice in the current language."""
+        if selected is None:
+            selected = self.comboDesignatedParts.currentData()
+        self.comboDesignatedParts.blockSignals(True)
+        self.comboDesignatedParts.clear()
+        self.comboDesignatedParts.addItem(
+            self._t("따로 번호 (연결만)", "Own number (link only)"),
+            DESIGNATED_PARTS_SEPARATE,
+        )
+        self.comboDesignatedParts.addItem(
+            self._t("상위 유적 번호에 포함", "Join the site's number"),
+            DESIGNATED_PARTS_JOIN,
+        )
+        self.comboDesignatedParts.setCurrentIndex(
+            max(0, self.comboDesignatedParts.findData(selected))
+        )
+        self.comboDesignatedParts.blockSignals(False)
+
     def _build_duplicate_policy_controls(self):
         """Add source-role overrides and duplicate matching preset controls."""
         self.groupDuplicatePolicy = QtWidgets.QGroupBox()
@@ -630,6 +652,30 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         preset_row.addWidget(self.comboMatchPreset)
         preset_row.addStretch(1)
         duplicate_layout.addLayout(preset_row)
+
+        # Reports differ on whether a designated pavilion or pagoda inside its
+        # site gets its own number, so the operator chooses.
+        parts_row = QtWidgets.QHBoxLayout()
+        self.lblDesignatedParts = QtWidgets.QLabel()
+        self.comboDesignatedParts = QtWidgets.QComboBox()
+        self.comboDesignatedParts.setStyleSheet(STYLE_FORCE_VISIBLE)
+        saved_parts = str(
+            QtCore.QSettings().value(
+                DESIGNATED_PARTS_PREF_KEY,
+                DESIGNATED_PARTS_SEPARATE,
+            )
+        )
+        self._populate_designated_parts_combo(saved_parts)
+        self.comboDesignatedParts.currentIndexChanged.connect(
+            lambda _index: QtCore.QSettings().setValue(
+                DESIGNATED_PARTS_PREF_KEY,
+                self.comboDesignatedParts.currentData(),
+            )
+        )
+        parts_row.addWidget(self.lblDesignatedParts)
+        parts_row.addWidget(self.comboDesignatedParts)
+        parts_row.addStretch(1)
+        duplicate_layout.addLayout(parts_row)
 
         self.chkReuseReviewDecisions = QtWidgets.QCheckBox()
         saved_reuse = QtCore.QSettings().value(
@@ -2122,6 +2168,29 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.lblMatchPreset.setText(
                 self._t("판정 모드:", "Matching preset:")
             )
+            self.lblDesignatedParts.setText(
+                self._t(
+                    "유적 안의 지정유산(누각·탑 등):",
+                    "Designated parts inside a site (pavilion, pagoda):",
+                )
+            )
+            parts_tip = self._t(
+                "공산성 안의 광복루처럼 상위 유적 안에 있는 지정·등록유산을 "
+                "어떻게 번호 매길지 고릅니다. '따로 번호'는 각각 번호를 주고 "
+                "관계만 기록합니다. '상위 유적 번호에 포함'은 상위 유적 번호 "
+                "하나로 묶습니다. 어느 쪽이든 지정구역 경계는 지정유산구역 "
+                "레이어에 그대로 그려지고, 발굴조사 부분은 항상 따로 번호를 "
+                "받습니다.",
+                "How a designated or registered part inside its named site "
+                "(a pavilion inside a fortress) is numbered. 'Own number' keeps "
+                "both numbers and records the relation; 'Join' gives the part "
+                "the site's number. The legal boundary is drawn in the "
+                "designated-area layer either way, and excavated parts always "
+                "keep their own number.",
+            )
+            self.lblDesignatedParts.setToolTip(parts_tip)
+            self.comboDesignatedParts.setToolTip(parts_tip)
+            self._populate_designated_parts_combo()
             self.chkReuseReviewDecisions.setText(
                 self._t(
                     "이전 검토 결정을 저장·재사용 (권장)",
@@ -3382,6 +3451,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 if hasattr(self, "chkReuseReviewDecisions")
                 else True
             ),
+            "designated_parts": (
+                self.comboDesignatedParts.currentData()
+                if hasattr(self, "comboDesignatedParts")
+                else DESIGNATED_PARTS_SEPARATE
+            ),
             "output_directory": (
                 self.lineOutputDirectory.text().strip()
                 if hasattr(self, "lineOutputDirectory")
@@ -4020,12 +4094,18 @@ partial overlap · touching or within 50 m.</p>
 <td>Merge numbering identity (automatic)</td><td>One number; every piece stays drawn</td></tr>
 <tr><td>A part (numbered tomb, building, item) inside its named site</td>
 <td>Merge into the site (automatic)</td><td>The site keeps the number; the part is kept in the audit layer.
-A part with its own legal designation or excavation is <b>linked</b> and keeps its number</td></tr>
+An excavated part is <b>linked</b> and keeps its number</td></tr>
+<tr><td>A designated or registered part inside its site (a pavilion inside a fortress)</td>
+<td>Your choice under <b>Designated parts inside a site</b></td><td><b>Own number</b> (default): both numbered, relation kept.
+<b>Join the site's number</b>: one number. Its legal boundary stays in the designated-area layer either way</td></tr>
 <tr><td>Differently named records drawn on one footprint</td><td>Review (link only)</td>
 <td>Separate numbers; the shared footprint is recorded</td></tr>
 <tr><td>Designated/registered or excavation ↔ distribution map, same name
 (incl. aliases, omitted prefix) and overlapping</td><td>Merge (automatic)</td>
 <td>Designated/excavation record represents the number</td></tr>
+<tr><td>Designated/registered ↔ distribution map, same name (or prefix omitted),
+not overlapping but within 50 m</td><td>Merge (automatic)</td>
+<td>The same heritage drawn a few metres apart in two registers; the designated record represents it</td></tr>
 <tr><td>Designated ↔ excavation</td><td>Link</td><td>Both numbered, relation kept</td></tr>
 <tr><td>Surface survey revising a mapped site (same name, redrawn or extended)</td>
 <td>Review (merge recommended)</td><td>One number; both outlines kept</td></tr>
@@ -4113,10 +4193,15 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 <td>묶기(자동)</td><td>번호 하나, 조각은 모두 그대로 표시</td></tr>
 <tr><td>상위 유적 안의 부분(개별 호분·건물·전각·유구)</td>
 <td>상위 번호로 묶기(자동)</td><td>상위 유적이 번호를 갖고 부분은 검수 레이어에 보존.
-부분이 지정유산이거나 발굴조사이면 <b>연결만</b> 하고 자기 번호 유지</td></tr>
+부분이 발굴조사이면 <b>연결만</b> 하고 자기 번호 유지</td></tr>
+<tr><td>상위 유적 안의 지정·등록유산(예: 공산성 안의 광복루)</td>
+<td><b>유적 안의 지정유산</b> 선택에 따름</td><td><b>따로 번호</b>(기본): 각각 번호, 관계만 기록.
+<b>상위 유적 번호에 포함</b>: 번호 하나. 어느 쪽이든 지정구역 경계는 지정유산구역 레이어에 남음</td></tr>
 <tr><td>이름이 다른 기록이 같은 범위에 그려진 경우(예: 고분군과 누정)</td><td>검토(연결만)</td><td>각각 번호, 같은 범위라는 관계만 기록</td></tr>
 <tr><td>지정·등록유산 또는 발굴조사 ↔ 분포지도, 같은 이름(별칭·앞말 생략 포함)+겹침</td>
 <td>묶기(자동)</td><td>지정·발굴 기록이 대표 번호</td></tr>
+<tr><td>지정·등록유산 ↔ 분포지도, 같은 이름(앞말 생략 포함), 겹치지 않지만 50m 이내</td>
+<td>묶기(자동)</td><td>같은 유산이 두 자료에 몇 m 어긋나게 그려진 경우. 지정 기록이 대표 번호</td></tr>
 <tr><td>지정·등록유산 ↔ 발굴조사</td><td>연결만</td><td>각각 번호, 관계만 기록</td></tr>
 <tr><td>지표조사가 분포지도 유적을 다시 그은 경우(같은 이름, 범위 수정·확장)</td>
 <td>검토(묶기 권장)</td><td>번호 하나, 두 범위 모두 표시</td></tr>

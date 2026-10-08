@@ -50,6 +50,12 @@ tags do not change the installable plugin version.
 - Record exclusion rules in `exclusion_rules.json` (intangible, movable,
   natural, no-remains outcome) shown as `[Rule]` rows after the attribute
   scan, with report-practice defaults and a `제외_기록` audit layer.
+- A "Designated parts inside a site" choice in the duplicate panel: a
+  designated or registered part (a pavilion inside a fortress) keeps its own
+  number (default) or joins the site's number. Published reports do both.
+  Its legal boundary stays in the designated-area layer either way, excavated
+  parts always keep their own number, and decisions saved under the other
+  choice are not reused.
 - Optional report-style nearby-site table (number, name, period, type,
   location, distance, source, remarks) written as Hangul HWPX and UTF-8 CSV.
   Period and address cells are summarised by rules in `table_lexicon.json`.
@@ -117,6 +123,11 @@ tags do not change the installable plugin version.
   contrary to the rule that surveys are never merged automatically. Only
   excavation projects share a number; a survey project is kept as
   `INVESTIGATION_KEY`.
+- A designated or registered heritage and its distribution-map copy with the
+  same name (or the name without its region prefix) drawn a few metres apart
+  were two numbers, or a review row each. Within 50 m they now merge
+  automatically under the designated record (not in the conservative preset,
+  never for generic names or other source combinations).
 - Two names that only share a stem ("<place> fortress" / "<place> temple")
   were offered as a recommended merge. They are now recommended as linked
   records unless they name the same lot, differ only by unspecific words
