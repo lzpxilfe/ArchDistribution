@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - availability is environment-specific
     from qgis.core import (
+        Qgis,
         QgsCoordinateReferenceSystem,
         QgsCoordinateTransform,
         QgsCoordinateTransformContext,
@@ -121,7 +122,7 @@ def _is_projected_metre_crs(crs: Any) -> bool:
     return (
         crs.isValid()
         and not crs.isGeographic()
-        and crs.mapUnits() == QgsUnitTypes.DistanceMeters
+        and crs.mapUnits() == Qgis.DistanceUnit.Meters
     )
 
 

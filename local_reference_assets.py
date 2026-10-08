@@ -15,9 +15,13 @@ from pathlib import Path
 # the research documentation is not part of the QGIS plugin ZIP.
 REGISTERED_LEGACY_SHA256 = {
     "reference_data.json": {
+        # File digest, not a credential.
+        # pragma: allowlist nextline secret
         "1b1079af54661bc695ebc1884e855618f46a5345af2ab4f09e28737959695b6f",
     },
     "smart_patterns.json": {
+        # File digest, not a credential.
+        # pragma: allowlist nextline secret
         "504e3118aecaffc30c09eb39bce2545f8af25d0794722e1401a1c7c5f2f6a947",
     },
 }

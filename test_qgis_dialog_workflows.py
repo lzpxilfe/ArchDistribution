@@ -164,7 +164,7 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         self.addCleanup(dialog.close)
 
         heritage_ids = {
-            dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            dialog.listHeritageLayers.item(index).data(Qt.ItemDataRole.UserRole)
             for index in range(dialog.listHeritageLayers.count())
         }
         self.assertNotIn(layer.id(), heritage_ids)
@@ -215,10 +215,10 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         layer_item = next(
             dialog.listHeritageLayers.item(index)
             for index in range(dialog.listHeritageLayers.count())
-            if dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            if dialog.listHeritageLayers.item(index).data(Qt.ItemDataRole.UserRole)
             == layer.id()
         )
-        layer_item.setCheckState(Qt.Checked)
+        layer_item.setCheckState(Qt.CheckState.Checked)
         settings = dialog.get_settings()
         self.assertEqual(
             settings["source_encodings"][layer.id()], "CP949"
@@ -262,10 +262,10 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         layer_item = next(
             dialog.listHeritageLayers.item(index)
             for index in range(dialog.listHeritageLayers.count())
-            if dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            if dialog.listHeritageLayers.item(index).data(Qt.ItemDataRole.UserRole)
             == layer.id()
         )
-        layer_item.setCheckState(Qt.Checked)
+        layer_item.setCheckState(Qt.CheckState.Checked)
 
         with mock.patch.object(
             dialog,
@@ -350,11 +350,11 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         result_item = next(
             dialog.listHeritageLayers.item(index)
             for index in range(dialog.listHeritageLayers.count())
-            if dialog.listHeritageLayers.item(index).data(Qt.UserRole)
+            if dialog.listHeritageLayers.item(index).data(Qt.ItemDataRole.UserRole)
             == result.id()
         )
-        self.assertTrue(result_item.data(Qt.UserRole + 1))
-        result_item.setCheckState(Qt.Checked)
+        self.assertTrue(result_item.data(Qt.ItemDataRole.UserRole + 1))
+        result_item.setCheckState(Qt.CheckState.Checked)
         self.assertFalse(dialog.lblPreviousResultInputWarning.isHidden())
         self.assertIn(
             result.name(),
@@ -409,7 +409,7 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         with mock.patch.object(
             QtWidgets.QMessageBox,
             "warning",
-            return_value=QtWidgets.QMessageBox.Ok,
+            return_value=QtWidgets.QMessageBox.StandardButton.Ok,
         ) as warning:
             dialog._request_renumber(suppressed)
             dialog._request_renumber(protection)

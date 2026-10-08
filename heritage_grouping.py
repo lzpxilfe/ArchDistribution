@@ -27,8 +27,8 @@ _DASH_TRANSLATION = str.maketrans({
 
 # Matches only explicit trailing area designators. It intentionally does not
 # strip tomb/building numbers such as "1호" because those can be distinct sites.
-_AREA_TOKEN = r"(?:[IVXLCDM]+|\d+)"
-_AREA_SEQUENCE = rf"(?:제\s*)?{_AREA_TOKEN}(?:\s*[-~·ㆍ,/]\s*{_AREA_TOKEN})*"
+_AREA_NUMERAL = r"(?:[IVXLCDM]+|\d+)"
+_AREA_SEQUENCE = rf"(?:제\s*)?{_AREA_NUMERAL}(?:\s*[-~·ㆍ,/]\s*{_AREA_NUMERAL})*"
 _AREA_UNIT = r"(?:지역|지구|구역|구간|지점)"
 _AREA_SUFFIX_RE = re.compile(
     rf"(?:\(\s*{_AREA_SEQUENCE}\s*{_AREA_UNIT}\s*\)"

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="QGIS declared 3.40-3.99" src="https://img.shields.io/badge/QGIS-declared%203.40--3.99-589632?logo=qgis&logoColor=white">
+  <img alt="QGIS declared 3.40-4.99" src="https://img.shields.io/badge/QGIS-declared%203.40--4.99-589632?logo=qgis&logoColor=white">
   <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-0ea5e9">
   <img alt="License GPL-2.0-or-later" src="https://img.shields.io/badge/license-GPL--2.0--or--later-f59e0b">
 </p>
@@ -30,7 +30,7 @@
 | 항목 | 내용 |
 |---|---|
 | 현재 버전 | `1.0.5` |
-| QGIS 호환성 | 선언 범위 `3.40` - `3.99`; 자동검증 Windows `3.40.5`, Linux `3.44.13` |
+| QGIS 호환성 | 선언 범위 `3.40` - `4.99`; 자동검증 Windows `3.40.5`, Linux `3.44.13`, Qt6 빌드(`3.43` 개발판) |
 | 지원 언어 | `자동(QGIS)` / `한국어` / `English` |
 | 주요 입력 | 조사구역, 지정·등록유산, 분포지도, 지표·발굴조사, 선택적 지형도·Zone 레이어 |
 | 주요 출력 | `ArchDistribution_결과물` 그룹, 선택적 GPKG·실행정보·JPG/PDF, `latest_log.txt` |
@@ -700,7 +700,7 @@ source datasets and real site coordinates are not distributed here.
 ## ℹ️ 프로젝트 정보 | Project Info
 
 - Version: `1.0.5`
-- Author: `Jinseo Hwang (lzpxilfe, balguljang2)`
+- Author: `lzpxilfe(balguljang2)`
 - ORCID: [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083)
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)

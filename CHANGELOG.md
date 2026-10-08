@@ -103,6 +103,15 @@ committed as 1.0.5 on 2026-07-31; see Git history for those.
   of hiding user layers by name, and a likely study area is preselected.
 - The help and the duplicate-rule guide are rewritten around the three-step
   name, footprint, and register decision.
+- Qt and QGIS enum values are written in their scoped form
+  (`Qt.ItemDataRole.UserRole`, `Qgis.GeometryType.Polygon`) and dialogs open
+  with `exec()`, so the plugin runs on Qt 6 builds of QGIS. The declared range
+  is now QGIS 3.40-4.99. The QGIS integration suite passes on QGIS 3.44
+  (Qt 5) and on a Qt 6 QGIS 3.43 development build, and the plugin
+  repository's Qt 6 checker reports no issues.
+- The `metadata.txt` author is `lzpxilfe(balguljang2)`, as in the published
+  1.0.4; the plugin repository does not accept a slash in the author name,
+  and `verify_guardrails.py` now checks the repository's required fields.
 
 ### Fixed
 
@@ -145,6 +154,12 @@ committed as 1.0.5 on 2026-07-31; see Git history for those.
   records unless they name the same lot, differ only by unspecific words
   (`unspecific_names`), or share their distinctive core under a different
   qualifier.
+- The plugin repository's security scan blocked the package. Two constant
+  names containing "TOKEN" read as hard-coded passwords and are renamed;
+  failures to flash a duplicate candidate on the map are logged instead of
+  ignored; the relation-key SHA-1 is marked as not used for security; the
+  HWPX writer escapes text itself instead of importing `xml.sax`; and the two
+  registered reference-file digests are marked as file digests, not secrets.
 
 ## 1.0.4
 

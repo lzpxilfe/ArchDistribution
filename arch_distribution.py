@@ -1,7 +1,7 @@
 from qgis.PyQt import QtCore
 from qgis.PyQt.QtCore import QCoreApplication, QVariant, Qt
 from qgis.PyQt.QtGui import QIcon, QColor, QFont
-from qgis.PyQt.QtWidgets import QAction, QMessageBox, QProgressDialog
+from qgis.PyQt.QtWidgets import QAction, QDialog, QMessageBox, QProgressDialog
 from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsField, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
@@ -12,7 +12,7 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsSpatialIndex, QgsDistanceArea, QgsVectorFileWriter,
                        QgsApplication, Qgis,
                        QgsPrintLayout, QgsLayoutItemMap, QgsLayoutPoint,
-                       QgsLayoutSize, QgsUnitTypes, QgsLayoutExporter,
+                       QgsLayoutSize, QgsLayoutExporter,
                        QgsLayoutItemLegend)
 
 import json
@@ -191,7 +191,7 @@ class ArchDistribution:
         except (AttributeError, TypeError, ValueError):
             base = Path(
                 QtCore.QStandardPaths.writableLocation(
-                    QtCore.QStandardPaths.AppDataLocation
+                    QtCore.QStandardPaths.StandardLocation.AppDataLocation
                 )
                 or self.plugin_dir
             )
@@ -281,7 +281,7 @@ class ArchDistribution:
         # Connect the run signal to the processing method
         self.dlg.run_requested.connect(self.process_distribution_map)
         self.dlg.renumber_requested.connect(self.process_renumbering)
-        self.dlg.exec_()
+        self.dlg.exec()
 
     def log(self, message):
         """Log a message to the dialog log window, QGIS message bar, and file."""
@@ -414,8 +414,8 @@ class ArchDistribution:
         if hasattr(canvas, "flashFeatureIds"):
             try:
                 canvas.flashFeatureIds(layer, list(feature_ids))
-            except Exception:
-                pass
+            except Exception as exc:
+                self.log(f"⚠️ 후보 강조 표시(Flash) 실패: {exc}")
 
     def process_distribution_map(self, settings):
         """Core logic with logging, progress, and heritage merging."""
@@ -427,7 +427,7 @@ class ArchDistribution:
         try:
             log_path = self._log_path()
             with log_path.open('w', encoding='utf-8') as f:
-                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} ===\n")
+                f.write(f"=== ArchDistribution Log Started: {QtCore.QDateTime.currentDateTime().toString(Qt.DateFormat.ISODate)} ===\n")
         except OSError as exc:
             print(f"ArchDistribution: log file initialization failed: {exc}")
 
@@ -438,7 +438,7 @@ class ArchDistribution:
         # 0. Setup Progress Dialog
         total_steps = DEFAULT_PROGRESS_STEPS
         progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
-        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
         progress.setMinimumDuration(0)
         progress.setValue(0)
@@ -943,7 +943,7 @@ class ArchDistribution:
             with log_path.open('w', encoding='utf-8') as log_file:
                 log_file.write(
                     "=== ArchDistribution Preservation Log Started: "
-                    f"{QtCore.QDateTime.currentDateTime().toString(Qt.ISODate)} "
+                    f"{QtCore.QDateTime.currentDateTime().toString(Qt.DateFormat.ISODate)} "
                     "===\n"
                 )
         except OSError as exc:
@@ -957,7 +957,7 @@ class ArchDistribution:
             5,
             self.iface.mainWindow(),
         )
-        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setWindowTitle("ArchDistribution 진행률")
         progress.setMinimumDuration(0)
         progress.setValue(0)
@@ -1557,7 +1557,7 @@ class ArchDistribution:
             )
 
         app_data = QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.AppDataLocation
+            QtCore.QStandardPaths.StandardLocation.AppDataLocation
         )
         base_dir = app_data or self.plugin_dir
         return os.path.join(
@@ -1877,9 +1877,9 @@ class ArchDistribution:
                 options.fileEncoding = "UTF-8"
                 options.layerName = layer_name
                 options.actionOnExistingFile = (
-                    QgsVectorFileWriter.CreateOrOverwriteFile
+                    QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
                     if export_index == 0
-                    else QgsVectorFileWriter.CreateOrOverwriteLayer
+                    else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
                 )
                 result = QgsVectorFileWriter.writeAsVectorFormatV3(
                     layer,
@@ -1888,7 +1888,7 @@ class ArchDistribution:
                     options,
                 )
                 error_code = result[0] if isinstance(result, tuple) else result
-                if error_code != QgsVectorFileWriter.NoError:
+                if error_code != QgsVectorFileWriter.WriterError.NoError:
                     detail = result[1] if isinstance(result, tuple) else result
                     raise RuntimeError(
                         f"{layer.name()} 저장 실패: {detail}"
@@ -1976,7 +1976,7 @@ class ArchDistribution:
             QgsLayoutSize(
                 width,
                 height,
-                QgsUnitTypes.LayoutMillimeters,
+                Qgis.LayoutUnit.Millimeters,
             )
         )
 
@@ -1986,14 +1986,14 @@ class ArchDistribution:
             QgsLayoutPoint(
                 0,
                 0,
-                QgsUnitTypes.LayoutMillimeters,
+                Qgis.LayoutUnit.Millimeters,
             )
         )
         map_item.attemptResize(
             QgsLayoutSize(
                 width,
                 height,
-                QgsUnitTypes.LayoutMillimeters,
+                Qgis.LayoutUnit.Millimeters,
             )
         )
         # The paper size, scale and extent were calculated in extent_crs.
@@ -2023,12 +2023,12 @@ class ArchDistribution:
             legend.attemptMove(QgsLayoutPoint(
                 max(3.0, width - 62.0),
                 5,
-                QgsUnitTypes.LayoutMillimeters,
+                Qgis.LayoutUnit.Millimeters,
             ))
             legend.attemptResize(QgsLayoutSize(
                 min(58.0, max(35.0, width - 6.0)),
                 min(80.0, max(35.0, height - 10.0)),
-                QgsUnitTypes.LayoutMillimeters,
+                Qgis.LayoutUnit.Millimeters,
             ))
         except Exception as error:
             # A layout is still useful if a particular QGIS build cannot
@@ -2054,7 +2054,7 @@ class ArchDistribution:
                     str(temporary_image),
                     image_settings,
                 )
-                if result == QgsLayoutExporter.Success:
+                if result == QgsLayoutExporter.ExportResult.Success:
                     os.replace(str(temporary_image), str(image_path))
                     exported_paths.append(str(image_path))
                 else:
@@ -2075,7 +2075,7 @@ class ArchDistribution:
                     str(temporary_pdf),
                     pdf_settings,
                 )
-                if result == QgsLayoutExporter.Success:
+                if result == QgsLayoutExporter.ExportResult.Success:
                     os.replace(str(temporary_pdf), str(pdf_path))
                     exported_paths.append(str(pdf_path))
                 else:
@@ -2826,7 +2826,7 @@ class ArchDistribution:
             not crs
             or not crs.isValid()
             or crs.isGeographic()
-            or crs.mapUnits() != QgsUnitTypes.DistanceMeters
+            or crs.mapUnits() != Qgis.DistanceUnit.Meters
         ):
             raise MetricContextError(
                 "버퍼 입력은 미터 단위 분석 CRS 레이어여야 합니다."
@@ -2886,7 +2886,7 @@ class ArchDistribution:
         label_settings.fieldName = "'{}'".format(
             display_label.replace("'", "''")
         )
-        label_settings.placement = QgsPalLayerSettings.PerimeterCurved
+        label_settings.placement = Qgis.LabelPlacement.PerimeterCurved
 
         text_format = QgsTextFormat()
         font = QFont(DEFAULT_LABEL_FONT_FAMILY)
@@ -2957,7 +2957,7 @@ class ArchDistribution:
             raise MetricContextError(
                 "도곽을 만들 수 없습니다. 분석 CRS가 없거나 유효하지 않습니다."
             )
-        if crs.isGeographic() or crs.mapUnits() != QgsUnitTypes.DistanceMeters:
+        if crs.isGeographic() or crs.mapUnits() != Qgis.DistanceUnit.Meters:
             raise MetricContextError(
                 "도곽 CRS는 미터 단위 투영좌표계여야 합니다."
             )
@@ -3499,7 +3499,9 @@ class ArchDistribution:
     @staticmethod
     def _relation_key(left_uid, right_uid):
         pair = "|".join(sorted((str(left_uid), str(right_uid))))
-        digest = hashlib.sha1(pair.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha1(
+            pair.encode("utf-8"), usedforsecurity=False
+        ).hexdigest()[:16]
         return f"rel:{digest}"
 
     @staticmethod
@@ -3533,7 +3535,7 @@ class ArchDistribution:
         inside that site" is exactly the containment evidence the relation
         rules need.  Polygon-polygon pairs never reach this branch.
         """
-        polygon = QgsWkbTypes.PolygonGeometry
+        polygon = Qgis.GeometryType.Polygon
         coverage_left = 0.0
         coverage_right = 0.0
         try:
@@ -3864,9 +3866,9 @@ class ArchDistribution:
                         other_geom.wkbType()
                     )
                     family_names = {
-                        QgsWkbTypes.PointGeometry: "point",
-                        QgsWkbTypes.LineGeometry: "line",
-                        QgsWkbTypes.PolygonGeometry: "polygon",
+                        Qgis.GeometryType.Point: "point",
+                        Qgis.GeometryType.Line: "line",
+                        Qgis.GeometryType.Polygon: "polygon",
                     }
                     geometry_pair = "_".join((
                         family_names.get(left_family, "unknown"),
@@ -4019,7 +4021,7 @@ class ArchDistribution:
                     self._zoom_duplicate_candidate(layer, candidate)
                 ),
             )
-            if dialog.exec_() != dialog.Accepted:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 raise DuplicateReviewCancelled()
             reviewed_decisions = dialog.decisions()
         else:
@@ -4556,8 +4558,8 @@ class ArchDistribution:
             for layer, feature_id in flash_items:
                 try:
                     canvas.flashFeatureIds(layer, [feature_id])
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self.log(f"⚠️ 후보 강조 표시(Flash) 실패: {exc}")
 
     def apply_cross_family_matching(
         self,
@@ -4602,9 +4604,9 @@ class ArchDistribution:
         layers_by_id = {layer.id(): layer for layer in layers}
         metric_context = MetricContext.from_layer(layers[0])
         family_names = {
-            QgsWkbTypes.PointGeometry: "point",
-            QgsWkbTypes.LineGeometry: "line",
-            QgsWkbTypes.PolygonGeometry: "polygon",
+            Qgis.GeometryType.Point: "point",
+            Qgis.GeometryType.Line: "line",
+            Qgis.GeometryType.Polygon: "polygon",
         }
 
         for layer in layers:
@@ -4845,7 +4847,7 @@ class ArchDistribution:
                     candidate,
                 ),
             )
-            if dialog.exec_() != dialog.Accepted:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 raise DuplicateReviewCancelled()
             reviewed = dialog.decisions()
         else:
@@ -7374,9 +7376,9 @@ class ArchDistribution:
 
         # Placement
         if layer.geometryType() == 2:  # Polygon
-            label_settings.placement = QgsPalLayerSettings.Horizontal
+            label_settings.placement = Qgis.LabelPlacement.Horizontal
         else:
-            label_settings.placement = QgsPalLayerSettings.AroundPoint
+            label_settings.placement = Qgis.LabelPlacement.AroundPoint
 
         layer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
         layer.setLabelsEnabled(True)
@@ -7741,15 +7743,15 @@ class ArchDistribution:
                             # If intersection is empty but intersects() was true, it's likely a grazing touch.
                             pass
                         else:
-                            if QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                            if QgsWkbTypes.geometryType(res.wkbType()) == Qgis.GeometryType.Polygon:
                                 final_geom = res
-                            elif QgsWkbTypes.isMultiType(res.wkbType()) and QgsWkbTypes.geometryType(res.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                            elif QgsWkbTypes.isMultiType(res.wkbType()) and QgsWkbTypes.geometryType(res.wkbType()) == Qgis.GeometryType.Polygon:
                                 final_geom = res
                             elif res.isMultipart():
                                 # Collection or Multi-Type with mixed (unlikely but possible from makeValid)
                                 parts = []
                                 for part in res.asGeometryCollection():
-                                    if QgsWkbTypes.geometryType(part.wkbType()) == QgsWkbTypes.PolygonGeometry:
+                                    if QgsWkbTypes.geometryType(part.wkbType()) == Qgis.GeometryType.Polygon:
                                         parts.append(part)
                                 if parts:
                                     final_geom = QgsGeometry.fromMultiPolygonXY([p.asPolygon() for p in parts])

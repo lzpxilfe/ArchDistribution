@@ -130,7 +130,7 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
             )
         )
         intro.setWordWrap(True)
-        intro.setTextFormat(QtCore.Qt.RichText)
+        intro.setTextFormat(QtCore.Qt.TextFormat.RichText)
         intro.setStyleSheet(
             "background:#eef7ff; border:1px solid #9ec9e8; "
             "padding:8px; color:#234;"
@@ -230,7 +230,7 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
         )
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(
-            QtWidgets.QAbstractItemView.SelectRows
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
         self.table.setSortingEnabled(False)
         self.table.verticalHeader().setVisible(False)
@@ -311,22 +311,22 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(
-            QtWidgets.QHeaderView.ResizeToContents
+            QtWidgets.QHeaderView.ResizeMode.ResizeToContents
         )
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(6, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Stretch)
 
         buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok
-            | QtWidgets.QDialogButtonBox.Cancel
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QtWidgets.QDialogButtonBox.Ok).setText(
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText(
             self._t(
                 "이 선택으로 결과 생성",
                 "Generate with these decisions",
             )
         )
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText(
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).setText(
             self._t("취소", "Cancel")
         )
         buttons.accepted.connect(self.accept)
@@ -352,7 +352,7 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
 
     def _set_item(self, row, column, text):
         item = QtWidgets.QTableWidgetItem(str(text or ""))
-        item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row, column, item)
 
     def _role_and_source(self, candidate, side):

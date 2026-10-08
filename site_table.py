@@ -19,7 +19,6 @@ import math
 from pathlib import Path
 import re
 import unicodedata
-from xml.sax.saxutils import escape
 import zipfile
 
 try:
@@ -871,8 +870,21 @@ def _para_pr(para_id, horizontal):
     )
 
 
+def _xml_escape(text, quote=False):
+    """Escape text for an XML element, or a double-quoted attribute.
+
+    The table only writes XML, so the standard library's XML readers are not
+    needed for this.
+    """
+    text = str(text).replace("&", "&amp;").replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    if quote:
+        text = text.replace('"', "&quot;")
+    return text
+
+
 def _header_xml(font_face):
-    face = escape(font_face, {'"': "&quot;"})
+    face = _xml_escape(font_face, quote=True)
     fontfaces = "".join(
         f'<hh:fontface lang="{lang}" fontCnt="1"><hh:font id="0" '
         f'face="{face}" type="TTF" isEmbedded="0"/></hh:fontface>'
@@ -918,7 +930,7 @@ class _Ids:
 
 
 def _paragraph(ids, text, char_id, para_id, inner=""):
-    run_text = f"<hp:t>{escape(text)}</hp:t>" if text else ""
+    run_text = f"<hp:t>{_xml_escape(text)}</hp:t>" if text else ""
     return (
         f'<hp:p id="{ids.next()}" paraPrIDRef="{para_id}" styleIDRef="0" '
         'pageBreak="0" columnBreak="0" merged="0">'
@@ -1065,7 +1077,7 @@ def write_hwpx(
 ):
     """Write an editable Hangul (HWPX/OWPML) document with one table."""
     created = datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S")
-    title_xml = escape(title)
+    title_xml = _xml_escape(title)
     content_hpf = (
         f'{_XML_DECL}<opf:package {_NS} version="" unique-identifier="" '
         'id=""><opf:metadata>'
