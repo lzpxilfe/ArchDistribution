@@ -104,7 +104,7 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile
 
-          archive = Path.home() / "Desktop" / "ArchDistribution-1.0.5.zip"
+          archive = Path.home() / "Desktop" / "ArchDistribution-1.0.6.zip"
           if not archive.exists():
               raise SystemExit(f"Missing plugin archive: {archive}")
           with ZipFile(archive) as package:
@@ -130,8 +130,8 @@ jobs:
       - name: Upload QGIS-tested plugin ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ArchDistribution-1.0.5-qgis-3.44
-          path: ~/Desktop/ArchDistribution-1.0.5.zip
+          name: ArchDistribution-1.0.6-qgis-3.44
+          path: ~/Desktop/ArchDistribution-1.0.6.zip
           if-no-files-found: error
           retention-days: 14
 

@@ -1,10 +1,10 @@
 # Changelog
 
 All notable changes to ArchDistribution are documented here. This project uses
-plugin version `1.0.5` while the JOSS research snapshot is prepared; research
-tags do not change the installable plugin version.
+plugin version `1.0.6`; research tags do not change the installable plugin
+version.
 
-## Unreleased — JOSS research preparation
+## 1.0.6 — JOSS research preparation and duplicate review
 
 ### Added
 
@@ -144,7 +144,7 @@ tags do not change the installable plugin version.
 
 ## 1.0.5
 
-- Current plugin release line. See Git history and README for the implemented
+- Previous plugin release line. See Git history and README for the implemented
   mapping, preservation-area, duplicate-review, and renumbering workflow.
 - Research documentation and journal metadata are versioned separately and do
   not change the installable plugin version.
