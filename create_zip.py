@@ -54,8 +54,11 @@ def get_git_build_info():
             text=True,
             check=True,
         ).stdout.strip())
+        # The plugin repository's secrets scan blocks a package carrying a
+        # full 40-character commit hash as a "high-entropy hex string"; the
+        # 7-character short hash Git itself displays stays below its limit.
         return {
-            "git_commit": commit or "unknown",
+            "git_commit": commit[:7] or "unknown",
             "built_at": commit_date or None,
             "dirty": dirty,
         }

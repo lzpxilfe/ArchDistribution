@@ -160,6 +160,8 @@ committed as 1.0.5 on 2026-07-31; see Git history for those.
   ignored; the relation-key SHA-1 is marked as not used for security; the
   HWPX writer escapes text itself instead of importing `xml.sax`; and the two
   registered reference-file digests are marked as file digests, not secrets.
+  The ZIP's `build_info.json` records the 7-character short commit, because
+  the scan also blocks a full 40-character commit hash as a possible secret.
 
 ## 1.0.4
 
