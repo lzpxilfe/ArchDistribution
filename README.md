@@ -700,7 +700,7 @@ source datasets and real site coordinates are not distributed here.
 ## ℹ️ 프로젝트 정보 | Project Info
 
 - Version: `1.0.5`
-- Author: `Jinseo Hwang (lzpxilfe / balguljang2)`
+- Author: `Jinseo Hwang (lzpxilfe, balguljang2)`
 - ORCID: [`0009-0000-8228-4083`](https://orcid.org/0009-0000-8228-4083)
 - Repository: [github.com/lzpxilfe/ArchDistribution](https://github.com/lzpxilfe/ArchDistribution)
 - Issues: [github.com/lzpxilfe/ArchDistribution/issues](https://github.com/lzpxilfe/ArchDistribution/issues)

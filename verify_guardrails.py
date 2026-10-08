@@ -90,11 +90,42 @@ def check_version_sync() -> int:
     return errors
 
 
+def check_repository_metadata() -> int:
+    # plugins.qgis.org rejects a package whose metadata misses these fields
+    # or whose author name contains a slash.
+    metadata_text = read_text(ROOT / "metadata.txt")
+    fields = dict(
+        re.findall(r"^([A-Za-z]+)=(.*?)\s*$", metadata_text, flags=re.MULTILINE)
+    )
+    required = (
+        "name",
+        "qgisMinimumVersion",
+        "description",
+        "about",
+        "version",
+        "author",
+        "email",
+        "repository",
+    )
+    errors = 0
+    for key in required:
+        if not fields.get(key):
+            fail(f"metadata.txt missing required field: {key}")
+            errors += 1
+    if "/" in fields.get("author", ""):
+        fail("metadata.txt author name cannot contain slashes")
+        errors += 1
+    if errors == 0:
+        ok("metadata.txt passes the plugin repository's field checks")
+    return errors
+
+
 def main() -> int:
     errors = 0
     errors += check_forbidden_layout_overrides()
     errors += check_ui_baseline_exists()
     errors += check_version_sync()
+    errors += check_repository_metadata()
 
     if errors:
         print(f"\nGuardrail check failed with {errors} issue(s).")
