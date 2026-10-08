@@ -53,6 +53,7 @@ from .heritage_matching import (
     ROLE_NATIONAL_REGISTERED,
     ROLE_OTHER,
     ROLE_PROTECTION_ZONE,
+    ROLE_SURFACE,
     SOURCE_ROLE_LABELS,
     STATUS_AUTO_MERGED,
     STATUS_KEPT_SEPARATE,
@@ -5779,8 +5780,15 @@ class ArchDistribution:
                         site_entity_key = (
                             f"{source_role}:{grouping['site_entity_key']}"
                         )
+                        # An excavation project is one investigation event
+                        # and shares a map number.  A surface-survey project
+                        # reports many separate sites, which published maps
+                        # number one by one; it keeps only its investigation
+                        # key, so surveys are never merged by project name.
                         number_key = (
-                            f"{source_role}:{grouping['number_key']}"
+                            f"{source_role}:{grouping['site_entity_key']}"
+                            if source_role == ROLE_SURFACE
+                            else f"{source_role}:{grouping['number_key']}"
                         )
                         geometry_group_key = (
                             f"{source_role}:{grouping['geometry_group_key']}"

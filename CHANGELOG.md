@@ -108,6 +108,20 @@ tags do not change the installable plugin version.
   number is not treated as the group.
 - The help's name-relation examples are explicit pairs checked against the
   classifier by a test, and use public designated-heritage names only.
+- A lot number in brackets ("<village>(49-6) house plot") was read as an
+  alias and dropped, so neighbouring lots investigated under the same
+  boilerplate title compared as one name. Bracketed lot numbers now stay in
+  the name (`lot_units` in `matching_rules.json`); designation numbers and
+  former names in brackets are still aliases.
+- Surface-survey records sharing a project name shared one map number,
+  contrary to the rule that surveys are never merged automatically. Only
+  excavation projects share a number; a survey project is kept as
+  `INVESTIGATION_KEY`.
+- Two names that only share a stem ("<place> fortress" / "<place> temple")
+  were offered as a recommended merge. They are now recommended as linked
+  records unless they name the same lot, differ only by unspecific words
+  (`unspecific_names`), or share their distinctive core under a different
+  qualifier.
 
 ## 1.0.5
 

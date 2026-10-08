@@ -58,6 +58,7 @@ DEFAULT_NAME_LEXICON = {
     "ordinal_prefixes": [],
     "designator_units": [],
     "feature_units": [],
+    "lot_units": [],
     "ordinal_letters": "",
     "equivalent_suffixes": [],
 }
@@ -201,8 +202,13 @@ def _compiled_lexicon(signature):
         key=len,
         reverse=True,
     ))
+    lot_units = tuple(
+        str(unit).casefold() for unit in lexicon.get("lot_units") or []
+        if str(unit).strip()
+    )
     return {
         "feature_units": feature_units,
+        "lot_units": lot_units,
         "token_re": token_re,
         "glued_re": glued_re,
         "value_re": value_re,
@@ -273,6 +279,33 @@ def _is_feature_numbered(designators, base_tokens, compiled):
     return bool(base_tokens) and base_tokens[-1] in units
 
 
+_LOT_NUMBER_RE = re.compile(r"\d+\s*[-‐‑‒–—―−]\s*\d+")
+
+
+def _names_a_lot(text, compiled):
+    """Return whether bracketed text gives a lot or parcel number.
+
+    "(49-6)" or "(462 lot)" locates one investigation among its neighbours;
+    unlike an alias it must stay part of the name.
+    """
+    folded = text.casefold()
+    if not any(char.isdigit() for char in folded):
+        return False
+    if not (
+        _LOT_NUMBER_RE.search(folded)
+        or any(unit in folded for unit in compiled["lot_units"])
+    ):
+        return False
+    # A lot qualifier is the number plus at most a short word ("일원",
+    # "and"); a bracketed full name that merely contains a number is an
+    # alias.
+    residue = folded
+    for unit in compiled["lot_units"]:
+        residue = residue.replace(unit, " ")
+    residue = re.sub(r"[\d\W_]+", "", residue)
+    return len(residue) <= 3
+
+
 def _is_designator_only(text, compiled):
     tokens = _tokens(text, compiled)
     return bool(tokens) and all(
@@ -303,8 +336,8 @@ def _parse_name_cached(value, signature):
         inner = match.group(1).strip()
         if not inner:
             return " "
-        if _is_designator_only(inner, compiled):
-            # "(B area)" or "(II)" qualifies the name; keep it.
+        if _is_designator_only(inner, compiled) or _names_a_lot(inner, compiled):
+            # "(B area)", "(II)" or a lot number qualifies the name; keep it.
             return f" {inner} "
         aliases.append(inner)
         return " "

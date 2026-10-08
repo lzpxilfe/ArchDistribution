@@ -11,8 +11,13 @@
     "automation_name_similarity": 0.95,
     "automation_overlap_ratio": 0.5,
     "name_containment_min_chars": 4,
-    "name_containment_min_fraction": 0.6
+    "name_containment_min_fraction": 0.6,
+    "sibling_merge_similarity": 0.85
   },
+  "unspecific_names": [
+    "유적", "유적지", "문화유적", "유물산포지", "산포지", "내", "일원", "일대",
+    "site", "sites", "area", "yacimiento"
+  ],
   "relation_thresholds": {
     "identical_iou": 0.9,
     "within_coverage": 0.9,
@@ -34,6 +39,7 @@
       "zona", "sitio", "tumba"
     ],
     "feature_units": ["호분", "호", "기", "tomb", "mound", "tumba"],
+    "lot_units": ["번지", "필지", "lot", "parcel", "parcela"],
     "ordinal_letters": "가나다라마바사아자차카타파하",
     "equivalent_suffixes": [
       ["유적지", "유적"],

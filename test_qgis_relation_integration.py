@@ -328,7 +328,47 @@ class QgisRelationIntegrationTests(unittest.TestCase):
         QgsProject.instance().addMapLayer(layer)
         return layer
 
-    def consolidate(self, source, **options):
+    def make_project_source(self):
+        layer = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186", "synthetic_project", "memory"
+        )
+        layer.dataProvider().addAttributes([
+            QgsField("유적명", QVariant.String),
+            QgsField("사업명", QVariant.String),
+        ])
+        layer.updateFields()
+        features = []
+        for name, wkt in (
+            ("가상 유물산포지 1", square(200100, 450100, 20)),
+            ("가상 고분군", square(200600, 450600, 20)),
+        ):
+            feature = QgsFeature(layer.fields())
+            feature.setGeometry(QgsGeometry.fromWkt(wkt))
+            feature["유적명"] = name
+            feature["사업명"] = "가상 도로 개설사업"
+            features.append(feature)
+        layer.dataProvider().addFeatures(features)
+        layer.updateExtents()
+        QgsProject.instance().addMapLayer(layer)
+        return layer
+
+    def project_number_keys(self, role):
+        source = self.make_project_source()
+        result = self.consolidate(source, roles={source.id(): role})
+        return {
+            feature["NUMBER_KEY"]
+            for layer in result["main_layers"]
+            for feature in layer.getFeatures()
+        }
+
+    def test_one_excavation_project_shares_a_number(self):
+        self.assertEqual(len(self.project_number_keys(self.excavation)), 1)
+
+    def test_survey_sites_of_one_project_keep_their_own_numbers(self):
+        from ArchDistribution.heritage_matching import ROLE_SURFACE
+        self.assertEqual(len(self.project_number_keys(ROLE_SURFACE)), 2)
+
+    def consolidate(self, source, roles=None, **options):
         project = QgsProject.instance()
         study = QgsVectorLayer("Polygon?crs=EPSG:5186", "study", "memory")
         feature = QgsFeature()
@@ -343,7 +383,7 @@ class QgisRelationIntegrationTests(unittest.TestCase):
             QgsGeometry.fromRect(QgsRectangle(199000, 449000, 202000, 452000)),
             study,
             project.layerTreeRoot().addGroup("sources"),
-            source_roles={source.id(): self.excavation},
+            source_roles=roles or {source.id(): self.excavation},
             matching_decision_provider=self.accept_recommendations,
             **options,
         )

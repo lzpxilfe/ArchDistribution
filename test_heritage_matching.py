@@ -488,6 +488,28 @@ class SameRegisterRelationTests(unittest.TestCase):
 
 
 class CrossRegisterRelationTests(unittest.TestCase):
+    def test_shared_stem_alone_is_linked_not_merged(self):
+        # "<place> fortress" inside "<place> temple" are two sites.
+        match = evaluate_candidate(
+            record("m1", ROLE_DISTRIBUTION, "가상다라산성"),
+            record("d1", ROLE_NATIONAL_DESIGNATED, "가상 다라사지"),
+            **LEFT_INSIDE,
+        )
+        self.assertEqual(match.recommended_decision, DECISION_LINK)
+        self.assertFalse(match.auto_apply)
+
+    def test_stem_variants_of_one_place_stay_merge_candidates(self):
+        for left, right in (
+            ("가상 새각단 유물산포지", "가상 새각단 유적"),
+            ("신라가상왕릉", "나상 가상왕릉"),
+        ):
+            match = evaluate_candidate(
+                record("m1", ROLE_DISTRIBUTION, left),
+                record("d1", ROLE_NATIONAL_DESIGNATED, right),
+                **LEFT_INSIDE,
+            )
+            self.assertEqual(match.recommended_decision, DECISION_MERGE)
+
     def test_numbered_distribution_part_joins_designated_site(self):
         designated = record("d1", ROLE_NATIONAL_DESIGNATED, "가상리 고분군")
         tomb = record("m1", ROLE_DISTRIBUTION, "가상리고분군 제7호")

@@ -4033,6 +4033,7 @@ A part with its own legal designation or excavation is <b>linked</b> and keeps i
 <td>Review (merge recommended)</td><td>Joins the site number</td></tr>
 <tr><td>Numbered siblings, or overlap with unrelated names</td><td>Not a candidate</td><td>Separate numbers</td></tr>
 <tr><td>Same excavation project name</td><td>Always one number</td><td>Shared <code>NUMBER_KEY</code></td></tr>
+<tr><td>Same surface-survey project name</td><td>Not merged</td><td>Each survey site keeps its own number; the project is kept as <code>INVESTIGATION_KEY</code></td></tr>
 <tr><td>Protection zone</td><td>Not compared</td><td>Boundary only</td></tr>
 </table>
 <ul>
@@ -4123,6 +4124,7 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 <td>검토(묶기 권장)</td><td>상위 유적 번호로 흡수</td></tr>
 <tr><td>번호가 다른 형제, 이름이 무관한 단순 중첩</td><td>후보 아님</td><td>각각 번호</td></tr>
 <tr><td>같은 발굴 사업명</td><td>항상 같은 번호</td><td><code>NUMBER_KEY</code> 공유</td></tr>
+<tr><td>같은 지표조사 사업명</td><td>묶지 않음</td><td>지표조사에서 찾은 유적마다 번호, 사업은 <code>INVESTIGATION_KEY</code>로만 기록</td></tr>
 <tr><td>지정유산 보호구역</td><td>비교 제외</td><td>경계만 표시, 번호 없음</td></tr>
 </table>
 <ul>

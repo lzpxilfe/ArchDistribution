@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import unicodedata
 from copy import deepcopy
 
 try:
@@ -551,6 +552,82 @@ def _generic_identity_keys(rules):
             for item in rules.get("generic_names", ())
         ) if key
     )
+
+
+_LOT_RE = re.compile(r"\d+\s*-\s*\d+")
+
+
+def _lot_numbers(name, rules):
+    """Return lot numbers in a name: hyphenated numbers or "<n> <lot unit>"."""
+    text = unicodedata.normalize("NFKC", str(name or "")).casefold()
+    lots = {re.sub(r"\s+", "", match) for match in _LOT_RE.findall(text)}
+    units = [
+        str(unit).casefold()
+        for unit in (rules.get("name_lexicon") or {}).get("lot_units", ())
+    ]
+    for unit in units:
+        lots.update(re.findall(rf"(\d+)\s*{re.escape(unit)}", text))
+    return lots
+
+
+def _stem_variant(left, right, rules):
+    """Return whether two stem-sharing names describe one place.
+
+    They do when they name the same lot, or when what follows the shared
+    stem is nothing but unspecific words ("site", "within"): "<place> site"
+    and "<place> artefact scatter".  Different tails ("<place> fortress",
+    "<place> school") are different places.
+    """
+    left_lots, right_lots = _lot_numbers(left, rules), _lot_numbers(right, rules)
+    if left_lots and right_lots:
+        return bool(left_lots & right_lots)
+    words = sorted(
+        {
+            relations.identity_name_key(word, rules)
+            for word in rules.get("unspecific_names", ())
+        } - {""},
+        key=len,
+        reverse=True,
+    )
+    if not words:
+        return False
+    left_key = relations.identity_name_key(left, rules)
+    right_key = relations.identity_name_key(right, rules)
+    generic = _generic_identity_keys(rules)
+    # Same core under a different or omitted qualifier ("<dynasty> <name>
+    # tomb" / "<city> <name> tomb"): trailing words of one name end the
+    # other, and they say more than a generic type word.
+    minimum = int(relations.relation_thresholds(rules)["affix_min_chars"]) + 1
+    for parsed, other_key in (
+        (relations.parse_name(left, rules), right_key),
+        (relations.parse_name(right, rules), left_key),
+    ):
+        tokens = parsed.tokens
+        for start in range(1, len(tokens)):
+            tail = "".join(tokens[start:])
+            if (
+                len(tail) >= minimum
+                and tail not in generic
+                and not parsed.designators
+                and other_key.endswith(tail)
+                and other_key != tail
+            ):
+                return True
+    prefix = 0
+    for left_char, right_char in zip(left_key, right_key):
+        if left_char != right_char:
+            break
+        prefix += 1
+    pattern = re.compile("(?:" + "|".join(re.escape(word) for word in words) + ")+")
+    # The shared prefix may run into the type words themselves
+    # ("...유물산포지" / "...유적" share "유"), so step back a little.
+    for cut in range(prefix, max(1, prefix - 3), -1):
+        if any(
+            not tail or pattern.fullmatch(tail)
+            for tail in (left_key[cut:], right_key[cut:])
+        ):
+            return True
+    return False
 
 
 def _automatic(confidence, preset):
@@ -1133,8 +1210,23 @@ def evaluate_candidate(
                 )
             )
 
+    sibling_names = (
+        rule == "name_containment_and_overlap"
+        and name_rel in (relations.NAME_SIBLING, relations.NAME_UNRELATED)
+        and similarity < float(thresholds.get("sibling_merge_similarity", 0.85))
+        and not _stem_variant(left_name, right_name, active_rules)
+    )
+    if sibling_names and recommended == DECISION_MERGE:
+        # A shared stem is not containment: "<place> fortress" overlapping
+        # "<place> temple" are two sites.  Keep the pair visible for review
+        # but recommend linking, never one number.
+        recommended = DECISION_LINK
+        auto_apply = False
+
     if pair_kind == "excavation_area_parts":
         relation_type = RELATION_SAME_ENTITY
+    elif sibling_names:
+        relation_type = RELATION_RELATED_SEPARATE
     elif pair_kind == "designated_excavation" or rule == "project_name_and_overlap":
         relation_type = RELATION_INVESTIGATION_SITE
     elif pair_kind == "surface":

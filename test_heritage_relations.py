@@ -119,6 +119,32 @@ class NameRelationTests(unittest.TestCase):
             NAME_LEFT_SPECIFIC,
         )
 
+    def test_bracketed_lot_number_is_part_of_the_name(self):
+        # Neighbouring lots investigated under the same boilerplate title
+        # are different investigations; the lot is not an alias.
+        self.assertNotIn(
+            relation(
+                "가상 나상동(49-6번지) 단독주택 신축부지 내 유적",
+                "가상 나상동(189-10번지) 단독주택 신축부지 내 유적",
+            ),
+            {NAME_EQUAL, NAME_ALIAS},
+        )
+        self.assertEqual(
+            relation(
+                "가상 나상동(49-6번지) 단독주택 신축부지 내 유적",
+                "가상 나상동(49-6번지) 단독 주택 신축부지 내 유적",
+            ),
+            NAME_EQUAL,
+        )
+        # A designation number or former name in brackets is still an alias.
+        self.assertEqual(relation("가상사지(사적 제6호)", "가상사지"), NAME_EQUAL)
+        self.assertEqual(relation("가상 패총 (나상 패총)", "나상 패총"), NAME_ALIAS)
+        # A bracketed full name that merely contains a lot is still an alias.
+        self.assertEqual(
+            relation("가상 89-2유적", "나상학교부지내 유적(가상 89-2유적)"),
+            NAME_ALIAS,
+        )
+
     def test_numbered_tomb_is_not_part_of_a_lot_named_project(self):
         self.assertNotIn(
             relation("가상 나상동 19호분", "가상 나상동 669-1번지 일원 신축부지 내 유적"),
