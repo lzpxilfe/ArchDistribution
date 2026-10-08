@@ -509,9 +509,65 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.reference_data = {}
         self.load_reference_data()
 
+        self._arrange_sections_by_workflow()
+
         # [NEW] Global Scroll Implementation
         # User requested: Title bar fixed, but Tabs + Logs + Run Button all scrollable together.
         self.make_global_scrollable()
+
+    def _arrange_sections_by_workflow(self):
+        """Order the sections in the order an operator decides them.
+
+        Data tab: inputs, source roles and duplicates, legal layers,
+        attribute classification and exclusions, then the print extent with
+        its edge-fragment rule.  Style tab: symbols, labels, buffers with the
+        outside-buffer rule, numbering, then follow-up renumbering.  Controls
+        keep their objects, signals and saved settings; only their place in
+        the layout changes (see UPDATE_GUARDRAILS.md, section 7).
+        """
+        if not (hasattr(self, "vTab1") and hasattr(self, "vTab2")):
+            return
+        data_sections = [
+            getattr(self, name) for name in (
+                "groupData", "groupDuplicatePolicy", "groupLegalLayers",
+                "groupSmartFilter", "groupSpecs",
+            ) if hasattr(self, name)
+        ]
+        style_sections = [
+            getattr(self, name) for name in (
+                "groupSym", "groupLabelStyle", "groupBuffer",
+                "groupNumbering", "groupPreviousResult",
+            ) if hasattr(self, name)
+        ]
+        loose = [
+            getattr(self, name) for name in (
+                "chkRestrictToBuffer", "chkExcludeExtentSlivers",
+            ) if hasattr(self, name)
+        ]
+        for widget in data_sections + style_sections + loose:
+            self.vTab1.removeWidget(widget)
+            self.vTab2.removeWidget(widget)
+        for index, widget in enumerate(data_sections):
+            self.vTab1.insertWidget(index, widget)
+        for index, widget in enumerate(style_sections):
+            self.vTab2.insertWidget(index, widget)
+        # Each rule sits with the setting it depends on.
+        if hasattr(self, "gSpecs") and hasattr(self, "chkExcludeExtentSlivers"):
+            self.gSpecs.addWidget(
+                self.chkExcludeExtentSlivers,
+                self.gSpecs.rowCount(), 0, 1,
+                max(1, self.gSpecs.columnCount()),
+            )
+        if hasattr(self, "gBuffer") and hasattr(self, "chkRestrictToBuffer"):
+            self.gBuffer.addWidget(
+                self.chkRestrictToBuffer,
+                self.gBuffer.rowCount(), 0, 1,
+                max(1, self.gBuffer.columnCount()),
+            )
+        # The follow-up card lists only compatible result layers; the older
+        # "renumber the active layer" button duplicated it.
+        if hasattr(self, "btnRenumber"):
+            self.btnRenumber.setVisible(False)
 
     def _build_duplicate_policy_controls(self):
         """Add source-role overrides and duplicate matching preset controls."""
@@ -2265,12 +2321,24 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
 
         if hasattr(self, "groupSmartFilter"):
-            self.groupSmartFilter.setTitle(self._t("유적 속성 분류", "Site Attribute Classification"))
+            self.groupSmartFilter.setTitle(self._t(
+                "유적 속성 분류 및 제외",
+                "Site Attributes and Exclusions",
+            ))
         if hasattr(self, "lSmartDesc"):
+            self.lSmartDesc.setWordWrap(True)
             self.lSmartDesc.setText(
                 self._t(
-                    "체크된 유적 레이어의 명칭을 분석하여 시대와 성격을 자동 분류합니다.",
-                    "Analyze selected heritage-layer names and classify period/type automatically.",
+                    "체크한 유적 레이어의 시대·성격 필드(없으면 명칭)로 목록을 "
+                    "만듭니다. 체크를 해제한 시대·성격과, 아래 목록에서 체크한 "
+                    "항목은 번호에서 빠지고 06_중복_검수/제외_기록에 남습니다. "
+                    "[규칙] 항목은 무형·동산·유적없음·자연유산처럼 기록 유형 "
+                    "전체에 적용됩니다.",
+                    "Lists periods and characters from the source fields (names "
+                    "as a fallback). Unchecked periods/characters and checked "
+                    "rows below are left out of numbering and kept in "
+                    "06_중복_검수/제외_기록. [Rule] rows apply to a whole record "
+                    "type such as intangible, movable, no remains or natural.",
                 )
             )
         if hasattr(self, "btnSmartScan"):
@@ -2280,7 +2348,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "lblType"):
             self.lblType.setText(self._t("성격", "Type"))
         if hasattr(self, "lblExclusion"):
-            self.lblExclusion.setText(self._t("제외 제안 목록 (체크시 제외됨):", "Suggested Exclusions (checked = exclude):"))
+            self.lblExclusion.setText(self._t(
+                "제외 목록 (체크 = 번호에서 제외):",
+                "Exclusions (checked = left out of numbering):",
+            ))
 
         if hasattr(self, "groupLegalLayers"):
             self.groupLegalLayers.setTitle(self._t(
@@ -2960,6 +3031,18 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.listHeritageLayers.clear()
 
         layers = list(QgsProject.instance().mapLayers().values())
+        generated_ids = set()
+        root = QgsProject.instance().layerTreeRoot()
+        for group_name in ("ArchDistribution_결과물", "ArchDistribution_작업중"):
+            group = root.findGroup(group_name)
+            if group is None:
+                continue
+            for node in group.findLayers():
+                node_layer = node.layer()
+                if node_layer is not None and not (
+                    self._is_previous_distribution_result(node_layer)
+                ):
+                    generated_ids.add(node.layerId())
         for layer in layers:
             if layer.type() == 0:  # VectorLayer
                 # A CP949 DBF must be reloaded before field inspection and
@@ -2967,10 +3050,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 # button is pressed leaves already-decoded mojibake in the
                 # field selector, which makes automatic zone detection fail.
                 self._apply_automatic_shapefile_encoding(layer)
-                # [FIX] Filter out generated/output layers to prevent feedback loops
+                # Skip this plugin's own outputs (they live in its result or
+                # staging group) and processing intermediates.  A name test
+                # alone hid users' own "조사구역"/"발굴조사구역" layers.
                 l_name = layer.name()
-                keywords_to_skip = ['_Copy', 'Consolidated', 'Dissolved', 'Buffer', '도곽', '조사구역']
-                if any(k in l_name for k in keywords_to_skip):
+                if layer.id() in generated_ids or any(
+                    keyword in l_name
+                    for keyword in ('_Copy', 'Consolidated', 'Dissolved')
+                ):
                     continue
 
                 self.comboStudyArea.addItem(layer.name(), layer.id())
@@ -3016,9 +3103,35 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     )
                     item_heritage.setCheckState(QtCore.Qt.Unchecked)
                     self.listHeritageLayers.addItem(item_heritage)
+        self._select_likely_study_area()
         self._populate_previous_result_layers()
         self._populate_layer_role_table()
         self._update_previous_result_guidance()
+
+    def _select_likely_study_area(self):
+        """Preselect a polygon layer whose name says it is the survey area.
+
+        Only a convenience: the operator still confirms the choice.  Without
+        a matching name the first polygon layer is preferred over a line
+        layer, which can never be a study area.
+        """
+        keywords = ("조사지역", "조사구역", "조사대상", "사업부지", "사업지구",
+                    "study", "survey area", "project area")
+        best = None
+        for index in range(self.comboStudyArea.count()):
+            layer = QgsProject.instance().mapLayer(
+                self.comboStudyArea.itemData(index)
+            )
+            if layer is None or layer.type() != 0 or layer.geometryType() != 2:
+                continue
+            name = layer.name().casefold()
+            if any(keyword in name for keyword in keywords):
+                best = index
+                break
+            if best is None:
+                best = index
+        if best is not None:
+            self.comboStudyArea.setCurrentIndex(best)
 
     @staticmethod
     def _apply_automatic_shapefile_encoding(layer):
@@ -3863,177 +3976,180 @@ code { color:#7b2d2d; }
 """
         if self.ui_lang == "en":
             return style + """
-<h2>Duplicate and Representative Numbering Rules</h2>
+<h2>How duplicates and parts are decided</h2>
 <div class="lead">
-<b>Overlap alone never merges records.</b> ArchDistribution combines source
-roles with names, overlap, addresses, and distance to create candidates.
-Representative merging does not delete legal status, survey history, source
-geometry, or source attributes. Overlap means intersection area divided by
-the smaller polygon's area. Confidence describes rule strength, not legal
-certainty or source accuracy.
+<b>Overlap alone never merges records.</b> Every nearby pair is judged in
+three steps: how the <b>names</b> relate, how the <b>footprints</b> relate,
+and which <b>registers</b> the records come from. Nothing is deleted:
+records left out of the label stay in <code>06_중복_검수</code> and in
+<code>SRC_JSON</code>.
 </div>
 
-<h3>What each decision means</h3>
+<h3>Step 1 — name relation (spelling-insensitive)</h3>
+<p>Spacing, full-width characters, quotes, bracketed aliases, Roman versus
+Arabic numerals and ordinal prefixes ("No. 12") are normalised first.</p>
 <table>
-<tr><th>Decision</th><th>Map result</th><th>Preservation</th></tr>
-<tr><td><b>Keep separate</b></td><td>Both records keep separate numbers.</td>
-<td>The candidate evidence remains in the audit table.</td></tr>
-<tr><td><b>Link only</b></td><td>Both records keep separate numbers, but their
-relationship is recorded.</td><td><code>RELATION_KEY</code> and
-<code>LINKED_IDS</code> retain the link.</td></tr>
-<tr><td><b>Merge numbering identity</b></td><td>One number and one
-representative map label.</td><td>Suppressed geometry and attributes remain
-under <code>06_중복_검수</code> and in <code>SRC_JSON</code>.</td></tr>
+<tr><th>Relation</th><th>Example</th><th>Meaning</th></tr>
+<tr><td>Equal / alias</td><td>Villa 3 · Villa III · Villa (Roman villa)</td><td>Same name</td></tr>
+<tr><td>Omitted qualifier</td><td>"County A Hall" · "Hall"</td><td>Same place, prefix left out</td></tr>
+<tr><td>More specific</td><td>"Cemetery A tomb 12" · "Cemetery A"</td><td>A part of the site</td></tr>
+<tr><td>Different numbers</td><td>tomb 1 · tomb 2, Area I · Area II</td><td>Siblings — never one entity</td></tr>
+<tr><td>Sibling / unrelated</td><td>shared stem · different names</td><td>No identity evidence</td></tr>
 </table>
 
-<h3>Balanced-mode relation rules</h3>
+<h3>Step 2 — footprint relation</h3>
+<p>Identical (IoU ≥ 0.9) · similar · one inside the other (≥ 90% covered) ·
+partial overlap · touching or within 50 m.</p>
+
+<h3>The three choices in the review window</h3>
 <table>
-<tr><th>Relation</th><th>Main candidate conditions</th>
-<th>Initial choice</th><th>Number / representative result</th></tr>
-<tr><td>Designated/registered ↔ Distribution map</td>
-<td>Exact normalized name + actual area overlap is high confidence. Exact name
-within 50 m; similarity ≥0.90 or name containment + ≥25% overlap; or ≥80%
-overlap + same address are review candidates.</td>
-<td>High confidence: <b>Merge</b>. Other candidates start as
-<b>Keep separate</b>.</td>
-<td>When merged, designated/registered heritage represents one number and
-label. The distribution source remains in the audit output.</td></tr>
-<tr><td>Excavation ↔ Distribution map</td>
-<td>The same name/space/address rules apply. A related excavation project name
-+ ≥25% overlap is also a review candidate.</td>
-<td>Exact site name + actual overlap: <b>Merge</b>. Project-name/fuzzy
-candidates start as <b>Keep separate</b>.</td>
-<td>When merged, excavation represents the group; the distribution source is
-preserved.</td></tr>
-<tr><td>Designated/registered ↔ Excavation</td>
-<td>Name, space, address, or distance evidence suggests the same place.</td>
-<td>Exact name + overlap: <b>Link only</b>. Other candidates start separate.</td>
-<td>Each keeps its own number; the relation is recorded.</td></tr>
-<tr><td>Surface survey ↔ Any source</td>
-<td>Only when the normal name/space/address/distance rules create a candidate.</td>
-<td>Always <b>Keep separate</b>; never automatically merged by a preset.</td>
-<td>Survey history remains independently numbered unless the user explicitly
-changes the choice.</td></tr>
-<tr><td>Heritage protection zone</td>
-<td>Excluded from ordinary duplicate comparison.</td><td>Not applicable.</td>
-<td>Boundary only; no number.</td></tr>
-<tr><td>Split areas of the same excavation project</td>
-<td>Non-empty project names are exactly equal after normalization.</td>
-<td>Always one numbering group.</td>
-<td>One <code>NUMBER_KEY</code>. Different project names remain separate
-survey events and numbers.</td></tr>
+<tr><th>Choice</th><th>Map number</th><th>Source records</th></tr>
+<tr><td><b>Keep separate</b></td><td>Each keeps its own number</td><td>All kept; no relation recorded</td></tr>
+<tr><td><b>Link only</b></td><td>Each keeps its own number</td><td>All kept; recorded as related records</td></tr>
+<tr><td><b>Merge numbering identity</b></td><td>One shared <code>NUMBER_KEY</code> and one label</td>
+<td>Records left out of the label stay in the audit layer</td></tr>
 </table>
 
-<h3>Matching presets</h3>
+<h3>Step 3 — decision (Balanced preset)</h3>
+<table>
+<tr><th>Situation</th><th>Initial choice</th><th>Map result</th></tr>
+<tr><td>Same name inside one register (spacing/alias variants, split pieces)</td>
+<td>Merge numbering identity (automatic)</td><td>One number; every piece stays drawn</td></tr>
+<tr><td>A part (numbered tomb, building, item) inside its named site</td>
+<td>Merge into the site (automatic)</td><td>The site keeps the number; the part is kept in the audit layer.
+A part with its own legal designation or excavation is <b>linked</b> and keeps its number</td></tr>
+<tr><td>Different records drawn on one identical footprint</td><td>Review (merge recommended)</td>
+<td>One label if merged</td></tr>
+<tr><td>Designated/registered or excavation ↔ distribution map, same name
+(incl. aliases, omitted prefix) and overlapping</td><td>Merge (automatic)</td>
+<td>Designated/excavation record represents the number</td></tr>
+<tr><td>Designated ↔ excavation</td><td>Link</td><td>Both numbered, relation kept</td></tr>
+<tr><td>Surface survey revising a mapped site (same name, redrawn or extended)</td>
+<td>Review (merge recommended)</td><td>One number; both outlines kept</td></tr>
+<tr><td>Survey zone inside a site ("sampling area", "Area 1")</td>
+<td>Review (merge recommended)</td><td>Joins the site number</td></tr>
+<tr><td>Numbered siblings, or overlap with unrelated names</td><td>Not a candidate</td><td>Separate numbers</td></tr>
+<tr><td>Same excavation project name</td><td>Always one number</td><td>Shared <code>NUMBER_KEY</code></td></tr>
+<tr><td>Protection zone</td><td>Not compared</td><td>Boundary only</td></tr>
+</table>
 <ul>
-<li><b>Balanced:</b> only the strongest exact-name + actual-overlap relation
-starts as merge/link. Fuzzy, containment, address, and project-name candidates
-start separate.</li>
-<li><b>Conservative:</b> every candidate starts separate and needs an explicit
-user choice.</li>
-<li><b>Automation-first:</b> designated/registered ↔ distribution and
-excavation ↔ distribution may start merged at name similarity ≥0.95 and
-overlap ≥50%. Containment-only and surface-survey candidates are excluded.</li>
+<li><b>Conservative:</b> nothing starts merged.</li>
+<li><b>Automation-first:</b> also pre-selects close fuzzy names with ≥ 50% overlap; surveys are never automatic.</li>
+<li>Village-level address equality is not identity evidence; a lot number is required.</li>
 </ul>
 
-<div class="warning"><b>Renumbering is not duplicate re-analysis.</b><br>
-Use <b>Existing Result Follow-up — Renumber Only</b> to keep
-<code>NUMBER_KEY</code> groups and decisions while recalculating number order,
-distance, and <code>LABEL_OK</code>. To change a duplicate/representative
-decision, re-run the original source layers. Feeding only the representative
-result back as source cannot reconstruct suppressed sources or candidate
-relations.</div>
+<h3>Record exclusion rules</h3>
+<p>After [Run Attribute Scan] the exclusion list shows <b>[Rule]</b> rows with
+counts. Defaults follow published reports: intangible and location-less
+movable heritage are excluded; "no remains" investigations and natural
+heritage are kept unless you tick them. Excluded records are kept in
+<code>06_중복_검수/제외_기록</code> with the rule that removed them, and so
+are records you leave out by unticking a period/type or ticking a name.</p>
 
-<h3>Reading result fields</h3>
-<p><code>NUMBER_KEY</code> = one numbering identity · <code>IS_REP=1</code> =
-representative geometry · <code>RELATION_KEY/LINKED_IDS</code> = related
-records that may retain separate numbers · <code>MATCH_STATUS</code> =
-decision outcome · <code>REP_SOURCE</code> = representative source role ·
-<code>SRC_JSON</code> = preserved source attributes.</p>
+<div class="warning"><b>Renumbering is not duplicate re-analysis.</b>
+Renumber-only keeps decisions and recalculates order, distance and label
+anchors. To change a decision, re-run the original source layers.</div>
+
+<h3>Other registers and countries</h3>
+<p>All vocabulary is data: <code>matching_rules.json</code> (thresholds,
+designator units, generic names), <code>exclusion_rules.json</code>
+(outcome and class words) and <code>table_lexicon.json</code> (periods,
+address levels). Edit these files instead of the code.</p>
+
+<h3>Audit fields</h3>
+<p><code>NUMBER_KEY</code> number unit · <code>IS_REP</code> representative ·
+<code>RELATION_TYPE</code> same_entity / parent_child / co_located … ·
+audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
+<code>SRC_JSON</code> preserved source attributes.</p>
 """
 
         return style + """
-<h2>중복·대표 번호 판정 기준</h2>
+<h2>중복·부분 판정 기준</h2>
 <div class="lead">
-<b>도형이 겹친다는 이유만으로는 절대 자동 병합하지 않습니다.</b>
-ArchDistribution은 자료 역할과 함께 명칭·중첩·주소·거리를 보고 후보를
-만듭니다. 대표화하더라도 법적 지위, 조사 이력, 원본 형상과 속성을 삭제하지
-않습니다. 중첩률은 ‘교차 면적 ÷ 두 도형 중 작은 도형의 면적’입니다.
-신뢰도는 판정 규칙의 강도이며 자료의 정확도나 법적 확실성을 뜻하지 않습니다.
+<b>도형이 겹친다는 이유만으로는 절대 합치지 않습니다.</b>
+가까이 있는 두 기록마다 <b>① 명칭이 어떤 관계인지</b>, <b>② 범위가 어떤
+관계인지</b>, <b>③ 어떤 자료끼리인지</b>를 차례로 봅니다. 대표에서 빠진
+기록도 삭제하지 않고 <code>06_중복_검수</code>와 <code>SRC_JSON</code>에
+남습니다.
 </div>
+
+<h3>① 명칭 관계 (표기 차이는 먼저 정리)</h3>
+<p>띄어쓰기, 전각·반각, 따옴표, 괄호 속 한자·별칭, 로마숫자(Ⅰ·Ⅱ)와
+아라비아숫자, ‘제12호’의 ‘제’를 먼저 같은 꼴로 맞춥니다.</p>
+<table>
+<tr><th>관계</th><th>예(가상)</th><th>뜻</th></tr>
+<tr><td>같음·별칭</td><td>가상리 고분군 3 · 가상리고분군3 · 가상 누정(假想樓亭)</td><td>같은 이름</td></tr>
+<tr><td>앞말 생략</td><td>가상시 월영대 · 월영대</td><td>행정구역 등을 뺀 같은 이름</td></tr>
+<tr><td>더 구체적(부분)</td><td>가상리 고분군 제14호 · 가상리 고분군 / 가상사 대웅전 · 가상사</td><td>상위 유적의 일부</td></tr>
+<tr><td>번호가 다름</td><td>지석묘 1호 · 2호, I지역 · II지역, 가군 · 나군</td><td>형제 유적 — 같은 유적으로 보지 않음</td></tr>
+<tr><td>형제·무관</td><td>앞부분만 같음 · 전혀 다름</td><td>동일성 근거 없음</td></tr>
+</table>
+
+<h3>② 범위 관계</h3>
+<p>동일(겹친 면적 비율 IoU 0.9 이상) · 유사 · 한쪽이 다른 쪽 안에 있음(90% 이상)
+· 일부 겹침 · 맞닿음 또는 50m 이내.</p>
 
 <h3>검토창의 세 선택</h3>
 <table>
-<tr><th>선택</th><th>지도 번호·라벨 결과</th><th>자료 보존</th></tr>
-<tr><td><b>별도 유지</b></td><td>서로 다른 대상으로 보고 각각 번호를
-부여합니다.</td><td>후보였다는 근거는 검수표에 남습니다.</td></tr>
-<tr><td><b>연결만</b></td><td>관련 장소·이력으로 연결하되 각각 번호를
-유지합니다.</td><td><code>RELATION_KEY</code>와
-<code>LINKED_IDS</code>에 관계를 기록합니다.</td></tr>
-<tr><td><b>대표 번호로 묶기</b></td><td>번호 하나와 대표 라벨 하나만
-사용합니다.</td><td>대표에서 제외된 형상·속성은
-<code>06_중복_검수</code>와 <code>SRC_JSON</code>에 남습니다.</td></tr>
+<tr><th>선택</th><th>지도 번호</th><th>원본 기록</th></tr>
+<tr><td><b>별도 유지</b></td><td>각각 번호</td><td>모두 보존, 관계 기록 없음</td></tr>
+<tr><td><b>연결만</b></td><td>각각 번호</td><td>모두 보존, 서로 관련된 기록으로 연결</td></tr>
+<tr><td><b>대표 번호로 묶기</b></td><td><code>NUMBER_KEY</code> 하나, 라벨 하나</td>
+<td>대표에서 빠진 기록도 검수 레이어에 보존</td></tr>
 </table>
+<p>아래 표의 ‘묶기’는 <b>대표 번호로 묶기</b>를 줄여 쓴 말입니다.</p>
 
-<h3>균형형의 관계별 기준</h3>
+<h3>③ 판정 (균형형 기준)</h3>
 <table>
-<tr><th>자료 관계</th><th>후보가 되는 주요 조건</th>
-<th>검토창 초기 선택</th><th>번호·대표 결과</th></tr>
-<tr><td>지정·등록유산 ↔ 문화유적분포지도</td>
-<td>정규화 명칭 동일+실제 면적 중첩은 높은 신뢰도입니다. 동일명칭 50m
-이내, 명칭 유사도 0.90 이상/포함관계+작은 도형 기준 중첩률 25% 이상,
-또는 중첩률 80% 이상+동일 주소는 검토 후보입니다.</td>
-<td>높은 신뢰도는 <b>대표 번호로 묶기</b>, 나머지는
-<b>별도 유지</b>로 시작합니다.</td>
-<td>묶으면 지정·등록유산이 대표가 되고 번호·라벨은 하나입니다. 분포지도
-원본은 검수 자료에 보존됩니다.</td></tr>
-<tr><td>발굴조사 ↔ 문화유적분포지도</td>
-<td>위의 명칭·공간·주소 조건을 적용합니다. 발굴 사업명이 분포지도 명칭과
-관련되고 중첩률이 25% 이상인 경우도 검토 후보입니다.</td>
-<td>동일 유적명+실제 중첩은 <b>대표 번호로 묶기</b>, 사업명·유사명칭
-후보는 <b>별도 유지</b>로 시작합니다.</td>
-<td>묶으면 발굴조사가 대표가 되고 분포지도 원본은 보존됩니다.</td></tr>
-<tr><td>지정·등록유산 ↔ 발굴조사</td>
-<td>명칭·공간·주소·거리 근거로 같은 장소 가능성을 제시합니다.</td>
-<td>동일명칭+실제 중첩은 <b>연결만</b>, 그 밖은 별도 유지입니다.</td>
-<td>법적 지위와 조사 사건은 각각 번호를 유지하고 관계만 기록합니다.</td></tr>
-<tr><td>지표조사 ↔ 모든 자료</td>
-<td>일반 명칭·공간·주소·거리 조건을 만족할 때만 후보가 됩니다.</td>
-<td>항상 <b>별도 유지</b>. 어떤 프리셋도 자동 병합하지 않습니다.</td>
-<td>조사 이력을 독립적으로 보존합니다. 사용자가 검토창에서 명시적으로
-선택한 경우에만 연결하거나 묶습니다.</td></tr>
-<tr><td>지정유산 보호구역</td><td>일반 중복 후보 비교에서 제외됩니다.</td>
-<td>해당 없음</td><td>경계만 유지하고 번호를 부여하지 않습니다.</td></tr>
-<tr><td>같은 발굴 사업명의 분할구역</td>
-<td>비어 있지 않은 사업명이 정규화 후 정확히 같은 경우입니다.</td>
-<td>항상 같은 번호 묶음</td>
-<td>I지역·II-1·2·3지역처럼 나뉘어도 <code>NUMBER_KEY</code> 하나를
-공유합니다. 사업명이 다르면 같은 유적 안에서도 별도 번호입니다.</td></tr>
+<tr><th>상황</th><th>검토창 초기 선택</th><th>지도 결과</th></tr>
+<tr><td>같은 자료 안의 같은 이름(띄어쓰기·괄호·숫자 표기 차이, 나뉜 조각)</td>
+<td>묶기(자동)</td><td>번호 하나, 조각은 모두 그대로 표시</td></tr>
+<tr><td>상위 유적 안의 부분(개별 호분·건물·전각·유구)</td>
+<td>상위 번호로 묶기(자동)</td><td>상위 유적이 번호를 갖고 부분은 검수 레이어에 보존.
+부분이 지정유산이거나 발굴조사이면 <b>연결만</b> 하고 자기 번호 유지</td></tr>
+<tr><td>같은 범위에 그려진 서로 다른 기록</td><td>검토(묶기 권장)</td><td>묶으면 라벨 하나</td></tr>
+<tr><td>지정·등록유산 또는 발굴조사 ↔ 분포지도, 같은 이름(별칭·앞말 생략 포함)+겹침</td>
+<td>묶기(자동)</td><td>지정·발굴 기록이 대표 번호</td></tr>
+<tr><td>지정·등록유산 ↔ 발굴조사</td><td>연결만</td><td>각각 번호, 관계만 기록</td></tr>
+<tr><td>지표조사가 분포지도 유적을 다시 그은 경우(같은 이름, 범위 수정·확장)</td>
+<td>검토(묶기 권장)</td><td>번호 하나, 두 범위 모두 표시</td></tr>
+<tr><td>유적 안의 지표조사 구역(표본조사 필요범위, 1지역 등)</td>
+<td>검토(묶기 권장)</td><td>상위 유적 번호로 흡수</td></tr>
+<tr><td>번호가 다른 형제, 이름이 무관한 단순 중첩</td><td>후보 아님</td><td>각각 번호</td></tr>
+<tr><td>같은 발굴 사업명</td><td>항상 같은 번호</td><td><code>NUMBER_KEY</code> 공유</td></tr>
+<tr><td>지정유산 보호구역</td><td>비교 제외</td><td>경계만 표시, 번호 없음</td></tr>
 </table>
-
-<h3>판정 모드</h3>
 <ul>
-<li><b>균형형:</b> 가장 확실한 동일명칭+실제 중첩 관계만 대표화/연결로
-미리 선택합니다. 유사·포함·주소·사업명 후보는 별도 유지로 시작합니다.</li>
-<li><b>보수형:</b> 모든 후보를 별도 유지로 시작하며 사용자가 직접
-결정합니다.</li>
-<li><b>자동화 우선형:</b> 지정·등록↔분포 및 발굴↔분포에 한해 명칭
-유사도 0.95 이상+중첩률 50% 이상까지 대표화 초기 선택을 넓힙니다.
-단순 포함관계와 지표조사는 제외합니다.</li>
+<li><b>보수형:</b> 모든 후보를 별도 유지로 시작합니다.</li>
+<li><b>자동화 우선형:</b> 유사도 0.95 이상+중첩 50% 이상까지 묶기를 미리 선택합니다. 지표조사는 어느 모드에서도 자동 처리하지 않습니다.</li>
+<li>같은 마을 주소만으로는 같은 유적의 근거로 쓰지 않습니다(지번까지 같아야 함).</li>
+<li>지역별로 내려받은 자료에서 경계 유적이 두 번 들어와도, 같은 유산코드·명칭·범위면 같은 기록으로 처리합니다.</li>
 </ul>
 
-<div class="warning"><b>번호 재정렬은 중복 재분석이 아닙니다.</b><br>
-<b>[기존 결과 후속 작업 — 번호만 다시 매기기]</b>는
-<code>NUMBER_KEY</code>와 판정을 유지하고 번호 순서, 이격거리,
-<code>LABEL_OK</code>만 다시 계산합니다. 중복·대표 결정을 바꾸려면 각
-출처의 원본 레이어로 다시 분석하세요. 대표 결과만 원본으로 재입력하면
-숨겨진 자료와 후보 관계를 복원할 수 없습니다.</div>
+<h3>기록 제외 규칙</h3>
+<p>[속성 분류 실행] 뒤 ‘제외 목록’에 <b>[규칙]</b> 항목이 건수와 함께
+나옵니다. 기본값은 보고서 관행을 따릅니다. 무형유산과 위치 없는 동산유산은
+제외하고, ‘유적없음’ 조사와 노거수 같은 자연유산은 체크하지 않으면
+유지합니다(‘유적없음 유적분포가능지’는 항상 유지). 제외된 기록은
+<code>06_중복_검수/제외_기록</code>에 이유와 함께 남습니다. 시대·성격 체크를
+해제하거나 제외 목록에서 명칭을 체크해 뺀 기록도 같은 곳에 남습니다.</p>
+
+<div class="warning"><b>번호 재정렬은 중복 재분석이 아닙니다.</b>
+[번호만 다시 매기기]는 판정을 유지한 채 순서·이격거리·라벨 위치만 다시
+계산합니다. 판정을 바꾸려면 원본 레이어로 다시 분석하세요.</div>
+
+<h3>다른 자료·다른 나라에 쓸 때</h3>
+<p>판정에 쓰는 어휘는 모두 데이터 파일에 있습니다.
+<code>matching_rules.json</code>(기준값, ‘호·지점·지역’ 같은 번호 단위,
+일반명), <code>exclusion_rules.json</code>(유적없음·무형·동산·자연 어휘),
+<code>table_lexicon.json</code>(시대 순서·별칭, 주소 단위). 코드를 고치지
+말고 이 파일을 바꾸면 됩니다.</p>
 
 <h3>결과 필드 읽는 법</h3>
-<p><code>NUMBER_KEY</code>=같은 번호 단위 · <code>IS_REP=1</code>=대표
-형상 · <code>RELATION_KEY/LINKED_IDS</code>=번호는 다를 수 있지만 연결된
-자료 · <code>MATCH_STATUS</code>=판정 결과 · <code>REP_SOURCE</code>=대표
-출처 · <code>SRC_JSON</code>=보존된 전체 원본 속성</p>
+<p><code>NUMBER_KEY</code>=같은 번호 단위 · <code>IS_REP</code>=대표 형상 ·
+<code>RELATION_TYPE</code>=same_entity(같은 유적)/parent_child(부분)/co_located(같은 범위) ·
+검수표 <code>NAME_REL</code>·<code>GEOM_REL</code>·<code>RULE</code>=판정 근거 ·
+<code>SRC_JSON</code>=보존된 전체 원본 속성</p>
 """
 
     def show_matching_rules_help(self):
@@ -4066,135 +4182,116 @@ ArchDistribution은 자료 역할과 함께 명칭·중첩·주소·거리를 �
         noise_examples = ", ".join(f"<code>{kw}</code>" for kw in examples)
         if self.ui_lang == "en":
             help_text = """
-<h3>User Guide & Notes</h3>
+<h3>User Guide</h3>
 <hr>
-<b>[Workflow]</b><br>
+<b>[Workflow — follow the screen from top to bottom]</b><br>
 <ol>
-<li><b>Prepare layers:</b> Load study area (Polygon), topographic layers, and heritage layers.</li>
-<li><b>Select layers:</b> In the Data tab, choose study area, topo, heritage, and optional zone layer.</li>
-<li><b>Confirm source roles:</b> Review detected roles and the duplicate-matching preset.</li>
-<li><b>Set extent/scale:</b> Input paper size and scale (report/A4 presets available).</li>
-<li><b>Smart scan:</b> Click [Run Attribute Scan] to classify era/type candidates.</li>
-<li><b>Run:</b> Click [Run Analysis / Generate Map], then review duplicate candidates.</li>
-<li><b>Renumber:</b> After edits/deletions, choose the representative result under [Existing Result Follow-up — Renumber Only] on the Style tab.</li>
+<li><b>Load layers:</b> study area (polygon), topographic maps and heritage layers.
+Regional downloads may be loaded together; a record repeated by two adjacent
+downloads is recognised as one record.</li>
+<li><b>Data tab ① Input layers:</b> choose the study area, topographic maps and nearby-heritage layers.</li>
+<li><b>② Source roles and duplicates:</b> check each layer's role (designated, distribution map,
+excavation, surface survey…) and the matching mode. <i>Balanced</i> is the recommended default.</li>
+<li><b>③ Legal layers (optional):</b> change-zone, designated areas and protection zones as official legend layers.</li>
+<li><b>④ Attribute scan and exclusions:</b> [Run Attribute Scan] lists periods and characters
+from the source fields and proposes <b>[Rule]</b> exclusions with counts.</li>
+<li><b>⑤ Print extent and scale:</b> paper size, scale, and the map-edge fragment rule.</li>
+<li><b>Style tab:</b> symbols, label font, buffers (with "hide outside buffer"), numbering order.</li>
+<li><b>Optional outputs:</b> GeoPackage + manifest, print layout JPG/PDF, and the
+<b>nearby-site table (HWPX, CSV)</b>.</li>
+<li><b>Run</b> and review the duplicate candidates. Filter by relation and use
+"apply recommended" for a whole group.</li>
+<li><b>Follow-up:</b> after edits, renumber in Style tab › Existing Result Follow-up.</li>
 </ol>
-<br>
-<b>[View results]</b><br>
-When processing completes, map canvas auto-zooms to extent.<br>
-The canvas includes viewing padding. Automatic print layouts use the study/extent CRS even when the project CRS differs.<br>
-For a manually created print layout, set the map item's CRS to the same CRS as <b>도곽_Extent</b> so paper size, scale, and collection footprint remain identical.<br>
-If nothing appears, check visibility of <b>ArchDistribution_결과물</b> and try <b>Zoom to Layer</b>.<br><br>
+<b>[How duplicates are judged]</b><br>
+Names are compared after normalising spacing, brackets, Roman numerals and
+omitted prefixes. Footprints are compared by containment and overlap. A part
+(numbered tomb, building) inside its named site joins the site's number;
+numbered siblings (tomb 1 / tomb 2) are never merged; overlap alone never
+merges. See <b>Matching rules explained</b> for the full table.<br><br>
+<b>[Surface surveys]</b><br>
+Surveys redraw, extend or split mapped sites. Such revisions are classified
+("survey revision", "survey zone in site") and recommended, but a survey record
+is never removed automatically.<br><br>
+<b>[Record exclusion rules]</b><br>
+Intangible and location-less movable heritage are excluded by default;
+"no remains" investigations and natural heritage are kept unless ticked.
+Excluded records stay in <b>06_중복_검수/제외_기록</b>.<br><br>
+<b>[Nearby-site table]</b><br>
+Columns: No., site (designation in brackets), period, character, location,
+distance/direction, source, remarks. Periods from several records are ordered
+and unbroken runs become ranges (e.g. Three Kingdoms-Joseon); addresses are
+merged to the shared regions and lots ("… 12 and 1 other lot"). The HWPX file
+opens in Hangul and is a draft to check.<br><br>
 <b>[Zone option]</b><br>
-If a Zone layer is selected, features are automatically split/styled by zone code.<br>
-Option <b>Clip to buffer extent</b> keeps only features inside the largest buffer (Extent ∩ Buffer).<br><br>
-<b>[Source-aware duplicate review]</b><br>
-Balanced mode auto-recommends only exact-name overlaps between designated/registered heritage and distribution maps, or excavation and distribution maps.<br>
-Spatial overlap alone never merges records. Designated heritage and excavation remain separately numbered, and surface surveys are kept separate by default.<br>
-Suppressed lower-priority geometry is retained under <b>06_중복_검수</b> with a complete audit table and source JSON.<br><br>
-<b>[Duplicate re-analysis vs. renumber-only]</b><br>
-Renumber-only keeps <code>NUMBER_KEY</code> groups and match/representative decisions, then recalculates number order, distance, and <code>LABEL_OK</code> from the current settings.<br>
-To change a duplicate or representative decision, re-run the original source layers. Feeding only a representative result back as source cannot reconstruct suppressed sources or original candidate relations.<br><br>
+A change-zone layer is split and styled by code. "Clip to buffer" keeps only the largest buffer.<br><br>
 <b>[Buried heritage preservation areas]</b><br>
-Open the dedicated <b>Buried Heritage Preservation Areas</b> workflow tab, select the preservation polygon and study-area baseline, then confirm the paper size, scale, and action field.<br>
-The fill/outline colors, width, and opacity for 현상보존, 정밀발굴조사, 시굴조사, and 표본조사 are configurable and saved.<br>
-Tiny polygons clipped at the extent use the same scale-aware exclusion rule as the distribution-map workflow.<br>
-Action boundaries remain separate, while records with the same project name share one number. All source fields and grouped records are retained; save as GeoPackage to avoid Shapefile truncation.<br><br>
-<b>[Numbering tips]</b><br>
-<ul>
-<li>Buffer-tier numbering is applied only when sort order is distance-based.</li>
-<li>If "Exclude outside buffer" is checked, features outside max buffer may stay unnumbered.</li>
-</ul>
-<br>
-<b>[Suggested Exclusions]</b><br>
-When an approved user-supplied <code>smart_patterns.json</code> is installed,
-exclusion suggestions use its <code>noise</code> keywords; otherwise conservative
-built-in examples are shown.<br>
-Example: {noise_examples}<br>
-These are suggestions only. You can uncheck to include features.<br><br>
-<b>[Export tip]</b><br>
-For Illustrator workflows, export separate PDFs by layer visibility and combine later for cleaner editing.<br><br>
+Use the dedicated tab; action colours, width and opacity are saved.<br><br>
+<b>[Name-based suggestions]</b><br>
+With an approved <code>smart_patterns.json</code>, names containing noise words are suggested. Example: {noise_examples}<br><br>
+<b>[Other registers and countries]</b><br>
+Vocabulary lives in <code>matching_rules.json</code>, <code>exclusion_rules.json</code>
+and <code>table_lexicon.json</code>; edit those files, not the code.<br><br>
 <b>[Disclaimer]</b><br>
-This plugin automates repetitive GIS tasks but final QA remains user's responsibility.<br>
-Please verify geometry/attributes before reporting or legal use.<br><br>
-<b>[Cache/Reload]</b><br>
-If updates are not reflected, disable/enable the plugin or restart QGIS.<br>
+The plugin automates repetitive GIS work; final checking of positions,
+attributes, numbers and table cells remains the user's responsibility.<br><br>
+<b>[Cache/Reload]</b> If an update is not reflected, re-enable the plugin or restart QGIS.
 <div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
 """
         else:
             help_text = """
-<h3>사용 가이드 및 유의사항 (User Guide)</h3>
+<h3>사용 가이드 및 유의사항</h3>
 <hr>
-<b>[작업 순서 (Workflow)]</b><br>
+<b>[작업 순서 — 화면 위에서 아래로]</b><br>
 <ol>
-<li><b>레이어 준비:</b> 조사지역(Polygon), 수치지형도, 주변유적 레이어를 불러옵니다.</li>
-<li><b>레이어 선택:</b> [데이터 탭]에서 조사지역, 지형도, 유적 레이어를 선택합니다.</li>
-<li><b>자료 역할 확인:</b> 자동 판정된 자료 역할과 중복 판정 모드를 확인합니다.</li>
-<li><b>도곽/축척 설정:</b> 도면 가로/세로(mm)와 축척을 입력합니다. (프리셋 활용 추천)</li>
-<li><b>스마트 분류:</b> [속성 분류 실행] 버튼으로 유적을 시대/유형별로 분류합니다.</li>
-<li><b>분석 실행:</b> [▶ 분석 및 지도 생성 실행] 후 중복 후보 처리 방식을 검토합니다.</li>
-<li><b>번호만 다시 매기기:</b> 유적 삭제/수정 후 [스타일 탭 > 기존 결과 후속 작업]에서 대표 결과를 골라 번호 재정렬</li>
+<li><b>레이어 준비:</b> 조사지역(폴리곤), 수치지형도, 주변유적 레이어를 불러옵니다.
+국가유산청 자료를 지역별로 여러 파일 받아 함께 불러와도 됩니다. 경계에 걸쳐 두
+파일에 모두 들어 있는 유적은 같은 기록으로 처리합니다.</li>
+<li><b>데이터 탭 ① 입력 레이어:</b> 조사지역, 수치지형도, 주변 유적 레이어를 고릅니다.</li>
+<li><b>② 자료 역할 및 중복 판정:</b> 레이어마다 자동 판정된 역할(지정유산·분포지도·발굴·지표 등)과
+판정 모드를 확인합니다. 처음에는 <b>균형형</b>을 권장합니다.</li>
+<li><b>③ 국가유산청 법정 레이어(필요 시):</b> 현상변경·지정구역·보호구역을 공식 범례 레이어로 그립니다.</li>
+<li><b>④ 유적 속성 분류·제외:</b> [속성 분류 실행]을 누르면 원본의 시대·성격 값으로 목록을 만들고,
+번호에서 뺄 기록 유형을 <b>[규칙]</b> 항목으로 건수와 함께 제안합니다.</li>
+<li><b>⑤ 출력 도곽 및 축척:</b> 판형·축척과 도곽 경계 미세 조각 제외를 정합니다.</li>
+<li><b>스타일 탭:</b> 심볼, 라벨 글꼴, 버퍼(버퍼 밖 숨김 포함), 번호 부여 순서를 정합니다.</li>
+<li><b>선택 저장:</b> GeoPackage+실행정보, 인쇄조판 JPG/PDF, <b>주변유적 현황표(HWPX·CSV)</b>.</li>
+<li><b>실행</b> 후 중복 후보 검토창에서 관계별로 걸러 보고, 묶음 단위로 ‘권장 적용’을 쓸 수 있습니다.</li>
+<li><b>후속 작업:</b> 결과를 고친 뒤에는 스타일 탭의 [기존 결과 후속 작업]에서 번호만 다시 매깁니다.</li>
 </ol>
-<br>
-<b>[결과 확인 (View)]</b><br>
-작업이 끝나면 <b>도곽(Extent) 범위로 화면이 자동 확대(여백 포함)</b>되어 결과물을 바로 확인할 수 있습니다.<br>
-프로젝트 CRS가 조사구역과 달라도 자동 인쇄조판은 조사구역·도곽 CRS를 사용합니다.<br>
-인쇄조판을 직접 만들 때에는 지도 항목 CRS를 <b>도곽_Extent와 같은 CRS</b>로 설정해야 판형·축척·유적 수집 범위가 정확히 일치합니다.<br>
-만약 화면이 비어 보이면 레이어 패널에서 <b>ArchDistribution_결과물</b> 그룹의 체크(가시성)를 확인하고,<br>
-개별 레이어 우클릭 → <b>레이어로 확대(Zoom to Layer)</b>를 시도해 주세요.
-<br><br>
-<b>[현상변경허용기준(Zone) 옵션]</b><br>
-현상변경허용기준 레이어를 선택하면, 도곽 내에서 자동 분할/스타일링을 수행합니다.<br>
-<ul>
-<li><b>버퍼 범위 내 자르기</b>: 가장 큰 버퍼(최대 반경) 범위 안에 포함되는 구역만 남깁니다. (도곽 ∩ 버퍼)</li>
-</ul>
-<br>
-<b>[자료 역할 및 중복 검토]</b><br>
-기본 균형형은 지정·등록유산과 분포지도, 발굴조사와 분포지도의 명칭이 같고 실제 면적이 겹칠 때만 대표화를 추천합니다.<br>
-공간 중첩만으로는 합치지 않으며, 지정유산과 발굴조사는 각각 번호를 유지하고 지표조사는 기본적으로 별도 유지합니다.<br>
-대표에서 제외된 자료는 삭제하지 않고 <b>06_중복_검수</b> 그룹의 숨김 레이어와 검수표, <code>SRC_JSON</code>에 보존합니다.<br>
-<b>중복 재분석과 번호 재정렬은 다릅니다.</b> 번호만 다시 매기기는 <code>NUMBER_KEY</code>와 중복·대표 판정을 유지하고 현재 설정에 맞춰 번호 순서, 이격거리와 <code>LABEL_OK</code>만 다시 계산합니다.<br>
-중복·대표 결정을 바꾸려면 각 출처의 원본 레이어로 다시 분석해야 합니다. 대표 결과만 원본 목록에 재입력하면 숨겨진 자료와 원래 후보 관계를 복원할 수 없습니다.<br>
-<br>
+<b>[중복을 판단하는 방식]</b><br>
+이름은 띄어쓰기·괄호 속 별칭·로마숫자·행정구역 생략을 정리한 뒤 비교하고,
+범위는 포함·중첩 관계로 비교합니다. 상위 유적 안의 부분(개별 호분·건물·전각)은
+상위 유적 번호로 묶고, 번호가 다른 형제(1호·2호, I·II지역)는 묶지 않으며,
+겹침만으로는 절대 합치지 않습니다. 자세한 표는 <b>[판정 기준 쉽게 보기]</b>를 보세요.<br><br>
+<b>[지표조사 자료]</b><br>
+지표조사는 분포지도 유적을 바탕으로 범위를 다시 긋거나 넓히거나 나눕니다.
+이런 관계를 ‘지표조사 재조사’, ‘유적 안의 조사구역’으로 분류해 권장안을 보여주지만,
+지표조사 기록을 자동으로 빼지는 않습니다.<br><br>
+<b>[기록 제외 규칙]</b><br>
+무형유산과 위치 없는 동산유산은 기본 제외, ‘유적없음’ 조사와 노거수 같은
+자연유산은 체크하지 않으면 유지합니다. 제외된 기록은
+<b>06_중복_검수/제외_기록</b>에 이유와 함께 남습니다.<br><br>
+<b>[주변유적 현황표]</b><br>
+열: 번호 · 유적명(지정종목 괄호) · 시대 · 성격 · 소재지 · 이격거리(방위+거리) · 출전 · 비고.
+여러 기록을 합친 칸은 규칙으로 요약합니다. 시대는 순서대로 정리하고 이어지는
+시대는 범위로 씁니다(예: 삼국-조선). 소재지는 공통 행정구역과 지번으로
+줄입니다(예: ○○리 12 외 1필지 일원). HWPX는 한글에서 열리는 초안이니 반드시 원자료와 대조하세요.<br><br>
+<b>[현상변경허용기준(Zone)]</b><br>
+코드별로 자동 분할·채색합니다. ‘버퍼 범위 내 자르기’는 가장 큰 버퍼 안만 남깁니다.<br><br>
 <b>[매장유산 유존지역]</b><br>
-상단의 <b>매장유산 유존지역</b> 전용 작업 탭에서 유존지역 폴리곤과 도곽 기준 조사구역을 선택하고, 판형·축척 및 자동 추천된 보존조치 필드를 확인하거나 직접 지정합니다.<br>
-현상보존·정밀발굴조사·시굴조사·표본조사의 채움색, 외곽선색, 두께, 불투명도를 직접 설정할 수 있으며 다음 실행에도 유지됩니다.<br>
-도곽에서 잘린 미세 폴리곤은 문화유적분포지도와 동일한 축척 기반 기준으로 제외합니다.<br>
-조치별 경계는 따로 유지하지만 같은 사업명은 번호 하나를 공유합니다. 모든 원본 필드와 그룹 구성원 정보도 보존하며, 필드 잘림 방지를 위해 GeoPackage 저장을 권장합니다.<br>
-<br>
-<b>[번호 부여 팁]</b><br>
-<ul>
-<li><b>버퍼 구간별 번호 부여</b>는 정렬 기준이 <b>거리순</b>일 때만 적용됩니다.</li>
-<li><b>버퍼 밖 제외</b> 옵션을 켜면, 최대 버퍼 밖 유적은 번호가 비워질 수 있습니다.</li>
-</ul>
-<br>
-<b>[제외 제안 목록 안내]</b><br>
-출처·라이선스가 확인된 사용자 공급 <code>smart_patterns.json</code>이 설치된
-경우에만 그 파일의 <code>noise</code> 키워드로 제외 제안을 만들며, 없으면
-보수적인 내장 예시만 표시합니다.<br>
-예: {noise_examples}<br>
-이 목록은 자동 확정이 아니라 제안이므로, 현장 판단에 따라 체크를 해제해 포함할 수 있습니다.<br>
-최종 결과는 작업 마지막에 [기존 결과 후속 작업 > 번호만 다시 매기기]로 정리하는 것을 권장합니다.
-<br><br>
-<b>[일러스트레이터(AI) 반출 꿀팁]</b><br>
-보고서 편집을 위해 결과물을 일러스트레이터로 가져가실 때 추천하는 방법입니다:
-<ol>
-<li>QGIS 상단 메뉴의 <b>'프로젝트 > 새 인쇄 조판'</b>을 엽니다.</li>
-<li>생성된 분포지도를 추가하고, <b>PDF로 내보내기</b>를 합니다.</li>
-<li><b>Tip:</b> 레이어(지형도, 유적, 버퍼 등)를 <u>하나씩만 켜서 각각 PDF로 저장</u>한 뒤,<br>
-일러스트레이터에서 합치면 레이어가 섞이지 않아 편집이 훨씬 수월합니다.</li>
-</ol>
-<br>
-<b>[유의사항 (Disclaimer)]</b><br>
-본 플러그인은 좌표계 변환 및 데이터 병합을 자동화하여 사용자의 편의를 돕는 도구입니다.<br>
-<ul>
-<li>사용자마다 QGIS 환경(좌표계 설정 등)이 다르므로, <b>반드시 결과물의 위치와 속성을 육안으로 검수</b>해주시기 바랍니다.</li>
-<li>자동 생성된 유적 번호나 위치가 의도와 다를 수 있으므로, <b>[기존 결과 후속 작업 > 번호만 다시 매기기]</b>로 최종 확인 후 사용하세요.</li>
-<li><b style='color:red'>번호만 다시 매기기는 중복·대표 판정을 유지하지만 현재 설정된 축척·도곽·버퍼·정렬 기준으로 번호를 재할당합니다. 실행 전 설정을 확인하세요.</b></li>
-</ul>
-<br>
-<b>[업데이트/캐시]</b><br>
-코드가 갱신되었는데도 동작이 예전과 같다면, <b>플러그인 관리자에서 비활성화→활성화</b> 또는 <b>QGIS 재시작</b>을 해주세요.
-<br>
+상단의 전용 탭을 쓰세요. 보존조치별 색·두께·불투명도는 다음 실행에도 유지됩니다.<br><br>
+<b>[이름 기반 제외 제안]</b><br>
+출처가 확인된 <code>smart_patterns.json</code>이 있으면 그 키워드가 든 이름을 제안합니다. 예: {noise_examples}<br><br>
+<b>[다른 자료·다른 나라에 쓸 때]</b><br>
+판정 어휘는 <code>matching_rules.json</code>, <code>exclusion_rules.json</code>,
+<code>table_lexicon.json</code>에 있습니다. 코드를 고치지 말고 이 파일을 바꾸면 됩니다.<br><br>
+<b>[일러스트레이터 반출 팁]</b><br>
+레이어(지형도·유적·버퍼)를 하나씩 켜서 각각 PDF로 저장한 뒤 합치면 편집이 수월합니다.<br><br>
+<b>[유의사항]</b><br>
+반복 작업을 자동화하는 도구입니다. 위치·속성·번호·표 내용의 최종 검수는 사용자 몫입니다.
+<b style='color:red'>번호만 다시 매기기는 현재 축척·도곽·버퍼·정렬 기준으로 번호를 다시 붙입니다.</b><br><br>
+<b>[업데이트/캐시]</b> 갱신이 반영되지 않으면 플러그인을 껐다 켜거나 QGIS를 다시 시작하세요.
 <div style='color: #7f8c8d; font-size: 11px;'>ArchDistribution v{version}</div>
 """
         help_text = help_text.format(

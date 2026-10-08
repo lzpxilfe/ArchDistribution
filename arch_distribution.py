@@ -101,6 +101,8 @@ from .run_artifacts import (
 from .shapefile_encoding import declared_shapefile_encoding
 from .site_table import build_site_table, compass_direction, write_csv, write_hwpx
 from .source_exclusion import (
+    USER_EXCLUDED_CATEGORY,
+    USER_EXCLUDED_NAME,
     default_enabled_rules,
     exclusion_reason,
     load_exclusion_rules,
@@ -5194,6 +5196,11 @@ class ArchDistribution:
             for rule_id, label_ko, _label_en, _default
             in rule_definitions(exclusion_lexicon)
         }
+        # Operator choices from the attribute scan are audited like rules.
+        rule_labels.setdefault(USER_EXCLUDED_NAME, "사용자 제외 목록(명칭)")
+        rule_labels.setdefault(
+            USER_EXCLUDED_CATEGORY, "사용자 시대·성격 선택 해제"
+        )
         excluded_records = []
         temp_layers = []
         selected_fingerprints = {}
@@ -5609,21 +5616,20 @@ class ArchDistribution:
                 if not source_types:
                     source_types.update(inferred_types)
 
-                # [NEW] Check Exclusion List (Specific Blacklist)
-                # If the name is in the user's exclusion list, skip it.
+                # Names ticked in the exclusion list and periods/types the
+                # operator unticked leave the map but stay in the audit layer.
+                operator_rule = None
                 if excluded_name_keys and (
                     canonical_name(val_name) in excluded_name_keys
                 ):
-                    continue
-
-                # Check Category Filters (Legacy Reference Data)
-                if self.should_exclude(
+                    operator_rule = USER_EXCLUDED_NAME
+                elif self.should_exclude(
                     str(val_name or ""),
                     filter_categories,
                     source_eras=source_eras,
                     source_types=source_types,
                 ):
-                    continue
+                    operator_rule = USER_EXCLUDED_CATEGORY
 
                 # The distribution-map workflow clips to its map extent. The
                 # dedicated preservation workflow intentionally keeps all input
@@ -5639,7 +5645,8 @@ class ArchDistribution:
                     if clipped_geom.isEmpty():
                         continue  # No part inside extent
                     if (
-                        layer.geometryType() == 2
+                        not operator_rule
+                        and layer.geometryType() == 2
                         and clip_filter_context
                     ):
                         clipped_bounds = clipped_geom.boundingBox()
@@ -5653,7 +5660,9 @@ class ArchDistribution:
                             excluded_extent_slivers += 1
                             continue
 
-                    rule_id = exclusion_reason(exclusion_plan, feat)
+                    rule_id = operator_rule or exclusion_reason(
+                        exclusion_plan, feat
+                    )
                     if rule_id:
                         # Not a mappable place for this map (for example an
                         # investigation without remains).  Keep it for audit.

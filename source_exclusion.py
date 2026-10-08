@@ -37,6 +37,9 @@ DEFAULT_EXCLUSION_RULES_PATH = Path(__file__).with_name(
     "exclusion_rules.json"
 )
 RULE_TOKEN_PREFIX = "RULE:"
+# Audit reasons for records the operator left out in the attribute scan.
+USER_EXCLUDED_NAME = "user_name"
+USER_EXCLUDED_CATEGORY = "user_category"
 
 
 def _compact(value):

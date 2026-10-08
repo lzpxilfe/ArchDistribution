@@ -32,6 +32,25 @@ tags do not change the installable plugin version.
 - Citation metadata and a repository licence matrix.
 - GitHub Actions definitions for pure Python checks, QGIS 3.44 integration,
   plugin ZIP verification, and JOSS paper compilation.
+- A language-neutral name relation (equal, alias, omitted qualifier, more
+  specific part, conflicting designator, sibling, unrelated) and footprint
+  relation (identical, similar, contained, overlapping, near, apart) recorded
+  for every candidate as `NAME_REL` and `GEOM_REL`. Designator units, ordinal
+  letters, equivalent suffixes, and generic names are data in
+  `matching_rules.json` (ruleset 1.1.0).
+- Same-register rules: spelling variants and split pieces share one number,
+  parts such as individual tombs or buildings join their named site, and
+  numbered siblings (`1호`/`2호`, `I`/`II`) are never one entity. Union merges
+  keep every footprint under one `NUMBER_KEY`.
+- Surface-survey relations: a survey that redraws or extends a mapped site,
+  or a survey zone inside a site, is offered as a merge-recommended review
+  candidate; surveys are still never merged automatically.
+- Record exclusion rules in `exclusion_rules.json` (intangible, movable,
+  natural, no-remains outcome) shown as `[Rule]` rows after the attribute
+  scan, with report-practice defaults and a `제외_기록` audit layer.
+- Optional report-style nearby-site table (number, name, period, type,
+  location, distance, source, remarks) written as Hangul HWPX and UTF-8 CSV.
+  Period and address cells are summarised by rules in `table_lexicon.json`.
 
 ### Changed
 
@@ -54,6 +73,31 @@ tags do not change the installable plugin version.
 - The declared minimum QGIS version is raised from 3.28 to 3.40 because the
   available 3.28 installation could not supply a complete test runtime; the
   claim now matches the locally verified QGIS 3.40.5 baseline.
+- Records left out by the operator's period/type choices or name exclusion
+  list are kept in the `제외_기록` audit layer (`user_category`,
+  `user_name`) instead of being dropped without a trace.
+- Address equality counts as identity evidence only when lot numbers match;
+  sharing a village name is no longer enough.
+- Dialog sections follow the order of decisions (Data: inputs, roles and
+  duplicates, legal layers, attribute classification and exclusion, print
+  extent; Style: symbols, labels, buffers, numbering, follow-up). Each rule
+  checkbox sits with the setting it depends on, and the duplicate
+  "renumber active layer" button is hidden in favour of the follow-up card.
+- The layer lists skip layers inside the plugin's own result groups instead
+  of hiding user layers by name, and a likely study area is preselected.
+- The help and the duplicate-rule guide are rewritten around the three-step
+  name, footprint, and register decision.
+
+### Fixed
+
+- Designated heritage merged with a distribution-map record lost its map
+  number; designated records are now numbered unless a run draws legal
+  boundaries only.
+- Shapefile sidecars with upper-case extensions (`.DBF`, `.CPG`) were not
+  found during encoding detection.
+- Change-zone field detection scanned every feature twice.
+- A record repeated by two regional downloads (same source identity) no
+  longer appears as a review candidate against itself.
 
 ## 1.0.5
 

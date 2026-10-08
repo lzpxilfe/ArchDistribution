@@ -702,6 +702,11 @@ def summarize_group(group, language="ko", lexicon=None):
         )
 
     remarks = []
+    if is_corrupted_text(group.get("name")):
+        remarks.append(
+            "Source text damaged" if language == "en"
+            else "원자료 문자 손상"
+        )
     if len(records) > 1:
         remarks.append(
             f"{len(records)} records" if language == "en"

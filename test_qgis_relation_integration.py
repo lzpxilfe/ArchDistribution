@@ -365,6 +365,20 @@ class QgisRelationIntegrationTests(unittest.TestCase):
         self.assertEqual(record["유적명"], "나상 부지")
         self.assertIn("유적없음", record["SRC_JSON"])
 
+    def test_operator_excluded_name_is_preserved_for_audit(self):
+        result = self.consolidate(
+            self.make_survey_source(), exclusion_list=["나상부지"]
+        )
+        names = {
+            feature["SRC_NAME"]
+            for layer in result["main_layers"]
+            for feature in layer.getFeatures()
+        }
+        self.assertEqual(names, {"가상 유적"})
+        record = next(result["excluded_layers"][0].getFeatures())
+        self.assertEqual(record["EXCLUDE_RULE"], "user_name")
+        self.assertEqual(record["유적명"], "나상 부지")
+
     def test_default_rules_keep_no_remains_investigations(self):
         result = self.consolidate(self.make_survey_source())
         count = sum(layer.featureCount() for layer in result["main_layers"])

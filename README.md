@@ -132,13 +132,21 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
   판별·재로딩하며, 예외 자료를 위한 레이어별 수동 선택도 제공
 - 원본·분석·출력 CRS를 분리하고 도·피트 자료는 지역 UTM에서 거리·면적·도곽 계산
 - 공간 인덱스와 명칭·주소·중첩률을 함께 사용하는 자료 종류별 중복 판정
+- 띄어쓰기·괄호 별칭·로마숫자·앞말 생략을 정리한 명칭 관계와 범위 관계
+  (동일·포함·일부 겹침·인접)를 함께 기록하고, `1호·2호`나 `I·II지역` 같은
+  번호 형제는 같은 유적으로 보지 않음
+- 같은 자료 안의 표기 차이·조각과 상위 유적 안의 개별 호분·건물을 하나의
+  번호로 묶고, 부분 기록은 삭제 없이 검수 레이어에 보존
 - `균형형 / 보수형 / 자동화 우선형` 중복처리 프리셋
 - 실행 전 검토창에서 `별도 유지 / 연결만 / 대표 번호로 묶기` 선택
 - 검토창에서 선택 후보 위치로 지도 확대 및 행 더블클릭 확대
 - 원본 내용과 판정 모드가 같을 때만 이전 검토 결정을 안전하게 재사용
 - 레이어 ID·피처 ID가 바뀌어도 유지되는 `SRC_UID`와 변경 감지용 `SRC_FP`
 - 지정·등록유산과 발굴조사는 별도 번호로 유지하고 분포지도 중복만 우선순위에 따라 대표화
-- 지표조사는 자동 소거하지 않고 기본적으로 별도 유지
+- 지표조사는 자동 소거하지 않으며, 분포지도 유적을 다시 그었거나 유적 안의
+  조사 구역인 경우에만 `묶기 권장` 검토 후보로 제시
+- 무형·동산·자연유산과 `유적없음` 조사를 데이터 파일 규칙으로 제외하고,
+  제외 기록은 `제외_기록` 검수 레이어에 보존
 - 지정유산 보호구역은 본체와 연결된 무번호 경계로 분리
 - 대표에서 제외된 형상과 판정 근거를 `중복_보존` 및 `중복_판정_검수표`에 보존
 - `사업명`이 같은 발굴 기록은 조사사건과 번호를 공유하되 원본별 유적 실체와 형상 그룹은 보존
@@ -169,6 +177,7 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - 선택적으로 전체 결과·검수표를 한 GeoPackage와 실행정보 JSON에 저장
 - 실행정보 schema v2에 CRS 변환, 규칙셋·입력·결정 캐시·결과 내용 해시, 인코딩, 복구·제외와 성공/부분성공/실패/취소 상태 기록
 - 현재 판형·축척으로 편집 가능한 인쇄조판과 300dpi JPG/PDF 자동 출력
+- 시대·소재지를 요약한 보고서형 주변유적 현황표를 한글(HWPX)과 CSV로 출력
 - 작업 완료 후 결과 범위로 자동 확대
 
 **EN**
@@ -181,13 +190,22 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
   UTF-8; retain per-layer UTF-8/CP949 override controls for exceptional data
 - Separate source, metric-analysis, and output CRSs; measure geographic/foot inputs in local UTM
 - Match duplicates with source-aware name, address, overlap, and spatial-index rules
+- Record a spelling-normalised name relation and a footprint relation for every
+  candidate; numbered siblings (`tomb 1`/`tomb 2`, `Area I`/`Area II`) are never
+  treated as one site
+- Give one number to split pieces and spelling variants inside a register and
+  to parts (individual tombs, buildings) inside their named site, keeping the
+  parts in the audit layer
 - Choose Balanced, Conservative, or Automation-first matching presets
 - Review every candidate before output and choose Keep separate, Link only, or Merge numbering identity
 - Zoom the map to a selected review candidate or double-click its row
 - Reuse prior decisions only when both source fingerprints and the matching policy are unchanged
 - Keep stable `SRC_UID` values across layer/feature ID changes and detect source changes with `SRC_FP`
 - Keep designated/registered heritage and excavation events separately numbered while preferring them over duplicate distribution-map records
-- Never auto-suppress surface-survey records
+- Never auto-suppress surface-survey records; surveys that redraw a mapped site
+  or sit inside it are offered as merge-recommended review candidates
+- Exclude intangible, movable, natural, or "no remains" records through
+  data-file rules and keep every excluded record in an audit layer
 - Keep protection zones as linked, unnumbered boundaries
 - Preserve suppressed geometries and all review evidence in dedicated audit layers
 - Share the investigation and map number for records from the same excavation project while retaining source-specific site entities and geometry groups
@@ -216,6 +234,8 @@ It streamlines buffering, heritage-layer merging, numbering, zone processing, st
 - Optionally archive every output and audit table in one GeoPackage plus a run manifest
 - Record schema-v2 CRS, ruleset, input/cache/output hashes, encoding, repair/exclusion, and terminal status provenance
 - Create an editable print layout and export a 300-dpi JPG/PDF at the selected paper size and scale
+- Export a report-style nearby-site table with summarised period and location
+  cells as Hangul HWPX and CSV
 - Auto-zoom to the output extent after processing
 
 </details>
@@ -274,14 +294,77 @@ and text-length limits.
 | `보수형` | 민감한 보고서·규칙 확인 | 자동 대표화 없이 후보를 사람이 검토 |
 | `자동화 우선형` | 규칙을 검증한 반복 작업 | 더 높은 유사도·중첩 후보까지 자동 추천하되 지표조사와 지정–발굴 관계는 제외 |
 
-기본 `균형형`은 명칭이 같고 실제 면적이 중첩되는
-`지정·등록유산 ↔ 분포지도`, `발굴조사 ↔ 분포지도`만 대표화를 추천합니다.
-명칭 포함관계나 유사 명칭은 공간이 크게 겹치더라도 자동 병합하지 않고 실행
-전 검토창에 올립니다. 공간 중첩만으로는 어떤 자료도 합치지 않습니다.
+가까운 두 기록은 **① 명칭 관계 → ② 범위 관계 → ③ 자료 조합** 순서로
+판정합니다. 공간 중첩만으로는 어떤 자료도 합치지 않습니다.
+
+1. **명칭 관계**는 띄어쓰기·전각·따옴표·괄호 속 별칭·로마숫자·`제○호`의
+   `제`를 먼저 정리한 뒤 `같음·별칭 / 앞말 생략 / 더 구체적(부분) / 번호가
+   다름 / 형제·무관`으로 나눕니다. `1호·2호`, `I지역·II지역`, `가군·나군`처럼
+   번호 단위가 다른 이름은 형제 유적으로 보고 동일 실체 후보에서 뺍니다.
+2. **범위 관계**는 `동일(IoU 0.9 이상) / 유사 / 한쪽이 다른 쪽 안(90% 이상) /
+   일부 겹침 / 맞닿음·50m 이내 / 떨어짐`으로 나눕니다.
+3. **균형형 판정**은 다음과 같습니다. 표의 `묶기`는 `대표 번호로 묶기`입니다.
+
+| 상황 | 검토창 초기 선택 | 지도 결과 |
+|---|---|---|
+| 같은 자료 안의 같은 이름(표기 차이, 나뉜 조각) | 묶기(자동) | 번호 하나, 조각은 모두 표시 |
+| 상위 유적 안의 부분(개별 호분·건물·유구) | 상위 번호로 묶기(자동) | 부분은 `중복_보존`에 보존. 부분이 지정유산·발굴조사이면 `연결만` |
+| 같은 범위에 그려진 서로 다른 기록 | 검토(묶기 권장) | 묶으면 라벨 하나 |
+| 지정·등록 또는 발굴 ↔ 분포지도, 같은 이름(별칭·앞말 생략 포함)+겹침 | 묶기(자동) | 지정·발굴 기록이 대표 |
+| 지정·등록 ↔ 발굴 | 연결만 | 각각 번호 |
+| 지표조사가 분포지도 유적을 다시 그은 경우(같은 이름, 범위 수정·확장) | 검토(묶기 권장) | 번호 하나, 두 범위 모두 표시 |
+| 유적 안의 지표조사 구역(표본조사 필요범위, 1지역 등) | 검토(묶기 권장) | 상위 유적 번호로 흡수 |
+| 번호가 다른 형제, 이름이 무관한 단순 중첩 | 후보 아님 | 각각 번호 |
+
+같은 마을 주소만으로는 동일성 근거로 쓰지 않으며 지번까지 같아야 합니다.
+지역별로 내려받은 자료에 경계 유적이 두 번 들어와도 같은 유산코드·명칭·범위면
+같은 기록으로 처리합니다. 지표조사는 어느 프리셋에서도 자동 병합하지 않습니다.
 같은 사업명은 기존 요구대로 `NUMBER_KEY`를 공유하지만, 각 원본의 초기
-`SITE_ENTITY_KEY`와 `GEOMETRY_GROUP_KEY`는 분리됩니다. I·II 지역 같은 명칭은
-공간적으로 가까울 때만 사람이 확인할 동일 실체 후보가 되며 자동 병합되지
-않습니다. 점·선·면도 각각의 결과 레이어를 유지한 채 교차 형상 후보만 검토합니다.
+`SITE_ENTITY_KEY`와 `GEOMETRY_GROUP_KEY`는 분리됩니다. 점·선·면도 각각의 결과
+레이어를 유지한 채 교차 형상 후보만 검토합니다. 검수표의 `NAME_REL`,
+`GEOM_REL`, `RULE` 필드에서 각 후보의 판정 근거를 확인할 수 있습니다.
+
+판정 어휘는 코드가 아니라 데이터 파일에 있습니다. `matching_rules.json`은
+기준값·번호 단위(`호`, `지점`, `Area`, `Sector` 등)·일반명을,
+`exclusion_rules.json`은 기록 제외 어휘를, `table_lexicon.json`은 현황표의
+시대 순서·별칭과 주소 단위를 정의합니다. 다른 자료나 다른 나라에서 쓸 때는
+이 파일을 바꾸면 됩니다.
+
+The matcher relates every nearby pair by name (spelling-normalised: equal,
+alias, omitted qualifier, more specific part, conflicting designator, sibling,
+unrelated) and by footprint (identical, similar, contained, overlapping, near,
+apart) before applying the source-role rules above. Overlap alone never merges
+records; numbered siblings such as `tomb 1`/`tomb 2` or `Area I`/`Area II`
+never become one entity; surface surveys are never merged automatically. All
+vocabulary lives in `matching_rules.json`, `exclusion_rules.json`, and
+`table_lexicon.json` so other registers and languages need no code changes.
+
+### 기록 제외 규칙 | Record exclusion rules
+
+데이터 탭의 `유적 속성 분류 및 제외`에서 `속성 분류 실행`을 누르면 제외
+목록에 `[규칙]` 항목이 해당 건수와 함께 나옵니다. 기본값은 공개 보고서의
+관행을 따릅니다.
+
+| 규칙 | 기본값 | 판정 근거 |
+|---|---|---|
+| 무형유산 | 제외 | 유형 필드가 무형 계열 값만 가질 때 |
+| 동산유산 | 제외 | 유형 필드가 동산 계열 값만 가질 때 |
+| 자연유산 | 유지 | 노거수·천연기념물 등 자연 계열 값만 가질 때(체크하면 제외) |
+| 유적없음 조사 | 유지 | 값 종류가 적은 결과 필드가 `유적없음` 계열일 때(체크하면 제외). `유적분포가능지`는 항상 유지 |
+
+여러 분류가 섞인 기록(예: 유적+노거수)은 제외하지 않습니다. 제외된 기록은
+삭제되지 않고 `06_중복_검수/제외_기록`에 규칙 이름과 함께 남습니다. 속성
+분류에서 체크를 해제한 시대·성격이나 제외 목록에서 체크한 명칭 때문에 빠진
+기록도 `사용자 시대·성격 선택 해제`, `사용자 제외 목록(명칭)` 사유로 같은
+레이어에 남으므로, 무엇이 빠졌는지 지도에서 바로 대조할 수 있습니다.
+
+After `Run Attribute Scan`, the exclusion list shows `[Rule]` rows with counts.
+Intangible and location-less movable heritage are excluded by default;
+natural heritage and "no remains" investigations are kept unless ticked.
+Mixed records are kept, and every excluded record is preserved in
+`06_중복_검수/제외_기록` with the rule that removed it. Records left out
+because the operator unticked a period/type or ticked a name are kept there
+too (`user_category`, `user_name`).
 
 검토 결과의 대표 자료만 본 레이어에서 번호를 받습니다. 제외된 하위 형상은
 삭제되지 않으며 숨김 상태의 `06_중복_검수/중복_보존` 레이어와
@@ -320,14 +403,22 @@ and text-length limits.
 **KR**
 1. QGIS에 조사구역, 수치지형도, 주변유적 레이어를 불러옵니다.
 2. 필요하다면 현상변경 허용기준(Zone) 레이어도 함께 준비합니다.
-3. `ArchDistribution`를 실행하고 데이터 탭에서 입력 레이어를 선택합니다.
+3. `ArchDistribution`를 실행합니다. 데이터 탭은 위에서 아래로 결정 순서대로
+   놓여 있습니다. 입력 레이어 → 자료 역할 및 중복 판정 → 지정·보호구역 →
+   유적 속성 분류 및 제외 → 도곽(판형·축척, 미세 조각 제외).
+   조사구역은 이름이나 형태로 자동 추천되며, 이전 결과 레이어는 입력 목록에
+   나오지 않습니다.
 4. 자동 추천된 자료 역할과 중복 판정 프리셋을 확인합니다.
-5. 도곽 크기, 축척, 버퍼 거리, 스타일, km 표기 여부와 정렬 방식을 설정합니다.
-6. 필요하면 공통 `선택 저장 및 인쇄조판 출력`에서 GPKG·JPG·PDF를 켭니다.
-7. `▶ 분석 및 지도 생성 실행` 후 중복 후보의 처리 방식을 검토합니다.
-8. 출처·라이선스가 확인된 선택형 분류 사전을 별도로 설치한 경우에만
-   `속성 분류 실행`의 시대·성격 후보와 제외 제안을 보조자료로 확인합니다.
-9. 편집 후에는 스타일 탭의 `기존 결과 후속 작업 — 번호만 다시 매기기`에서
+5. 필요하면 `속성 분류 실행`으로 `[규칙]` 제외 항목(무형·동산·자연유산,
+   유적없음 조사)의 건수를 확인하고 체크를 조정합니다. 출처·라이선스가 확인된
+   선택형 분류 사전을 별도로 설치한 경우에는 시대·성격 후보와 제외 제안도
+   함께 나옵니다.
+6. 스타일 탭에서 심볼 → 라벨 → 버퍼(버퍼 밖 숨김 포함) → 번호 정렬 순으로
+   설정합니다.
+7. 필요하면 공통 `선택 저장 및 인쇄조판 출력`에서 GPKG·JPG·PDF와
+   `주변유적 현황표(HWPX·CSV)`를 켭니다.
+8. `▶ 분석 및 지도 생성 실행` 후 중복 후보의 처리 방식을 검토합니다.
+9. 편집 후에는 스타일 탭 맨 아래 `기존 결과 후속 작업 — 번호만 다시 매기기`에서
    대표 결과를 골라 중복·대표 판정을 유지한 채 번호를 다시 정리합니다.
 
 `도곽 경계의 미세 절단 조각 제외`는 기본으로 켜져 있습니다. 도곽에서 실제로
@@ -337,15 +428,23 @@ and text-length limits.
 **EN**
 1. Load study area, topographic, and heritage layers in QGIS.
 2. Prepare an optional zone layer if needed.
-3. Open `ArchDistribution` and select input layers on the Data tab.
+3. Open `ArchDistribution`. The Data tab follows the order of decisions:
+   input layers → source roles and duplicates → designated/protection layers →
+   attribute classification and exclusion → print extent. A likely study area
+   is preselected, and earlier result layers are not offered as inputs.
 4. Confirm the detected source roles and duplicate-matching preset.
-5. Configure paper size, scale, buffers, styles, and sort order.
-6. Optionally enable GPKG, JPG, or PDF under `Optional Archive and Print Outputs`.
-7. Click `Run Analysis / Generate Map` and review duplicate candidates.
-8. Use `Attribute Scan` only when separately installed classification assets
-   have confirmed provenance and licensing; its suggestions are not required for the core workflow.
+5. Optionally run `Attribute Scan` to see `[Rule]` exclusion rows (intangible,
+   movable, natural, no-remains) with counts. Separately installed
+   classification assets with confirmed provenance add period/type
+   suggestions; they are not required for the core workflow.
+6. On the Style tab, set symbols, labels, buffers (including the outside-buffer
+   rule), and numbering order.
+7. Optionally enable GPKG, JPG, PDF, or the `Nearby-site table (HWPX, CSV)`
+   under `Optional Archive and Print Outputs`.
+8. Click `Run Analysis / Generate Map` and review duplicate candidates.
 9. If you edit results later, choose the representative layer under
-   `Existing Result Follow-up — Renumber Only`; match decisions stay unchanged.
+   `Existing Result Follow-up — Renumber Only` at the bottom of the Style tab;
+   match decisions stay unchanged.
 
 `Exclude tiny map-edge clip fragments` is enabled by default. It evaluates only
 polygons actually cut by the extent, combining retained-area ratio with printed
@@ -469,6 +568,20 @@ ArchDistribution_원본_데이터  (기본 숨김, 원본 유지)
   사용하므로 판형·축척·유적 수집 범위가 일치합니다. 조판을 직접 만들 때에도
   지도 항목 CRS를 `도곽_Extent`와 같게 설정하세요.
 - Illustrator 작업이 필요하면 지형도, 유적, 버퍼 등을 하나씩만 켜서 각각 PDF로 저장한 뒤 합치는 방식이 편합니다.
+- `주변유적 현황표(HWPX·CSV)`를 켜면 지도 번호 순서대로 `번호 / 유적명 /
+  시대 / 성격 / 소재지 / 이격거리 / 출전 / 비고` 표를 `<이름>_현황표.hwpx`와
+  `<이름>_현황표.csv`로 저장합니다. HWPX는 한글에서 열리며 머리행이 쪽마다
+  반복됩니다.
+  - **시대**: 여러 기록의 시대를 연대순으로 모으고, 하위 시대가 있으면 상위
+    시대를 생략합니다(`삼국·백제` → `백제`). 끊김 없이 이어지는 세 시대 이상만
+    `삼국-조선`처럼 범위로 쓰고, 중간이 빠지면 `청동기·삼국·고려`처럼 나열합니다.
+  - **소재지**: 시도·시군구·읍면·동리를 접미사로 나눠 공통 지역을 한 번만 쓰고,
+    지번이 여럿이면 `○○리 12 외 3필지 일원`, 마을이 여럿이면 `○○동·△△동
+    일원`으로 줄입니다. 표 전체가 같은 시도이면 시도명을 생략합니다.
+  - **이격거리**: 조사구역 중심에서 본 방위와 경계 간 거리(`북동 350m`,
+    `조사지역 내·접함`), **출전**: 자료 역할과 조사기관, **비고**: 통합 건수,
+    유구 미확인, 원자료 문자 손상 여부.
+  - 표는 검토용 초안입니다. 보고서에 넣기 전에 반드시 원자료와 대조하세요.
 
 **EN**
 - Outputs are grouped under `ArchDistribution_결과물` in the QGIS layer panel.
@@ -479,6 +592,13 @@ ArchDistribution_원본_데이터  (기본 숨김, 원본 유지)
 - Automatic layouts use the study/`도곽_Extent` CRS even when the project display
   CRS differs. For a manual layout, set the map item's CRS to the extent CRS.
 - For Illustrator workflows, exporting separate PDFs by layer visibility often makes editing easier.
+- `Nearby-site table (HWPX, CSV)` writes `<name>_현황표.hwpx` and `.csv` in map
+  number order with number, name, period, type, location, distance, source,
+  and remarks columns. Periods are ordered and compressed (child periods
+  replace their parent; only unbroken runs of three or more become ranges),
+  addresses are reduced to shared regions and lots, and the HWPX header row
+  repeats on every page. Treat the table as a draft and check it against the
+  source records.
 
 ## 🌐 언어 지원 | Language Support
 
