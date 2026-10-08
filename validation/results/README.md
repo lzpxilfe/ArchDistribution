@@ -11,9 +11,9 @@ cannot override a failed, incomplete, or future item.
 
 ## Current real-workflow record
 
-`real-workflow-2024-0745.md` records developer-led use during preparation of a
-surrounding-site distribution map for an excavation report. Public permit
-metadata establishes the project context, while missing software version,
+`real-workflow-excavation-report.md` records developer-led use during
+preparation of a surrounding-site distribution map for an excavation report.
+The project is not identified, and missing software version,
 input counts, decision counts, and shareable manifest evidence remain marked
 as pending. It is evidence of operational use, not a timing study, accuracy
 validation, or external adoption record.

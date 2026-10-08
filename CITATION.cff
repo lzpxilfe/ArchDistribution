@@ -4,7 +4,6 @@ type: software
 title: "ArchDistribution: A QGIS plugin for reconciling and mapping archaeological spatial records"
 authors:
   - alias: "lzpxilfe(balguljang2)"
-    affiliation: "Nuri Institute for Archaeology, Republic of Korea"
 repository-code: "https://github.com/lzpxilfe/ArchDistribution"
 url: "https://github.com/lzpxilfe/ArchDistribution"
 version: 1.0.5

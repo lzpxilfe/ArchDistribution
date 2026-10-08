@@ -10,10 +10,6 @@ tags:
 authors:
   - name: "lzpxilfe(balguljang2)"
     corresponding: true
-    affiliation: "1"
-affiliations:
-  - index: 1
-    name: Nuri Institute for Archaeology, Republic of Korea
 date: 13 August 2026
 bibliography: paper.bib
 ---
@@ -62,7 +58,7 @@ A run manifest records the plugin and ruleset versions, processing environment, 
 
 The repository provides versioned rules, synthetic fixtures, installation and contribution documentation, CI definitions, and machine-readable validation results. Thirteen committed policy cases cover entity identity, investigation grouping, numbering, protection boundaries, geometry families, and map-edge behavior. Windows with QGIS 3.40.5 and Linux with QGIS 3.44.13 each pass 84 automated tests, including 68 QGIS integration tests. In the synthetic 100,000-feature benchmark, candidate generation completed in 27.28 s with 164.19 MiB peak memory on the local Windows environment and in 3.24 s with 250.70 MiB in CI. These measurements concern indexed candidate generation, not nationwide ingestion or archaeological accuracy.
 
-On 11 August 2026, the developer used ArchDistribution while preparing a surrounding-site map for an excavation-report workflow at Nuri Institute for Archaeology. The project concerned a housing-development site at 227-2, Ungjin-dong, Gongju. The public permit register independently establishes the project context: a 2,252 m² rescue excavation associated with permit 2024-0745 and completed on 12 August 2024 [@khs2026permit]. The register does not document software use; that statement comes from the author's workflow record. ArchDistribution combined filtering, clipping, numbering, styling, and map preparation in one reviewable process. No contemporaneous manual-time baseline was recorded.
+On 11 August 2026, the developer used ArchDistribution while preparing a surrounding-site map for an excavation report. That statement comes from the author's workflow record. ArchDistribution combined filtering, clipping, numbering, styling, and map preparation in one reviewable process. No contemporaneous manual-time baseline was recorded.
 
 The available evidence demonstrates developer-led operational use and reproducible software behavior. It does not establish a numerical estimate of labor saved, independently validated archaeological classification accuracy, external adoption, or generalization across institutions.
 

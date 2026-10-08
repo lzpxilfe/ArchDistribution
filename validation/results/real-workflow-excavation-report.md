@@ -1,4 +1,4 @@
-# Real-workflow evidence: excavation permit 2024-0745
+# Real-workflow evidence: excavation-report map
 
 Status: **developer-reported operational use; quantitative run details were not retained**
 
@@ -6,27 +6,16 @@ This record documents developer-led operational research use without
 publishing exact archaeological coordinates or restricted source data. Empty
 fields are not zero and must not be estimated retrospectively.
 
-## Identifiers and independently checkable context
+## Identifiers
 
-- Evidence identifier: `RW-2024-0745`
-- Korean Heritage Service excavation permit: `2024-0745`
-- Public-register project description: archaeological site within a housing
-  development project at 227-2, Ungjin-dong, Gongju
-- Investigation institution: Nuri Institute for Archaeology
+- Evidence identifier: `RW-01`
 - Investigation type: rescue excavation
-- Permitted excavation area: 2,252 m²
-- Fieldwork completion recorded in the public permit register: 12 August 2024
-- Public source: [Korean Heritage Service excavation-permit register on the
-  Public Data Portal](https://www.data.go.kr/data/15088662/fileData.do),
-  dataset accessed 13 August 2026
-
-The exact English report title is not publicly verified. The project wording
-above is a descriptive translation, not a bibliographic title.
+- The project, permit, and investigating institution are not identified in
+  this repository.
 
 ## ArchDistribution use reported by the author
 
 - User and author: lzpxilfe(balguljang2), archaeological researcher
-- Institution: Nuri Institute for Archaeology, Republic of Korea
 - Date of software use/report preparation: 11 August 2026
 - Purpose: preparation of the surrounding-site distribution map for the
   excavation report

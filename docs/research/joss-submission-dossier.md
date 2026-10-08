@@ -30,7 +30,6 @@ must not be described as complete until it has actually occurred.
 | Published name | lzpxilfe(balguljang2) |
 | Corresponding author | Yes |
 | GitHub account | `lzpxilfe` |
-| Affiliation | Nuri Institute for Archaeology, Republic of Korea |
 | Role | Archaeological researcher |
 | Email | `lzpxilfe@gmail.com` (already published in `metadata.txt`; confirm in the JOSS account) |
 | Other authors | None reported |
@@ -46,12 +45,8 @@ Confirmed manuscript wording:
 ## Research use supporting the impact statement / 연구 활용
 
 ArchDistribution was used on 11 August 2026 while the developer prepared a
-surrounding-site map for an excavation-report workflow at Nuri Institute for
-Archaeology. The project concerned a housing-development site at 227-2,
-Ungjin-dong, Gongju. The Korean Heritage Service permit register independently
-documents permit 2024-0745, a 2,252 m² rescue excavation completed on 12 August
-2024. The public register establishes the project context but does not record
-software use; the latter is a developer-reported workflow fact.
+surrounding-site map for an excavation report. This is a developer-reported
+workflow fact; the project is not identified in the repository.
 
 The paper states exactly that distinction. It does not estimate time saved
 because no contemporaneous manual baseline was recorded. Private source data,
@@ -121,9 +116,8 @@ This is a new submission. The public repository has been available since
 28 January 2026 and records iterative development, tests, continuous
 integration, documentation, a changelog, and contribution pathways. The
 developer used the software on 11 August 2026 to prepare a surrounding-site map
-for an excavation-report workflow concerning Korean Heritage Service permit
-2024-0745. The manuscript distinguishes this developer-reported use from the
-public permit data that independently establish the project context.
+for an excavation-report workflow. The manuscript reports this as
+developer-reported use.
 
 Neither this software paper nor its code or documentation has been published
 or submitted elsewhere. No separate archaeological-methods paper is currently
