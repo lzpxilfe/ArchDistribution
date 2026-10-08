@@ -41,7 +41,9 @@ tags do not change the installable plugin version.
 - Same-register rules: spelling variants and split pieces share one number,
   parts such as individual tombs or buildings join their named site, and
   numbered siblings (`1호`/`2호`, `I`/`II`) are never one entity. Union merges
-  keep every footprint under one `NUMBER_KEY`.
+  keep every footprint under one `NUMBER_KEY`. Differently named records
+  drawn on one footprint are offered for review as linked records with
+  separate numbers, never as a recommended merge.
 - Surface-survey relations: a survey that redraws or extends a mapped site,
   or a survey zone inside a site, is offered as a merge-recommended review
   candidate; surveys are still never merged automatically.

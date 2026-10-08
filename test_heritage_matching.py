@@ -451,14 +451,20 @@ class SameRegisterRelationTests(unittest.TestCase):
         dolmen = record("m2", ROLE_DISTRIBUTION, "나상 고인돌")
         self.assertIsNone(evaluate_candidate(dolmen, site, **LEFT_INSIDE))
 
-    def test_records_drawn_on_one_footprint_share_a_label(self):
-        first = record("m1", ROLE_DISTRIBUTION, "가상리 김공 선정비")
-        second = record("m2", ROLE_DISTRIBUTION, "가상리 이공 불망비")
-        match = evaluate_candidate(first, second, **IDENTICAL)
-        self.assertEqual(match.rule, "co_located_footprint")
-        self.assertEqual(match.relation_type, "co_located")
-        self.assertEqual(match.recommended_decision, DECISION_MERGE)
-        self.assertFalse(match.auto_apply)
+    def test_different_sites_on_one_footprint_are_only_linked(self):
+        for first_name, second_name in (
+            ("가상리 고분군", "가상 누정"),
+            ("가상리 지석묘 1호", "가상리 지석묘 2호"),
+        ):
+            match = evaluate_candidate(
+                record("m1", ROLE_DISTRIBUTION, first_name),
+                record("m2", ROLE_DISTRIBUTION, second_name),
+                **IDENTICAL,
+            )
+            self.assertEqual(match.rule, "co_located_footprint")
+            self.assertEqual(match.relation_type, "co_located")
+            self.assertEqual(match.recommended_decision, DECISION_LINK)
+            self.assertFalse(match.auto_apply)
 
     def test_legal_designations_inside_each_other_are_only_linked(self):
         parent = record("d1", ROLE_NATIONAL_DESIGNATED, "가상사")
@@ -516,16 +522,16 @@ class CrossRegisterRelationTests(unittest.TestCase):
         self.assertTrue(match.auto_apply)
 
         prefixed = evaluate_candidate(
-            record("d2", ROLE_LOCAL_DESIGNATED, "가상시 월영대"),
-            record("m2", ROLE_DISTRIBUTION, "월영대"),
+            record("d2", ROLE_LOCAL_DESIGNATED, "가상시 나상대"),
+            record("m2", ROLE_DISTRIBUTION, "나상대"),
             **metrics(0.9, 0.95, 0.86, 0.95),
         )
         self.assertEqual(prefixed.rule, "affix_omitted_name_and_overlap")
         self.assertTrue(prefixed.auto_apply)
 
     def test_candidate_reports_name_and_geometry_relation(self):
-        designated = record("d1", ROLE_LOCAL_DESIGNATED, "봉업사지")
-        distribution = record("m1", ROLE_DISTRIBUTION, "봉업사지")
+        designated = record("d1", ROLE_LOCAL_DESIGNATED, "가상사지")
+        distribution = record("m1", ROLE_DISTRIBUTION, "가상사지")
         match = evaluate_candidate(designated, distribution, **IDENTICAL)
         self.assertEqual(match.name_relation, "equal")
         self.assertEqual(match.geometry_relation, "identical")

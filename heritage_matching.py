@@ -665,14 +665,14 @@ def _same_register_relation(
         iou is not None
         and float(iou) >= float(thresholds["co_located_iou"])
     ):
-        # Several distinct records on one footprint: sharing one label avoids
-        # stacking numbers on the same polygon, but published maps also list
-        # such items separately, so this stays a reviewed recommendation.
-        # Legal designations keep their own numbers and are only linked.
+        # Differently named records drawn on one footprint (a tomb group and
+        # a pavilion, "tomb 1" and "tomb 2") are different sites that share a
+        # drawn area.  Published maps number them separately, so they are only
+        # linked; the operator may still merge a true double entry.
         return (
             "co_located_footprint",
             "medium",
-            DECISION_LINK if legal_pair else DECISION_MERGE,
+            DECISION_LINK,
             RELATION_CO_LOCATED,
             None,
             MERGE_MODE_SUPPRESS,

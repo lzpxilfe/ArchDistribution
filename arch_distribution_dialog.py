@@ -3988,13 +3988,15 @@ records left out of the label stay in <code>06_중복_검수</code> and in
 <h3>Step 1 — name relation (spelling-insensitive)</h3>
 <p>Spacing, full-width characters, quotes, bracketed aliases, Roman versus
 Arabic numerals and ordinal prefixes ("No. 12") are normalised first.</p>
+<p>Each example compares two names: <b>=</b> same site, <b>⊂</b> part of
+the site, <b>≠</b> different sites.</p>
 <table>
-<tr><th>Relation</th><th>Example</th><th>Meaning</th></tr>
-<tr><td>Equal / alias</td><td>Villa 3 · Villa III · Villa (Roman villa)</td><td>Same name</td></tr>
-<tr><td>Omitted qualifier</td><td>"County A Hall" · "Hall"</td><td>Same place, prefix left out</td></tr>
-<tr><td>More specific</td><td>"Cemetery A tomb 12" · "Cemetery A"</td><td>A part of the site</td></tr>
-<tr><td>Different numbers</td><td>tomb 1 · tomb 2, Area I · Area II</td><td>Siblings — never one entity</td></tr>
-<tr><td>Sibling / unrelated</td><td>shared stem · different names</td><td>No identity evidence</td></tr>
+<tr><th>Relation</th><th>Example pairs</th><th>Meaning</th></tr>
+<tr><td>Equal / alias</td><td>Villa 3 = Villa III<br>Old Mill (Mill Farm) = Old Mill</td><td>Same name</td></tr>
+<tr><td>Omitted qualifier</td><td>County A Hall = Hall</td><td>Same place, prefix left out</td></tr>
+<tr><td>More specific</td><td>Cemetery A tomb 12 ⊂ Cemetery A</td><td>A part of the site</td></tr>
+<tr><td>Different numbers</td><td>tomb 1 ≠ tomb 2<br>Area I ≠ Area II</td><td>Siblings, never one site</td></tr>
+<tr><td>Unrelated</td><td>Cemetery A ≠ Fort A<br>Cemetery A ≠ Mill B</td><td>Different sites, even on one footprint</td></tr>
 </table>
 
 <h3>Step 2 — footprint relation</h3>
@@ -4018,8 +4020,8 @@ partial overlap · touching or within 50 m.</p>
 <tr><td>A part (numbered tomb, building, item) inside its named site</td>
 <td>Merge into the site (automatic)</td><td>The site keeps the number; the part is kept in the audit layer.
 A part with its own legal designation or excavation is <b>linked</b> and keeps its number</td></tr>
-<tr><td>Different records drawn on one identical footprint</td><td>Review (merge recommended)</td>
-<td>One label if merged</td></tr>
+<tr><td>Differently named records drawn on one footprint</td><td>Review (link only)</td>
+<td>Separate numbers; the shared footprint is recorded</td></tr>
 <tr><td>Designated/registered or excavation ↔ distribution map, same name
 (incl. aliases, omitted prefix) and overlapping</td><td>Merge (automatic)</td>
 <td>Designated/excavation record represents the number</td></tr>
@@ -4076,13 +4078,15 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 <h3>① 명칭 관계 (표기 차이는 먼저 정리)</h3>
 <p>띄어쓰기, 전각·반각, 따옴표, 괄호 속 한자·별칭, 로마숫자(Ⅰ·Ⅱ)와
 아라비아숫자, ‘제12호’의 ‘제’를 먼저 같은 꼴로 맞춥니다.</p>
+<p>예는 모두 두 이름을 비교한 것입니다. <b>=</b> 같은 유적, <b>⊂</b> 상위
+유적의 일부, <b>≠</b> 다른 유적.</p>
 <table>
-<tr><th>관계</th><th>예(가상)</th><th>뜻</th></tr>
-<tr><td>같음·별칭</td><td>가상리 고분군 3 · 가상리고분군3 · 가상 누정(假想樓亭)</td><td>같은 이름</td></tr>
-<tr><td>앞말 생략</td><td>가상시 월영대 · 월영대</td><td>행정구역 등을 뺀 같은 이름</td></tr>
-<tr><td>더 구체적(부분)</td><td>가상리 고분군 제14호 · 가상리 고분군 / 가상사 대웅전 · 가상사</td><td>상위 유적의 일부</td></tr>
-<tr><td>번호가 다름</td><td>지석묘 1호 · 2호, I지역 · II지역, 가군 · 나군</td><td>형제 유적 — 같은 유적으로 보지 않음</td></tr>
-<tr><td>형제·무관</td><td>앞부분만 같음 · 전혀 다름</td><td>동일성 근거 없음</td></tr>
+<tr><th>관계</th><th>예(가상 이름 한 쌍씩)</th><th>뜻</th></tr>
+<tr><td>같음·별칭</td><td>가상리 고분군 3 = 가상리고분군3<br>가상 누정(假想樓亭) = 가상 누정</td><td>같은 이름</td></tr>
+<tr><td>앞말 생략</td><td>가상시 나상대 = 나상대</td><td>행정구역 등을 뺀 같은 이름</td></tr>
+<tr><td>더 구체적(부분)</td><td>가상리 고분군 제14호 ⊂ 가상리 고분군<br>가상사 대웅전 ⊂ 가상사</td><td>상위 유적의 일부</td></tr>
+<tr><td>번호가 다름</td><td>가상리 지석묘 1호 ≠ 가상리 지석묘 2호<br>가상리 I지역 ≠ 가상리 II지역</td><td>형제 유적, 같은 유적으로 보지 않음</td></tr>
+<tr><td>무관</td><td>가상리 고분군 ≠ 가상리 산성<br>가상리 고분군 ≠ 가상 누정</td><td>다른 유적. 범위가 같아도 각각 번호</td></tr>
 </table>
 
 <h3>② 범위 관계</h3>
@@ -4107,7 +4111,7 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 <tr><td>상위 유적 안의 부분(개별 호분·건물·전각·유구)</td>
 <td>상위 번호로 묶기(자동)</td><td>상위 유적이 번호를 갖고 부분은 검수 레이어에 보존.
 부분이 지정유산이거나 발굴조사이면 <b>연결만</b> 하고 자기 번호 유지</td></tr>
-<tr><td>같은 범위에 그려진 서로 다른 기록</td><td>검토(묶기 권장)</td><td>묶으면 라벨 하나</td></tr>
+<tr><td>이름이 다른 기록이 같은 범위에 그려진 경우(예: 고분군과 누정)</td><td>검토(연결만)</td><td>각각 번호, 같은 범위라는 관계만 기록</td></tr>
 <tr><td>지정·등록유산 또는 발굴조사 ↔ 분포지도, 같은 이름(별칭·앞말 생략 포함)+겹침</td>
 <td>묶기(자동)</td><td>지정·발굴 기록이 대표 번호</td></tr>
 <tr><td>지정·등록유산 ↔ 발굴조사</td><td>연결만</td><td>각각 번호, 관계만 기록</td></tr>

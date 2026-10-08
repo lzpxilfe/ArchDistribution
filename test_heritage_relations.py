@@ -81,7 +81,7 @@ class NameNormalisationTests(unittest.TestCase):
 
 class NameRelationTests(unittest.TestCase):
     def test_omitted_leading_qualifier(self):
-        self.assertEqual(relation("가상시 월영대", "월영대"), NAME_AFFIX_OMITTED)
+        self.assertEqual(relation("가상시 나상대", "나상대"), NAME_AFFIX_OMITTED)
         self.assertEqual(
             relation("가상군 나상리 고분군 1", "나상리 고분군Ⅰ"),
             NAME_AFFIX_OMITTED,
