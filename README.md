@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml"><img alt="Research software CI" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml"><img alt="QGIS integration" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml"><img alt="JOSS paper build" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml"><img alt="Paper draft build" src="https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml/badge.svg?branch=main"></a>
 </p>
 
 > **원본 레이어는 수정하거나 삭제하지 않습니다.** 결과, 중복 판정 근거,
@@ -480,8 +480,8 @@ area and width, so complete small sites inside the map remain included.
 
 정식 GitHub Release가 만들어지기 전에는 저장소에서 임의의 ZIP을 받지 말고,
 이 저장소를 clone하여 아래 `python create_zip.py`로 직접 만들거나 저자가
-제공한 커밋·체크섬이 명시된 `1.0.6` 시험 ZIP을 사용하세요. JOSS 심사 중에는
-GitHub Actions가 같은 소스에서 만든 설치 ZIP도 확인할 수 있습니다.
+제공한 커밋·체크섬이 명시된 `1.0.6` 시험 ZIP을 사용하세요. GitHub Actions가
+같은 소스에서 만든 설치 ZIP도 확인할 수 있습니다.
 
 **KR**
 1. 플러그인 ZIP 파일을 준비합니다.
@@ -508,7 +508,7 @@ GitHub Actions가 같은 소스에서 만든 설치 ZIP도 확인할 수 있습�
 전체 자동검증은 GitHub Actions의
 [Research software CI](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/ci.yml),
 [QGIS integration](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/qgis-integration.yml),
-[JOSS paper build](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml)에서
+[Paper draft build](https://github.com/lzpxilfe/ArchDistribution/actions/workflows/paper.yml)에서
 확인할 수 있습니다. 현재 검증 범위와 아직 주장하지 않는 항목은
 [validation/results/status.md](validation/results/status.md)에 구분해 기록합니다.
 
@@ -522,7 +522,7 @@ python create_zip.py
 고정되어 있습니다. 공개 fixture는 완전히 합성한 사례이며, 실제 전국 SHP나
 민감한 유적 좌표를 재배포하지 않습니다.
 
-### JOSS reviewer quick path
+### 검토자 빠른 확인 | Reviewer quick path
 
 1. Clone the public repository and inspect `paper/`, `docs/research/`, and `validation/`.
 2. Check the three public Actions workflows linked above.
@@ -531,9 +531,9 @@ python create_zip.py
 5. Review the synthetic policy cases and their expected outcomes under `validation/`.
 6. Open an issue if installation, documentation, or a reproducible workflow is unclear.
 
-The JOSS proof PDF is compiled from [paper/paper.md](paper/paper.md); the PDF is
-not the source of record. The repository commit, manuscript source, tests, and
-review history are the materials reviewed by JOSS.
+The paper draft PDF is compiled from [paper/paper.md](paper/paper.md). A
+journal submission (JOSS) is planned for later, once the plugin has a wider
+user base; the manuscript is kept as a draft until then.
 
 **KR**
 - `create_zip.py`는 `metadata.txt`의 버전을 읽어 `~/Desktop/ArchDistribution-1.0.6.zip` 형태로 패키징합니다.
@@ -673,13 +673,14 @@ Always review final geometry, attributes, numbering, and cartographic output bef
 
 인용 메타데이터는 [CITATION.cff](CITATION.cff)에 보관합니다.
 
-JOSS 영문 원고는 [paper/paper.md](paper/paper.md), 고고학적 존재론·판정
+영문 논문 원고 초안(향후 JOSS 제출 예정)은 [paper/paper.md](paper/paper.md), 고고학적 존재론·판정
 규칙·검증 프로토콜·자료 계보·윤리 및 재현성 명세는
 [docs/research](docs/research), 공개 합성 검증과 현재 검증 상태는
 [validation](validation)에 있습니다. 전국 원자료와 실제 유적 좌표는 이
 저장소에 포함하지 않습니다.
 
-The English JOSS manuscript is in [paper/paper.md](paper/paper.md). Detailed
+An English paper draft, planned for a later JOSS submission, is in
+[paper/paper.md](paper/paper.md). Detailed
 ontology, decision rules, validation, provenance, ethics, and reproducibility
 specifications live in [docs/research](docs/research), while public synthetic
 checks and validation status live in [validation](validation). National

@@ -4,7 +4,7 @@ All notable changes to ArchDistribution are documented here. This project uses
 plugin version `1.0.6`; research tags do not change the installable plugin
 version.
 
-## 1.0.6 — JOSS research preparation and duplicate review
+## 1.0.6 — Research preparation and duplicate review
 
 ### Added
 
@@ -153,6 +153,6 @@ version.
 
 Historical Git tags and plugin metadata have not always represented the same
 development snapshot. Existing tags will not be deleted, moved, or rewritten.
-The JOSS process will use the unambiguous tags `joss-v1.0.5-rc1` and
-`joss-v1.0.5` only after their documented release gates are met. Neither tag
-has been created as part of this preparation.
+A JOSS submission is deferred until the plugin has a wider user base and
+active use; no research tags have been created. The manuscript in `paper/`
+stays as a draft for that later submission.
