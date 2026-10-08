@@ -374,3 +374,98 @@ class QgisRelationIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(QGIS_AVAILABLE, "QGIS Python runtime is not available")
+class QgisSiteTableIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QgsApplication.instance() or QgsApplication([], False)
+        cls.app.initQgis()
+        plugin_parent = str(Path(__file__).resolve().parent.parent)
+        if plugin_parent not in sys.path:
+            sys.path.insert(0, plugin_parent)
+        from ArchDistribution.arch_distribution import ArchDistribution
+
+        cls.plugin_class = ArchDistribution
+
+    def test_numbered_result_becomes_hwpx_and_csv_table(self):
+        import csv
+        import tempfile
+        import zipfile
+
+        project = QgsProject.instance()
+        project.clear()
+        group = project.layerTreeRoot().addGroup("ArchDistribution_결과물")
+        study = QgsVectorLayer("Polygon?crs=EPSG:5186", "00_조사구역", "memory")
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromWkt(square(0, 0, 10)))
+        study.dataProvider().addFeature(feature)
+        project.addMapLayer(study, False)
+        group.addLayer(study)
+
+        sites = QgsVectorLayer(
+            "Polygon?crs=EPSG:5186", "수집_및_병합된_주변유적", "memory"
+        )
+        sites.dataProvider().addAttributes([
+            QgsField("번호", QVariant.Int),
+            QgsField("유적명", QVariant.String),
+            QgsField("주소", QVariant.String),
+            QgsField("DIST_M", QVariant.Double),
+            QgsField("LABEL_OK", QVariant.Int),
+            QgsField("NUMBER_KEY", QVariant.String),
+            QgsField("SOURCE_ROLE", QVariant.String),
+            QgsField("SRC_JSON", QVariant.String),
+        ])
+        sites.updateFields()
+        rows = (
+            (1, "가상 유적", square(100, 100, 10), 120.0, "distribution:a",
+             [{"명칭": "가상 유적", "시대": "0)고려시대,1)조선시대",
+               "소재지": "가상도 가상시 가상동 1",
+               "_source_uid": "distribution:code:a"}]),
+            (2, "나상 고분군", square(-300, 0, 20), 280.0, "excavation:b",
+             [{"유적명": "나상 고분군", "시대": "0)삼국시대",
+               "소재지": "가상도 가상시 나상동 산 2", "조사기관": "가상연구원",
+               "_source_uid": "excavation:code:b"}]),
+        )
+        features = []
+        for number, name, wkt, distance, key, records in rows:
+            item = QgsFeature(sites.fields())
+            item.setGeometry(QgsGeometry.fromWkt(wkt))
+            item["번호"] = number
+            item["유적명"] = name
+            item["주소"] = records[0]["소재지"]
+            item["DIST_M"] = distance
+            item["LABEL_OK"] = 1
+            item["NUMBER_KEY"] = key
+            item["SOURCE_ROLE"] = key.split(":")[0]
+            item["SRC_JSON"] = json.dumps(records, ensure_ascii=False)
+            features.append(item)
+        sites.dataProvider().addFeatures(features)
+        project.addMapLayer(sites, False)
+        group.addLayer(sites)
+
+        plugin = self.plugin_class(None)
+        plugin.log = lambda _message: None
+        with tempfile.TemporaryDirectory() as directory:
+            paths = plugin._export_site_table(
+                {"study_area_id": study.id(), "scale": 5000,
+                 "buffers": [500, 1000]},
+                group,
+                directory,
+                "synthetic",
+            )
+            self.assertEqual(len(paths), 2)
+            hwpx = next(path for path in paths if path.endswith(".hwpx"))
+            with zipfile.ZipFile(hwpx) as archive:
+                section = archive.read("Contents/section0.xml").decode()
+            self.assertIn("가상 유적", section)
+            csv_path = next(path for path in paths if path.endswith(".csv"))
+            with open(csv_path, encoding="utf-8-sig", newline="") as handle:
+                table = list(csv.reader(handle))
+        self.assertEqual([row[0] for row in table[1:]], ["1", "2"])
+        self.assertEqual(table[1][2], "고려·조선")
+        self.assertEqual(table[1][5], "북동 120m")
+        self.assertEqual(table[2][5], "서 280m")
+        self.assertEqual(table[2][6], "발굴조사(가상연구원)")
+        self.assertEqual(table[2][4], "가상시 나상동 산 2")

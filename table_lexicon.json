@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "lexicon_version": "1.0.0",
+  "description": "Replaceable vocabulary for report-table cells. Periods are ordered chronologically; a child period replaces its parent, 'umbrella' periods are not part of the sequence and 'contemporaneous' periods share their parent's place in it. Address rules follow the Korean lot-number (jibun) style.",
+  "period": {
+    "strip_suffixes": [
+      "시대",
+      "시기",
+      " period",
+      " age"
+    ],
+    "unknown": [
+      "시대미상",
+      "역사시대미상",
+      "선사시대미상",
+      "미상",
+      "불명",
+      "unknown",
+      "기타"
+    ],
+    "unknown_label": "시대미상",
+    "list_separator": "·",
+    "range_separator": "-",
+    "range_min_count": 3,
+    "periods": [
+      {
+        "id": "prehistoric",
+        "label": "선사",
+        "order": 5,
+        "aliases": [
+          "선사",
+          "석기"
+        ],
+        "umbrella": true
+      },
+      {
+        "id": "palaeolithic",
+        "label": "구석기",
+        "order": 10,
+        "parent": "prehistoric",
+        "aliases": [
+          "구석기",
+          "구석기/중석기",
+          "구석기·중석기",
+          "중석기"
+        ]
+      },
+      {
+        "id": "neolithic",
+        "label": "신석기",
+        "order": 20,
+        "parent": "prehistoric",
+        "aliases": [
+          "신석기"
+        ]
+      },
+      {
+        "id": "bronze",
+        "label": "청동기",
+        "order": 30,
+        "parent": "prehistoric",
+        "aliases": [
+          "청동기",
+          "청동"
+        ]
+      },
+      {
+        "id": "early_iron",
+        "label": "초기철기",
+        "order": 40,
+        "aliases": [
+          "초기철기",
+          "철기"
+        ]
+      },
+      {
+        "id": "proto_three_kingdoms",
+        "label": "원삼국",
+        "order": 50,
+        "aliases": [
+          "원삼국",
+          "삼한",
+          "철기/삼한/원삼국",
+          "삼한/원삼국"
+        ]
+      },
+      {
+        "id": "three_kingdoms",
+        "label": "삼국",
+        "order": 60,
+        "aliases": [
+          "삼국"
+        ]
+      },
+      {
+        "id": "goguryeo",
+        "label": "고구려",
+        "order": 61,
+        "parent": "three_kingdoms",
+        "aliases": [
+          "고구려"
+        ],
+        "contemporaneous": true
+      },
+      {
+        "id": "baekje",
+        "label": "백제",
+        "order": 62,
+        "parent": "three_kingdoms",
+        "aliases": [
+          "백제",
+          "한성백제",
+          "사비백제",
+          "웅진백제"
+        ],
+        "contemporaneous": true
+      },
+      {
+        "id": "silla",
+        "label": "신라",
+        "order": 63,
+        "parent": "three_kingdoms",
+        "aliases": [
+          "신라"
+        ],
+        "contemporaneous": true
+      },
+      {
+        "id": "gaya",
+        "label": "가야",
+        "order": 64,
+        "parent": "three_kingdoms",
+        "aliases": [
+          "가야"
+        ],
+        "contemporaneous": true
+      },
+      {
+        "id": "unified_silla",
+        "label": "통일신라",
+        "order": 70,
+        "aliases": [
+          "통일신라",
+          "통일신라/발해",
+          "남북국"
+        ]
+      },
+      {
+        "id": "balhae",
+        "label": "발해",
+        "order": 71,
+        "slot_of": "unified_silla",
+        "aliases": [
+          "발해"
+        ]
+      },
+      {
+        "id": "goryeo",
+        "label": "고려",
+        "order": 80,
+        "aliases": [
+          "고려"
+        ]
+      },
+      {
+        "id": "joseon",
+        "label": "조선",
+        "order": 90,
+        "aliases": [
+          "조선"
+        ]
+      },
+      {
+        "id": "modern",
+        "label": "근대",
+        "order": 100,
+        "aliases": [
+          "근대",
+          "근대/일제강점기",
+          "일제강점기",
+          "대한제국",
+          "개항기"
+        ]
+      },
+      {
+        "id": "contemporary",
+        "label": "현대",
+        "order": 110,
+        "aliases": [
+          "현대"
+        ]
+      }
+    ],
+    "sub_period_qualifiers": [
+      "초기",
+      "전기",
+      "중기",
+      "후기",
+      "말기",
+      "early",
+      "middle",
+      "late"
+    ]
+  },
+  "address": {
+    "field_keywords": [
+      "유적소재지",
+      "소재지",
+      "주소",
+      "지번",
+      "address",
+      "location"
+    ],
+    "region_field_keywords": [
+      "시도명",
+      "시군구명",
+      "읍면동명",
+      "리명"
+    ],
+    "qualifiers": [
+      "일원",
+      "일대",
+      "주변",
+      "부근",
+      "인근"
+    ],
+    "parcel_suffix": "필지",
+    "drop_shared_province": true,
+    "max_listed_places": 3,
+    "province_aliases": {
+      "서울": "서울특별시",
+      "서울시": "서울특별시",
+      "부산": "부산광역시",
+      "부산시": "부산광역시",
+      "대구": "대구광역시",
+      "대구시": "대구광역시",
+      "인천": "인천광역시",
+      "인천시": "인천광역시",
+      "광주": "광주광역시",
+      "대전": "대전광역시",
+      "대전시": "대전광역시",
+      "울산": "울산광역시",
+      "울산시": "울산광역시",
+      "세종": "세종특별자치시",
+      "세종시": "세종특별자치시",
+      "경기": "경기도",
+      "강원": "강원특별자치도",
+      "강원도": "강원특별자치도",
+      "충북": "충청북도",
+      "충남": "충청남도",
+      "전북": "전북특별자치도",
+      "전라북도": "전북특별자치도",
+      "전남": "전라남도",
+      "경북": "경상북도",
+      "경남": "경상남도",
+      "제주": "제주특별자치도",
+      "제주도": "제주특별자치도"
+    },
+    "level_suffixes": {
+      "1": [
+        "특별자치시",
+        "특별자치도",
+        "통합특별시",
+        "특별시",
+        "광역시",
+        "도"
+      ],
+      "2": [
+        "시",
+        "군"
+      ],
+      "3": [
+        "구"
+      ],
+      "4": [
+        "읍",
+        "면"
+      ],
+      "5": [
+        "동",
+        "가"
+      ],
+      "6": [
+        "리"
+      ]
+    },
+    "segment_separators": [
+      ",",
+      "및",
+      "~",
+      "?",
+      "·",
+      "ㆍ",
+      "、",
+      ";",
+      "/"
+    ],
+    "land_category_suffixes": [
+      "대",
+      "전",
+      "답",
+      "임",
+      "잡",
+      "도",
+      "구",
+      "천",
+      "공",
+      "묘",
+      "하"
+    ],
+    "placeholder_tokens": [
+      "-",
+      "–"
+    ],
+    "noise_tokens": [
+      "외",
+      "등",
+      "내",
+      "일부",
+      "까지",
+      "및",
+      "부지",
+      "부지내",
+      "구간",
+      "지역"
+    ],
+    "count_suffixes": [
+      "개소",
+      "필지",
+      "곳",
+      "개"
+    ]
+  }
+}

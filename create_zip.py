@@ -91,7 +91,9 @@ RUNTIME_FILES = frozenset({
     "preservation_actions.py",
     "run_artifacts.py",
     "shapefile_encoding.py",
+    "site_table.py",
     "source_exclusion.py",
+    "table_lexicon.json",
 })
 
 

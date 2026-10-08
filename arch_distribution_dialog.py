@@ -131,6 +131,7 @@ OUTPUT_DIRECTORY_PREF_KEY = "ArchDistribution/output_directory"
 SAVE_GPKG_PREF_KEY = "ArchDistribution/save_gpkg_manifest"
 EXPORT_JPG_PREF_KEY = "ArchDistribution/export_layout_jpg"
 EXPORT_PDF_PREF_KEY = "ArchDistribution/export_layout_pdf"
+EXPORT_TABLE_PREF_KEY = "ArchDistribution/export_site_table"
 ANALYSIS_CRS_OVERRIDE_PREF_KEY = "ArchDistribution/analysis_crs_override"
 ANALYSIS_CRS_DEFINITION_PREF_KEY = "ArchDistribution/analysis_crs_definition"
 PRESERVATION_STYLE_ORDER = tuple(PRESERVATION_ACTION_STYLES)
@@ -731,6 +732,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.chkSaveGpkgManifest = QtWidgets.QCheckBox()
         self.chkExportLayoutJpg = QtWidgets.QCheckBox()
         self.chkExportLayoutPdf = QtWidgets.QCheckBox()
+        self.chkExportSiteTable = QtWidgets.QCheckBox()
         preferences = (
             (
                 self.chkSaveGpkgManifest,
@@ -743,6 +745,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             (
                 self.chkExportLayoutPdf,
                 EXPORT_PDF_PREF_KEY,
+            ),
+            (
+                self.chkExportSiteTable,
+                EXPORT_TABLE_PREF_KEY,
             ),
         )
         for checkbox, key in preferences:
@@ -2195,12 +2201,30 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     "Print-layout PDF",
                 )
             )
+            self.chkExportSiteTable.setText(
+                self._t(
+                    "주변유적 현황표(HWPX·CSV)",
+                    "Nearby-site table (HWPX, CSV)",
+                )
+            )
+            self.chkExportSiteTable.setToolTip(
+                self._t(
+                    "번호·유적명·시대·성격·소재지·이격거리·출전·비고 열의 "
+                    "표를 한글(HWPX)과 엑셀용 CSV로 저장합니다. 여러 기록을 "
+                    "합친 칸은 규칙으로 요약한 초안이므로 검수가 필요합니다.",
+                    "Saves a No./Site/Period/Character/Location/Distance/"
+                    "Source/Remarks table as Hangul HWPX and CSV. Cells that "
+                    "combine several records are rule-based drafts to review.",
+                )
+            )
             self.lblOutputArtifactHelp.setText(
                 self._t(
                     "기본값은 꺼짐입니다. 선택하면 현재 도곽·용지·축척으로 "
-                    "결과를 저장하며 원본 파일은 수정하지 않습니다.",
+                    "결과를 저장하며 원본 파일은 수정하지 않습니다. 현황표는 "
+                    "지도에 번호가 붙은 유적만 담습니다.",
                     "Disabled by default. Selected outputs use the current "
-                    "extent, paper size, and scale without modifying sources.",
+                    "extent, paper size, and scale without modifying sources. "
+                    "The table lists only sites numbered on the map.",
                 )
             )
 
@@ -3263,6 +3287,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             "export_layout_pdf": (
                 self.chkExportLayoutPdf.isChecked()
                 if hasattr(self, "chkExportLayoutPdf")
+                else False
+            ),
+            "export_site_table": (
+                self.chkExportSiteTable.isChecked()
+                if hasattr(self, "chkExportSiteTable")
                 else False
             ),
             "study_area_id": self.comboStudyArea.currentData(),

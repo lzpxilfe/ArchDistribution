@@ -99,6 +99,7 @@ from .run_artifacts import (
     sha256_file_bundle,
 )
 from .shapefile_encoding import declared_shapefile_encoding
+from .site_table import build_site_table, compass_direction, write_csv, write_hwpx
 from .source_exclusion import (
     default_enabled_rules,
     exclusion_reason,
@@ -2079,7 +2080,10 @@ class ArchDistribution:
         save_archive = bool(settings.get("save_gpkg_manifest", False))
         export_jpg = bool(settings.get("export_layout_jpg", False))
         export_pdf = bool(settings.get("export_layout_pdf", False))
-        if not any((save_archive, export_jpg, export_pdf)):
+        export_table = bool(settings.get("export_site_table", False)) and (
+            workflow != "preservation_area"
+        )
+        if not any((save_archive, export_jpg, export_pdf, export_table)):
             return {"paths": [], "errors": []}
 
         output_directory = str(
@@ -2180,6 +2184,21 @@ class ArchDistribution:
                 except Exception as exc:
                     artifact_errors.append(f"인쇄조판: {exc}")
                     self.log(f"⚠️ 인쇄조판 출력 실패: {exc}")
+
+            if export_table:
+                try:
+                    table_paths = self._export_site_table(
+                        settings,
+                        output_group,
+                        output_directory,
+                        base_name,
+                    )
+                    artifact_paths.extend(table_paths)
+                    for path in table_paths:
+                        self.log(f"주변유적 현황표 저장: {path}")
+                except Exception as exc:
+                    artifact_errors.append(f"현황표: {exc}")
+                    self.log(f"⚠️ 주변유적 현황표 저장 실패: {exc}")
 
             if save_archive and manifest_path is not None:
                 processing_stats = dict(
@@ -2288,6 +2307,172 @@ class ArchDistribution:
             "paths": artifact_paths,
             "errors": artifact_errors,
         }
+
+    @staticmethod
+    def _source_role_from_uid(uid):
+        return str(uid or "").split(":", 1)[0]
+
+    def _site_table_groups(self, output_group):
+        """Collect one group per map number from the numbered result layers."""
+        study_point = None
+        numbered_layers = []
+        for node in output_group.findLayers():
+            layer = node.layer()
+            if not isinstance(layer, QgsVectorLayer):
+                continue
+            names = {field.name() for field in layer.fields()}
+            if layer.name() == "00_조사구역" and study_point is None:
+                combined = QgsGeometry()
+                for feature in layer.getFeatures():
+                    if feature.hasGeometry():
+                        combined = (
+                            QgsGeometry(feature.geometry())
+                            if combined.isNull()
+                            else combined.combine(feature.geometry())
+                        )
+                if not combined.isNull():
+                    study_point = (layer.crs(), combined.centroid().asPoint())
+            elif {"번호", "NUMBER_KEY", "SRC_JSON"} <= names:
+                numbered_layers.append(layer)
+
+        groups = {}
+        for layer in numbered_layers:
+            transform = None
+            if study_point and layer.crs() != study_point[0]:
+                transform = QgsCoordinateTransform(
+                    layer.crs(), study_point[0], QgsProject.instance()
+                )
+            label_index = layer.fields().indexFromName("LABEL_OK")
+            # A subset string hides features outside the buffer; the table
+            # must follow what the map shows.
+            for feature in layer.getFeatures():
+                number = feature["번호"]
+                if number in (None, "") or str(number) == "NULL":
+                    continue
+                key = int(number)
+                group = groups.setdefault(key, {
+                    "number": key,
+                    "name": "",
+                    "address": "",
+                    "distance_m": None,
+                    "direction": "",
+                    "roles": [],
+                    "designated": False,
+                    "records": [],
+                    "_anchor": False,
+                })
+                anchor = label_index >= 0 and int(
+                    feature[label_index] or 0
+                ) == 1
+                if anchor or not group["name"]:
+                    group["name"] = str(feature["유적명"] or "")
+                    address = str(feature["주소"] or "")
+                    group["address"] = "" if address == "N/A" else address
+                    if anchor and study_point and feature.hasGeometry():
+                        point_geometry = QgsGeometry(
+                            feature.geometry()
+                        ).pointOnSurface()
+                        if transform is not None:
+                            point_geometry.transform(transform)
+                        point = point_geometry.asPoint()
+                        group["direction"] = compass_direction(
+                            point.x() - study_point[1].x(),
+                            point.y() - study_point[1].y(),
+                            getattr(self.dlg, "ui_lang", "ko")
+                            if getattr(self, "dlg", None) else "ko",
+                        )
+                distance = feature["DIST_M"]
+                if distance not in (None, "") and str(distance) != "NULL":
+                    group["distance_m"] = (
+                        float(distance) if group["distance_m"] is None
+                        else min(group["distance_m"], float(distance))
+                    )
+                try:
+                    records = json.loads(feature["SRC_JSON"] or "[]")
+                except (TypeError, ValueError):
+                    records = []
+                for record in records if isinstance(records, list) else []:
+                    if not isinstance(record, dict):
+                        continue
+                    if record not in group["records"]:
+                        group["records"].append(record)
+                    role = self._source_role_from_uid(
+                        record.get("_source_uid")
+                    ) or str(feature["SOURCE_ROLE"] or "")
+                    label = SOURCE_ROLE_LABELS.get(role, "")
+                    if label and label not in group["roles"]:
+                        group["roles"].append(label)
+                    if is_designated_role(role):
+                        group["designated"] = True
+        for group in groups.values():
+            group.pop("_anchor", None)
+            for record in group["records"]:
+                record.pop("_source_layer", None)
+                record.pop("_source_uid", None)
+        return list(groups.values())
+
+    def _export_site_table(
+        self,
+        settings,
+        output_group,
+        output_directory,
+        base_name,
+    ):
+        """Write the report-style nearby-site table as HWPX and CSV."""
+        language = (
+            getattr(self.dlg, "ui_lang", "ko")
+            if getattr(self, "dlg", None) else "ko"
+        )
+        groups = self._site_table_groups(output_group)
+        if not groups:
+            self.log("현황표: 번호가 부여된 유적이 없어 저장하지 않습니다.")
+            return []
+        header, rows = build_site_table(groups, language)
+        study_layer = QgsProject.instance().mapLayer(
+            settings.get("study_area_id") or ""
+        )
+        buffers = ", ".join(
+            format_buffer_label(distance, True)
+            for distance in sorted(settings.get("buffers") or [])
+        )
+        if language == "en":
+            title = "Nearby heritage sites"
+            subtitle = " · ".join(part for part in (
+                f"Survey area: {study_layer.name()}" if study_layer else "",
+                f"Scale 1:{int(settings.get('scale') or 0):,}",
+                f"Buffers {buffers}" if buffers else "",
+            ) if part)
+            footnote = (
+                "Draft generated by ArchDistribution. Period, character and "
+                "location summarise the source records; check every row "
+                "against the sources before publication."
+            )
+        else:
+            title = "주변유적 현황"
+            subtitle = " · ".join(part for part in (
+                f"조사지역: {study_layer.name()}" if study_layer else "",
+                f"축척 1:{int(settings.get('scale') or 0):,}",
+                f"버퍼 {buffers}" if buffers else "",
+            ) if part)
+            footnote = (
+                "※ ArchDistribution이 원자료를 요약해 만든 초안입니다. "
+                "시대·성격·소재지는 여러 기록을 합친 값이므로 보고서 수록 전 "
+                "원자료와 대조해 검수하십시오."
+            )
+        hwpx_path = prepare_output_path(
+            output_directory, f"{base_name}_현황표", extension="hwpx",
+            unique=True,
+        )
+        csv_path = prepare_output_path(
+            output_directory, f"{base_name}_현황표", extension="csv",
+            unique=True,
+        )
+        write_hwpx(
+            str(hwpx_path), header, rows,
+            title=title, subtitle=subtitle, footnote=footnote,
+        )
+        write_csv(str(csv_path), header, rows)
+        return [str(hwpx_path), str(csv_path)]
 
     def _write_terminal_manifest(
         self,
