@@ -11,51 +11,15 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>ArchDistribution - 프리미엄 분포지도 엔진</string>
+   <string>ArchDistribution</string>
   </property>
-  <styleSheet>
-   <string notr="true">QDialog { background-color: #f5f5f5; }
-QGroupBox { font-size: 13px; font-weight: bold; border: 1px solid #c0c0c0; border-radius: 6px; margin-top: 20px; padding-top: 15px; background-color: #ffffff; }
-QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; color: #333333; }
-QLabel { color: #333333; font-size: 11px; }
-QLabel#lTitle { color: #2c3e50; font-size: 16px; font-weight: bold; }
-QPushButton#btnRun { 
-  background-color: #2980b9; 
-  color: white; 
-  border-radius: 4px; 
-  font-weight: bold; 
-  font-size: 14px; 
-  border: 1px solid #2980b9;
-  padding: 8px;
-}
-QPushButton#btnRun:hover { background-color: #3498db; }
-QPushButton#btnRun:pressed { background-color: #1f618d; }
-QLineEdit, QSpinBox, QDoubleSpinBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; }
-
-/* IMPACT FIX: Force Combo Box Popup to be White Background with Black Text */
-QComboBox { border: 1px solid #bdc3c7; border-radius: 3px; padding: 4px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; }
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    color: #000000;
-    selection-background-color: #3498db;
-    selection-color: #ffffff;
-    outline: 0;
-}
-QComboBox::item { color: #000000; background-color: #ffffff; }
-QComboBox::item:selected { background-color: #3498db; color: #ffffff; }
-
-QListWidget { border: 1px solid #bdc3c7; border-radius: 3px; background-color: #ffffff; color: #000000; selection-background-color: #3498db; selection-color: #ffffff; }
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QListWidget:focus { border: 1px solid #3498db; }
-QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family: 'Consolas', monospace; font-size: 10px; border-radius: 3px; }
-</string>
-  </styleSheet>
   <layout class="QVBoxLayout" name="vMain">
    <item>
     <layout class="QHBoxLayout" name="hHeader">
      <item>
       <widget class="QLabel" name="lTitle">
        <property name="text">
-        <string>🏛 ArchDistribution</string>
+        <string>ArchDistribution</string>
        </property>
       </widget>
      </item>
@@ -97,16 +61,6 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           border: 1px solid #3498db;
          }
         </string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="lSub">
-       <property name="text">
-        <string>고고학 분포지도 제작 최적화 솔루션</string>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">color: #757575; font-size: 11px;</string>
        </property>
       </widget>
      </item>
@@ -323,7 +277,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </property>
           <item row="0" column="0">
            <widget class="QLabel" name="lp0">
-            <string>표준 규격 프리셋:</string>
+            <property name="text">
+             <string>용지 규격</string>
+            </property>
            </widget>
           </item>
           <item row="0" column="1" colspan="2">
@@ -359,6 +315,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="1">
            <widget class="QSpinBox" name="spinWidth">
+            <property name="minimum">
+             <number>1</number>
+            </property>
             <property name="maximum">
              <number>9999</number>
             </property>
@@ -380,6 +339,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="1">
            <widget class="QSpinBox" name="spinHeight">
+            <property name="minimum">
+             <number>1</number>
+            </property>
             <property name="maximum">
              <number>9999</number>
             </property>
@@ -401,6 +363,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="3" column="1">
            <widget class="QSpinBox" name="spinScale">
+            <property name="minimum">
+             <number>1</number>
+            </property>
             <property name="maximum">
              <number>1000000</number>
             </property>
@@ -476,7 +441,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="0" column="2">
            <widget class="QLabel" name="ls1u">
-            <string>mm (두께)</string>
+            <property name="text">
+             <string>mm</string>
+            </property>
            </widget>
           </item>
           <item row="0" column="3">
@@ -495,6 +462,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="0" column="5">
            <widget class="QSpinBox" name="spinHeritageOpacity">
+            <property name="maximum">
+             <number>100</number>
+            </property>
             <property name="toolTip">
              <string>유적 내부 채움 색상의 투명도입니다 (0% = 투명, 100% = 불투명).</string>
             </property>
@@ -502,7 +472,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="0" column="6">
            <widget class="QLabel" name="ls1op">
-            <string>% (불투명도)</string>
+            <property name="text">
+             <string>% (불투명도)</string>
+            </property>
            </widget>
           </item>
           <item row="1" column="0">
@@ -529,7 +501,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="1" column="2">
            <widget class="QLabel" name="ls2u">
-            <string>mm (두께)</string>
+            <property name="text">
+             <string>mm</string>
+            </property>
            </widget>
           </item>
           <item row="1" column="3">
@@ -573,7 +547,9 @@ QPlainTextEdit#txtLogs { background-color: #2c3e50; color: #ecf0f1; font-family:
           </item>
           <item row="2" column="2">
            <widget class="QLabel" name="ls3u">
-            <string>mm (두께)</string>
+            <property name="text">
+             <string>mm</string>
+            </property>
            </widget>
           </item>
           <item row="2" column="3">

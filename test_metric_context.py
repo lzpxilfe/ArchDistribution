@@ -115,6 +115,57 @@ class MetricContextQgisTests(unittest.TestCase):
 
         self.assertEqual(context.analysis_crs.authid(), "EPSG:32652")
 
+    def test_web_mercator_layer_uses_local_utm_for_planar_distance(self):
+        from qgis.core import (
+            QgsCoordinateReferenceSystem,
+            QgsCoordinateTransform,
+            QgsDistanceArea,
+            QgsFeature,
+            QgsGeometry,
+            QgsPointXY,
+            QgsProject,
+            QgsVectorLayer,
+        )
+
+        layer = QgsVectorLayer("LineString?crs=EPSG:3857", "source", "memory")
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform_context = QgsProject.instance().transformContext()
+        to_web = QgsCoordinateTransform(wgs84, layer.crs(), transform_context)
+        start, end = QgsPointXY(127.1, 36.45), QgsPointXY(127.11, 36.45)
+        web_start, web_end = [to_web.transform(point) for point in (start, end)]
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromPolylineXY([web_start, web_end]))
+        layer.dataProvider().addFeature(feature)
+        layer.updateExtents()
+
+        context = MetricContext.from_layer(layer)
+        geodesic = QgsDistanceArea()
+        geodesic.setSourceCrs(wgs84, transform_context)
+        geodesic.setEllipsoid("WGS84")
+        expected_distance = geodesic.measureLine(start, end)
+
+        self.assertEqual(context.analysis_crs.authid(), "EPSG:32652")
+        self.assertEqual(context.output_crs.authid(), "EPSG:3857")
+        self.assertAlmostEqual(
+            context.distance_m(web_start, web_end), expected_distance, delta=1,
+        )
+        self.assertEqual(
+            context.provenance()["analysis_selection"]["measurement_model"],
+            "planar_in_analysis_crs",
+        )
+
+    def test_mercator_and_equirectangular_overrides_are_rejected(self):
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        custom = QgsCoordinateReferenceSystem.fromProj(
+            "+proj=eqc +lat_ts=15 +datum=WGS84 +units=m"
+        )
+        for override in ("EPSG:3857", "EPSG:3395", "ESRI:102100", custom):
+            with self.subTest(override=override), self.assertRaisesRegex(
+                MetricContextError, "Mercator"
+            ):
+                MetricContext.create("EPSG:5186", analysis_crs=override)
+
     def test_invalid_or_nonmetric_analysis_crs_is_rejected(self):
         from qgis.core import QgsCoordinateReferenceSystem
 
@@ -367,21 +418,21 @@ class MetricContextDialogQgisTests(unittest.TestCase):
         )
         self.assertIsNone(dialog._analysis_crs_override_error())
 
-    def test_geographic_override_is_rejected_before_processing(self):
+    def test_unsuitable_override_is_rejected_before_processing(self):
         from qgis.core import QgsCoordinateReferenceSystem
 
         dialog = self.dialog_class()
         self.addCleanup(dialog.close)
         dialog.chkOverrideAnalysisCrs.setChecked(True)
-        dialog.projectionAnalysisCrs.setCrs(
-            QgsCoordinateReferenceSystem("EPSG:4326")
-        )
-
-        self.assertEqual(
-            dialog.get_settings()["analysis_crs_authid"],
-            "EPSG:4326",
-        )
-        self.assertIsNotNone(dialog._analysis_crs_override_error())
+        for authid in ("EPSG:4326", "EPSG:3857"):
+            with self.subTest(authid=authid):
+                dialog.projectionAnalysisCrs.setCrs(
+                    QgsCoordinateReferenceSystem(authid)
+                )
+                self.assertEqual(
+                    dialog.get_settings()["analysis_crs_authid"], authid,
+                )
+                self.assertIsNotNone(dialog._analysis_crs_override_error())
 
 
 if __name__ == "__main__":

@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
-  "rules_version": "1.0.0",
+  "rules_version": "1.0.1",
   "description": "Record-level exclusion signals for nearby-heritage maps. The engine is language neutral; every term below is replaceable data.",
   "outcome": {
     "id": "no_remains",
     "label_ko": "조사 결과 유적 없음",
     "label_en": "Investigation found no remains",
     "default_enabled": false,
-    "field_keywords": ["유적유무", "유무", "조사결과", "outcome", "result", "finding", "remains", "resultado"],
+    "field_keywords": ["유적유무", "유구유무", "유적존재여부", "유구존재여부", "조사결과", "발굴조사결과", "지표조사결과", "remains found", "remains", "survey outcome", "survey result", "investigation outcome", "investigation result", "outcome", "result", "finding", "resultado"],
     "max_distinct_values": 12,
-    "negative_markers": ["유적없음", "없음", "noremains", "none", "absent", "negative", "notfound", "sinrestos", "negativo"],
-    "positive_markers": ["유적있음", "있음", "유적분포가능지", "분포가능", "present", "positive", "possible", "potential", "positivo", "posible"]
+    "negative_markers": ["유적없음", "유구없음", "없음", "noremains", "absent", "negative", "notfound", "sinrestos", "negativo"],
+    "negative_note_markers": ["분포가능성없음", "유적분포가능성없음"],
+    "positive_markers": ["유적있음", "유구있음", "있음", "유적확인", "유구확인", "유적분포가능지", "분포가능", "remains found", "present", "positive", "possible", "potential", "positivo", "posible"]
   },
   "class_field_keywords": ["분류", "유형", "종류", "성격", "종목", "type", "class", "category", "kind", "tipo", "categoria"],
   "classes": [

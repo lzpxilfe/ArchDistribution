@@ -104,9 +104,10 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile
 
-          archive = Path.home() / "Desktop" / "ArchDistribution-1.0.5.zip"
-          if not archive.exists():
-              raise SystemExit(f"Missing plugin archive: {archive}")
+          archives = sorted((Path.home() / "Desktop").glob("ArchDistribution-*.zip"))
+          if len(archives) != 1:
+              raise SystemExit(f"Expected one plugin ZIP, found {archives}")
+          archive = archives[0]
           with ZipFile(archive) as package:
               if package.testzip():
                   raise SystemExit("Plugin archive failed CRC verification")
@@ -130,8 +131,8 @@ jobs:
       - name: Upload QGIS-tested plugin ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ArchDistribution-1.0.5-qgis-3.44
-          path: ~/Desktop/ArchDistribution-1.0.5.zip
+          name: ArchDistribution-qgis-3.44
+          path: ~/Desktop/ArchDistribution-*.zip
           if-no-files-found: error
           retention-days: 14
 

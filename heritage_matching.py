@@ -12,7 +12,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import unicodedata
 from copy import deepcopy
 
 try:
@@ -386,11 +385,13 @@ def name_contains(left, right, rules=None):
 
 def is_generic_name(value, rules=None):
     """Return whether a label carries too little identity for auto-merging."""
-    active_rules = rules or DEFAULT_MATCHING_RULES
-    generic = {
-        canonical_name(item) for item in active_rules.get("generic_names", ())
-    }
-    return bool(canonical_name(value) in generic)
+    parser, generic_keys = _prepare_name_rules(rules or DEFAULT_MATCHING_RULES)
+    return _is_generic_name(value, parser, generic_keys)
+
+
+def _is_generic_name(value, parser, generic_keys):
+    parsed = parser.parse(value)
+    return parsed.key in generic_keys or parsed.base in generic_keys
 
 
 def _record_name(record):
@@ -551,13 +552,17 @@ def _geometry_allows_automatic_decision(geometry_pair, rules):
     return _normalized_geometry_pair(geometry_pair) in allowed
 
 
-def _generic_identity_keys(rules):
-    return frozenset(
-        key for key in (
-            relations.identity_name_key(item, rules)
-            for item in rules.get("generic_names", ())
-        ) if key
+@lru_cache(maxsize=16)
+def _identity_keys(parser, names):
+    return frozenset(parser.parse(name).key for name in names) - {""}
+
+
+def _prepare_name_rules(rules):
+    parser = relations.prepare_name_parser(rules)
+    names = tuple(
+        "" if item is None else str(item) for item in rules.get("generic_names", ())
     )
+    return parser, _identity_keys(parser, names)
 
 
 _LOT_RE = re.compile(r"\d+\s*-\s*\d+")
@@ -565,18 +570,24 @@ _LOT_RE = re.compile(r"\d+\s*-\s*\d+")
 
 def _lot_numbers(name, rules):
     """Return lot numbers in a name: hyphenated numbers or "<n> <lot unit>"."""
-    text = unicodedata.normalize("NFKC", str(name or "")).casefold()
-    lots = {re.sub(r"\s+", "", match) for match in _LOT_RE.findall(text)}
+    text = _LOT_RE.sub(
+        lambda match: re.sub(r"\s+", "", match[0]), clean_heritage_text(name).casefold()
+    )
+    lots = set(_LOT_RE.findall(text))
     units = [
         str(unit).casefold()
         for unit in (rules.get("name_lexicon") or {}).get("lot_units", ())
     ]
     for unit in units:
-        lots.update(re.findall(rf"(\d+)\s*{re.escape(unit)}", text))
+        lots.update(
+            re.findall(
+                rf"(?<![\d-])(\d+(?:-\d+)?)\s*{re.escape(unit)}", text
+            )
+        )
     return lots
 
 
-def _stem_variant(left, right, rules):
+def _stem_variant(left, right, rules, parser, generic_keys):
     """Return whether two stem-sharing names describe one place.
 
     They do when they name the same lot, or when what follows the shared
@@ -588,32 +599,32 @@ def _stem_variant(left, right, rules):
     if left_lots and right_lots:
         return bool(left_lots & right_lots)
     words = sorted(
-        {
-            relations.identity_name_key(word, rules)
-            for word in rules.get("unspecific_names", ())
-        } - {""},
+        _identity_keys(
+            parser,
+            tuple("" if word is None else str(word)
+                  for word in rules.get("unspecific_names", ())),
+        ),
         key=len,
         reverse=True,
     )
     if not words:
         return False
-    left_key = relations.identity_name_key(left, rules)
-    right_key = relations.identity_name_key(right, rules)
-    generic = _generic_identity_keys(rules)
+    left_parsed, right_parsed = parser.parse(left), parser.parse(right)
+    left_key, right_key = left_parsed.key, right_parsed.key
     # Same core under a different or omitted qualifier ("<dynasty> <name>
     # tomb" / "<city> <name> tomb"): trailing words of one name end the
     # other, and they say more than a generic type word.
     minimum = int(relations.relation_thresholds(rules)["affix_min_chars"]) + 1
     for parsed, other_key in (
-        (relations.parse_name(left, rules), right_key),
-        (relations.parse_name(right, rules), left_key),
+        (left_parsed, right_key),
+        (right_parsed, left_key),
     ):
         tokens = parsed.tokens
         for start in range(1, len(tokens)):
             tail = "".join(tokens[start:])
             if (
                 len(tail) >= minimum
-                and tail not in generic
+                and tail not in generic_keys
                 and not parsed.designators
                 and other_key.endswith(tail)
                 and other_key != tail
@@ -628,7 +639,7 @@ def _stem_variant(left, right, rules):
     # The shared prefix may run into the type words themselves
     # ("...유물산포지" / "...유적" share "유"), so step back a little.
     for cut in range(prefix, max(1, prefix - 3), -1):
-        if any(
+        if all(
             not tail or pattern.fullmatch(tail)
             for tail in (left_key[cut:], right_key[cut:])
         ):
@@ -793,10 +804,15 @@ def _cross_register_component(
     child_side = (
         "left" if name_relation == relations.NAME_LEFT_SPECIFIC else "right"
     )
-    if geometry_relation != f"{child_side}_within":
-        return None
     thresholds = relations.relation_thresholds(rules)
     child_coverage = coverage_left if child_side == "left" else coverage_right
+    inside = geometry_relation == f"{child_side}_within" or (
+        geometry_relation in {relations.GEOMETRY_IDENTICAL, relations.GEOMETRY_SIMILAR}
+        and child_coverage is not None
+        and float(child_coverage) >= float(thresholds["within_coverage"])
+    )
+    if not inside:
+        return None
     child_role = left_role if child_side == "left" else right_role
     confidence = (
         "high"
@@ -829,6 +845,7 @@ def _survey_relation(
     coverage_left,
     coverage_right,
     rules,
+    parser,
     generic_keys,
 ):
     """Classify a surface-survey record against a mapped site or survey.
@@ -887,7 +904,7 @@ def _survey_relation(
             continue
         inside = float(coverage) >= within
         zone_label = relations.is_placeholder_name(
-            _record_name(record), rules, generic_keys
+            _record_name(record), rules, generic_keys, parser=parser,
         )
         if inside and (name_relation == specific or zone_label):
             return (
@@ -898,6 +915,20 @@ def _survey_relation(
                 MERGE_MODE_SUPPRESS,
             )
     return None
+
+
+def make_candidate_evaluator(rules=None):
+    """Use one consistent rules snapshot for a batch of candidate pairs."""
+    snapshot = deepcopy(rules or DEFAULT_MATCHING_RULES)
+    prepared_names = _prepare_name_rules(snapshot)
+
+    def evaluate(left, right, **metrics):
+        return evaluate_candidate(
+            left, right, **metrics, rules=snapshot,
+            _prepared_names=prepared_names,
+        )
+
+    return evaluate
 
 
 def evaluate_candidate(
@@ -917,6 +948,7 @@ def evaluate_candidate(
     geometry_pair="polygon_polygon",
     rules=None,
     designated_parts=DESIGNATED_PARTS_SEPARATE,
+    _prepared_names=None,
 ):
     """Evaluate one spatially reduced pair.
 
@@ -940,14 +972,16 @@ def evaluate_candidate(
     similarity = name_similarity(left_name, right_name)
     exact = bool(left_name and right_name and similarity == 1.0)
     containment = name_contains(left_name, right_name, active_rules)
-    generic_name = is_generic_name(left_name, active_rules) or is_generic_name(
-        right_name, active_rules
+    parser, generic_keys = _prepared_names or _prepare_name_rules(active_rules)
+    generic_name = _is_generic_name(left_name, parser, generic_keys) or (
+        _is_generic_name(right_name, parser, generic_keys)
     )
     name_rel = relations.name_relation(
         left_name,
         right_name,
         active_rules,
-        _generic_identity_keys(active_rules),
+        generic_keys,
+        parser=parser,
     )
     geometry_rel = relations.geometry_relation(
         intersects=intersects,
@@ -976,6 +1010,9 @@ def evaluate_candidate(
     automatic_geometry = _geometry_allows_automatic_decision(
         geometry_pair, active_rules
     )
+    left_lots = _lot_numbers(left_name, active_rules)
+    right_lots = _lot_numbers(right_name, active_rules)
+    conflicting_lots = bool(left_lots and right_lots and left_lots.isdisjoint(right_lots))
 
     def build(
         confidence,
@@ -986,7 +1023,11 @@ def evaluate_candidate(
         representative_uid=None,
         merge_mode=MERGE_MODE_SUPPRESS,
     ):
-        if generic_name or not automatic_geometry:
+        if conflicting_lots:
+            if recommended == DECISION_MERGE:
+                recommended = DECISION_LINK
+            relation_type = RELATION_RELATED_SEPARATE
+        if generic_name or conflicting_lots or not automatic_geometry:
             auto_apply = False
         return MatchCandidate(
             left_uid=str(left.get("uid")),
@@ -1066,7 +1107,8 @@ def evaluate_candidate(
             coverage_left=coverage_left,
             coverage_right=coverage_right,
             rules=active_rules,
-            generic_keys=_generic_identity_keys(active_rules),
+            parser=parser,
+            generic_keys=generic_keys,
         )
         if survey is not None:
             rule, confidence, relation_type, parent_side, mode = survey
@@ -1242,7 +1284,7 @@ def evaluate_candidate(
         rule == "name_containment_and_overlap"
         and name_rel in (relations.NAME_SIBLING, relations.NAME_UNRELATED)
         and similarity < float(thresholds.get("sibling_merge_similarity", 0.85))
-        and not _stem_variant(left_name, right_name, active_rules)
+        and not _stem_variant(left_name, right_name, active_rules, parser, generic_keys)
     )
     if sibling_names and recommended == DECISION_MERGE:
         # A shared stem is not containment: "<place> fortress" overlapping
@@ -1266,6 +1308,15 @@ def evaluate_candidate(
     else:
         relation_type = RELATION_UNCERTAIN
 
+    if name_rel in {relations.NAME_LEFT_SPECIFIC, relations.NAME_RIGHT_SPECIFIC}:
+        child, parent = (
+            (left, right) if name_rel == relations.NAME_LEFT_SPECIFIC else (right, left)
+        )
+        if child.get("role") in DESIGNATED_ROLES | {ROLE_EXCAVATION}:
+            return build(
+                confidence, rule, DECISION_LINK, False, relation_type,
+                str(parent.get("uid")),
+            )
     return build(confidence, rule, recommended, auto_apply, relation_type)
 
 

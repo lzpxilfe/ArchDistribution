@@ -70,6 +70,27 @@ class OutcomeRuleTests(unittest.TestCase):
             exclusion_reason(plan, {"Result": "Remains present"})
         )
 
+    def test_specific_outcome_is_preferred_to_generic_status_fields(self):
+        fields = ["지정유무", "훼손유무", "조사결과", "유적유무"]
+        self.assertEqual(outcome_field_candidates(fields, RULES), ["유적유무", "조사결과"])
+        plan = prepare_layer_plan(fields, ["no_remains"], rules=RULES)
+        self.assertIsNone(exclusion_reason(plan, {
+            "지정유무": "없음", "훼손유무": "없음",
+            "조사결과": "없음", "유적유무": "있음",
+        }))
+
+    def test_distinguishes_absence_from_missing_data_and_non_excavation(self):
+        plan = self.plan()
+        for value in (
+            "해당없음", "기록없음", "None", "Non-excavated",
+            "유적없음(유적분포가능지)", "유적없음(유구 확인)", "분포가능성 없음",
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(exclusion_reason(plan, {"유적유무": value}))
+        self.assertEqual(exclusion_reason(plan, {
+            "유적유무": "유적없음(분포가능성 없음)",
+        }), "no_remains")
+
 
 class ClassRuleTests(unittest.TestCase):
     def plan(self, enabled):
@@ -107,6 +128,9 @@ class ClassRuleTests(unittest.TestCase):
         plan = self.plan(["movable", "intangible", "natural"])
         self.assertIsNone(exclusion_reason(plan, {
             "유적대분류": "0)유적", "유적중분류": "0)무덤유적",
+        }))
+        self.assertIsNone(exclusion_reason(plan, {
+            "유적대분류": "0)유적", "유적중분류": "0)조각",
         }))
 
     def test_report_practice_defaults(self):

@@ -6,10 +6,10 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
                        QgsField, QgsPointXY,
                        QgsLineSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest,
                        QgsCategorizedSymbolRenderer, QgsRendererCategory,
-                       QgsFillSymbol,
+                       QgsFillSymbol, QgsMarkerSymbol,
                        QgsPalLayerSettings, QgsTextFormat, QgsVectorLayerSimpleLabeling,
                        QgsCoordinateTransform, QgsWkbTypes, QgsRectangle,
-                       QgsSpatialIndex, QgsDistanceArea, QgsVectorFileWriter,
+                       QgsSpatialIndex, QgsVectorFileWriter,
                        QgsApplication, Qgis,
                        QgsPrintLayout, QgsLayoutItemMap, QgsLayoutPoint,
                        QgsLayoutSize, QgsLayoutExporter,
@@ -17,6 +17,7 @@ from qgis.core import (QgsProject, QgsVectorLayer, QgsGeometry, QgsFeature,
 
 import json
 import hashlib
+import math
 import os.path
 import processing
 import time
@@ -64,11 +65,11 @@ from .heritage_matching import (
     STATUS_USER_MERGED,
     detect_source_role,
     canonical_name,
-    evaluate_candidate,
     is_designated_role,
     is_union_merge,
     is_generic_name,
     load_matching_rules,
+    make_candidate_evaluator,
     matching_rules_metadata,
     selected_content_fingerprint,
     source_priority,
@@ -80,6 +81,7 @@ from .preservation_actions import (
     PRESERVATION_ACTION_FIELD_CANDIDATES,
     PRESERVATION_ACTION_STYLES,
     normalize_preservation_action,
+    preservation_action_label,
     recognized_preservation_actions,
 )
 from .map_legend_styles import (
@@ -283,6 +285,12 @@ class ArchDistribution:
         self.dlg.renumber_requested.connect(self.process_renumbering)
         self.dlg.exec()
 
+    def _ui_language(self):
+        return getattr(getattr(self, "dlg", None), "ui_lang", "ko")
+
+    def _ui_text(self, korean, english):
+        return english if self._ui_language() == "en" else korean
+
     def log(self, message):
         """Log a message to the dialog log window, QGIS message bar, and file."""
         timestamp = datetime.now().strftime('%H:%M:%S')
@@ -431,15 +439,19 @@ class ArchDistribution:
         except OSError as exc:
             print(f"ArchDistribution: log file initialization failed: {exc}")
 
+        t = self._ui_text
         # Disable button to prevent double execution
         self.dlg.btnRun.setEnabled(False)
-        self.log("작업을 시작합니다...")
+        self.log(t("작업을 시작합니다...", "Starting the distribution map…"))
 
         # 0. Setup Progress Dialog
         total_steps = DEFAULT_PROGRESS_STEPS
-        progress = QProgressDialog("데이터를 처리하는 중입니다...", "중단", 0, total_steps, self.iface.mainWindow())
+        progress = QProgressDialog(
+            t("데이터를 처리하는 중입니다...", "Processing input layers…"),
+            t("중단", "Cancel"), 0, total_steps, self.iface.mainWindow(),
+        )
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setWindowTitle("ArchDistribution 진행률")
+        progress.setWindowTitle(t("ArchDistribution 진행률", "ArchDistribution progress"))
         progress.setMinimumDuration(0)
         progress.setValue(0)
         self._active_progress = progress
@@ -454,7 +466,7 @@ class ArchDistribution:
             current_step = 0
 
             # Step 1: Groups
-            self.log("레이어 그룹 설정 중...")
+            self.log(t("레이어 그룹 설정 중...", "Preparing project layer groups…"))
             root = QgsProject.instance().layerTreeRoot()
 
             # 1-1. Build in staging. The last successful result remains
@@ -507,18 +519,18 @@ class ArchDistribution:
                     self.fix_layer_encoding(source_layer)
                 self.move_layer_to_group(source_layer, src_group)
             src_group.setItemVisibilityChecked(False)
-            self.log(
-                "원본 입력 레이어를 숨김 그룹으로 일괄 이동: "
-                f"{len(moved_source_ids)}개"
-            )
+            self.log(t(
+                f"원본 입력 레이어를 숨김 그룹으로 일괄 이동: {len(moved_source_ids)}개",
+                f"Moved {len(moved_source_ids)} original input layers to the hidden source group.",
+            ))
             current_step += 1
             progress.setValue(current_step)
 
             # Step 2: Study Area (Clone for display)
-            self.log("조사구역 처리 중...")
+            self.log(t("조사구역 처리 중...", "Preparing the study area…"))
             original_study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
             if not original_study_layer:
-                self.log("오류: 조사지역 레이어를 찾을 수 없습니다.")
+                self.log(t("오류: 조사지역 레이어를 찾을 수 없습니다.", "The study-area layer could not be found."))
                 return
 
             # Establish one explicit metric contract for the whole run.  A
@@ -869,19 +881,20 @@ class ArchDistribution:
             self._save_pending_decision_store()
             optional_errors = optional_result.get("errors", [])
             if optional_errors:
-                self.log(
+                self.log(t(
                     "지도 결과는 생성했지만 선택 출력 일부가 "
-                    "실패했습니다. 위 경고를 확인하세요."
-                )
-                completion_message = "작업 부분 완료 — 선택 출력 경고 확인"
-                completion_level = 1
+                    "실패했습니다. 위 경고를 확인하세요.",
+                    "The map was created, but some optional files could not be saved. Check the output warnings.",
+                ))
+                completion_message = t("작업 부분 완료 — 선택 출력 경고 확인", "Map created. Check file export warnings.")
+                completion_level = Qgis.MessageLevel.Warning
             else:
-                self.log("모든 작업이 성공적으로 완료되었습니다.")
-                completion_message = "작업 완료"
-                completion_level = 0
+                self.log(t("모든 작업이 성공적으로 완료되었습니다.", "The distribution map was created successfully."))
+                completion_message = t("작업 완료", "Distribution map created")
+                completion_level = Qgis.MessageLevel.Info
 
             # Notify Log File
-            self.log(f"로그 파일 저장됨: {self._log_path()}")
+            self.log(t(f"로그 파일 저장됨: {self._log_path()}", f"Run log: {self._log_path()}"))
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
                 completion_message,
@@ -898,8 +911,8 @@ class ArchDistribution:
             )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
-                "중복 검토가 취소되어 결과를 만들지 않았습니다.",
-                level=1,
+                t("중복 검토가 취소되어 결과를 만들지 않았습니다.", "Duplicate review cancelled. No new results were created."),
+                level=Qgis.MessageLevel.Warning,
             )
         except ProcessingCancelled:
             self.log("사용자가 데이터 처리를 중단했습니다.")
@@ -911,8 +924,8 @@ class ArchDistribution:
             )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
-                "작업이 중단되었습니다.",
-                level=1,
+                t("작업이 중단되었습니다.", "Map generation cancelled."),
+                level=Qgis.MessageLevel.Warning,
             )
         except Exception as e:
             self.log(f"치명적 오류 발생: {str(e)}")
@@ -926,7 +939,10 @@ class ArchDistribution:
                 "failed",
                 error=e,
             )
-            QMessageBox.critical(self.dlg, "오류", f"작업 중 오류 발생: {str(e)}")
+            QMessageBox.critical(
+                self.dlg, t("오류", "Error"),
+                t(f"작업 중 오류 발생: {e}", f"The distribution map could not be created.\n{e}"),
+            )
         finally:
             if not transaction_committed:
                 self._rollback_output_transaction()
@@ -949,16 +965,17 @@ class ArchDistribution:
         except OSError as exc:
             print(f"ArchDistribution: log file initialization failed: {exc}")
 
+        t = self._ui_text
         self.dlg.btnRun.setEnabled(False)
         progress = QProgressDialog(
-            "매장유산 유존지역을 처리하는 중입니다...",
-            "중단",
+            t("매장유산 유존지역을 처리하는 중입니다...", "Processing buried heritage preservation areas…"),
+            t("중단", "Cancel"),
             0,
             5,
             self.iface.mainWindow(),
         )
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setWindowTitle("ArchDistribution 진행률")
+        progress.setWindowTitle(t("ArchDistribution 진행률", "ArchDistribution progress"))
         progress.setMinimumDuration(0)
         progress.setValue(0)
         self._active_progress = progress
@@ -978,8 +995,9 @@ class ArchDistribution:
             ):
                 QMessageBox.warning(
                     self.dlg,
-                    "입력 오류",
-                    "유효한 매장유산 유존지역 폴리곤 레이어를 선택하세요.",
+                    t("입력 오류", "Invalid input"),
+                    t("유효한 매장유산 유존지역 폴리곤 레이어를 선택하세요.",
+                      "Select a valid buried heritage preservation polygon layer."),
                 )
                 return
 
@@ -993,16 +1011,17 @@ class ArchDistribution:
             ):
                 QMessageBox.warning(
                     self.dlg,
-                    "입력 오류",
-                    "도곽 기준이 될 유효한 조사구역 폴리곤을 선택하세요.",
+                    t("입력 오류", "Invalid input"),
+                    t("도곽 기준이 될 유효한 조사구역 폴리곤을 선택하세요.",
+                      "Select a valid study-area polygon to position the map frame."),
                 )
                 return
             if study_layer.id() == source_layer.id():
                 QMessageBox.warning(
                     self.dlg,
-                    "입력 오류",
-                    "유존지역 자료와 도곽 기준 조사구역은 서로 다른 "
-                    "레이어를 선택하세요.",
+                    t("입력 오류", "Invalid input"),
+                    t("유존지역 자료와 도곽 기준 조사구역은 서로 다른 레이어를 선택하세요.",
+                      "Choose separate layers for the preservation areas and the study area."),
                 )
                 return
 
@@ -1016,8 +1035,9 @@ class ArchDistribution:
             if not centroid:
                 QMessageBox.warning(
                     self.dlg,
-                    "입력 오류",
-                    "조사구역이 비어 있어 도곽 중심을 계산할 수 없습니다.",
+                    t("입력 오류", "Invalid input"),
+                    t("조사구역이 비어 있어 도곽 중심을 계산할 수 없습니다.",
+                      "The study-area layer is empty. Its map frame cannot be centred."),
                 )
                 return
             extent_geom = self.calculate_extent_geometry(
@@ -1056,10 +1076,11 @@ class ArchDistribution:
             if not recognized_actions:
                 QMessageBox.warning(
                     self.dlg,
-                    "보존조치 확인 필요",
-                    "선택한 필드에서 현상보존·정밀발굴조사·시굴조사·"
-                    "표본조사 값을 확인할 수 없습니다.\n"
-                    "보존조치 필드를 다시 선택해 주세요.",
+                    t("보존조치 확인 필요", "Check the preservation action field"),
+                    t("선택한 필드에서 현상보존·정밀발굴조사·시굴조사·표본조사 값을 확인할 수 없습니다.\n"
+                      "보존조치 필드를 다시 선택해 주세요.",
+                      "The selected field contains none of the four recognised Korean preservation actions.\n"
+                      "Select the field containing the action codes or labels."),
                 )
                 self.log(
                     "중단: 선택 레이어에서 네 가지 보존조치 값을 "
@@ -1112,8 +1133,8 @@ class ArchDistribution:
             if output is None:
                 QMessageBox.warning(
                     self.dlg,
-                    "처리 결과 없음",
-                    "처리할 매장유산 유존지역 객체가 없습니다.",
+                    t("처리 결과 없음", "No results"),
+                    t("처리할 매장유산 유존지역 객체가 없습니다.", "There are no preservation-area features to process."),
                 )
                 return
             progress.setValue(3)
@@ -1193,13 +1214,14 @@ class ArchDistribution:
             )
             optional_errors = optional_result.get("errors", [])
             if optional_errors:
-                completion_message = (
-                    "매장유산 유존지역 부분 완료 — 선택 출력 경고 확인"
+                completion_message = t(
+                    "매장유산 유존지역 부분 완료 — 선택 출력 경고 확인",
+                    "Preservation map created. Check file export warnings.",
                 )
-                completion_level = 1
+                completion_level = Qgis.MessageLevel.Warning
             else:
-                completion_message = "매장유산 유존지역 생성 완료"
-                completion_level = 0
+                completion_message = t("매장유산 유존지역 생성 완료", "Buried heritage preservation map created")
+                completion_level = Qgis.MessageLevel.Info
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
                 completion_message,
@@ -1217,8 +1239,8 @@ class ArchDistribution:
             )
             self.iface.messageBar().pushMessage(
                 "ArchDistribution",
-                "매장유산 유존지역 작업을 중단했습니다.",
-                level=1,
+                t("매장유산 유존지역 작업을 중단했습니다.", "Preservation map generation cancelled."),
+                level=Qgis.MessageLevel.Warning,
             )
         except Exception as exc:
             self.log(f"치명적 오류 발생: {exc}")
@@ -1233,8 +1255,9 @@ class ArchDistribution:
             )
             QMessageBox.critical(
                 self.dlg,
-                "오류",
-                f"매장유산 유존지역 처리 중 오류가 발생했습니다: {exc}",
+                t("오류", "Error"),
+                t(f"매장유산 유존지역 처리 중 오류가 발생했습니다: {exc}",
+                  f"The preservation map could not be created.\n{exc}"),
             )
         finally:
             if not transaction_committed:
@@ -1282,7 +1305,14 @@ class ArchDistribution:
                     self.log("조사지역 미선택 - 현재 레이어 범위 중심 사용")
 
             if sort_order == 1 and not centroid:
-                QMessageBox.warning(self.dlg, "설정 오류", "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.")
+                QMessageBox.warning(
+                    self.dlg,
+                    self._ui_text("설정 오류", "Invalid settings"),
+                    self._ui_text(
+                        "조사지역(기준) 레이어가 선택되지 않아 '가까운 순' 정렬을 할 수 없습니다.\n기준을 변경하거나 조사지역을 다시 선택하세요.",
+                        "Select a survey area to number sites by distance, or choose a different numbering order.",
+                    ),
+                )
                 return
 
             # [NEW] Calculate Extent Geometry for Exclusion
@@ -1326,11 +1356,17 @@ class ArchDistribution:
 
             # 4. Refresh & Re-Apply Style (to update font/labels)
             self.log(f"레이어 '{layer.name()}' 번호 재정렬 완료. 스타일 적용 중...")
+            current_renderer = layer.renderer()
+            preserve_action_style = (
+                isinstance(current_renderer, QgsCategorizedSymbolRenderer)
+                and current_renderer.classAttribute() == "보존조치"
+            )
             self.apply_heritage_style(
                 layer,
                 settings['heritage_style'],
                 font_size=settings.get('label_font_size', DEFAULT_LABEL_FONT_SIZE),
-                font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY)
+                font_family=settings.get('label_font_family', DEFAULT_LABEL_FONT_FAMILY),
+                preserve_renderer=preserve_action_style,
             )
 
             layer.triggerRepaint()
@@ -1359,7 +1395,11 @@ class ArchDistribution:
 
         except Exception as e:
             self.log(f"오류 발생: {str(e)}")
-            QMessageBox.critical(self.dlg, "오류", f"번호 부여 중 오류가 발생했습니다: {str(e)}")
+            QMessageBox.critical(
+                self.dlg,
+                self._ui_text("오류", "Error"),
+                self._ui_text(f"번호 부여 중 오류가 발생했습니다: {e}", f"Renumbering failed.\n{e}"),
+            )
 
     @staticmethod
     def _run_numbers_designated(settings):
@@ -1386,7 +1426,11 @@ class ArchDistribution:
             self.log(f"스캔 완료: {len(categories)}개 분류 발견됨.")
         except Exception as e:
             self.log(f"스캔 오류: {str(e)}")
-            QMessageBox.critical(self.dlg, "오류", f"스캔 중 오류: {str(e)}")
+            QMessageBox.critical(
+                self.dlg,
+                self._ui_text("오류", "Error"),
+                self._ui_text(f"스캔 중 오류: {e}", f"Could not scan layer categories.\n{e}"),
+            )
 
     def move_layer_to_group(self, layer, group):
         """Move an existing layer to a specific group and hide it."""
@@ -1865,10 +1909,9 @@ class ArchDistribution:
                 layer_name = base_name
                 suffix = 2
                 while layer_name.casefold() in used_layer_names:
-                    layer_name = normalize_filename(
-                        f"{base_name}_{suffix}",
-                        max_length=60,
-                    )
+                    ending = f"_{suffix}"
+                    stem = base_name[:60 - len(ending)].rstrip(" .")
+                    layer_name = f"{stem}{ending}"
                     suffix += 1
                 used_layer_names.add(layer_name.casefold())
 
@@ -2011,7 +2054,7 @@ class ArchDistribution:
         try:
             legend = QgsLayoutItemLegend(layout)
             layout.addLayoutItem(legend)
-            legend.setTitle("범례")
+            legend.setTitle(self._ui_text("범례", "Legend"))
             legend.setLinkedMap(map_item)
             if hasattr(legend, "setLegendFilterByMapEnabled"):
                 legend.setLegendFilterByMapEnabled(True)
@@ -2091,6 +2134,11 @@ class ArchDistribution:
             "scale": scale,
         }
 
+    def _artifact_workflow_label(self, workflow):
+        if workflow == "preservation_area":
+            return self._ui_text("매장유산유존지역", "preservation_areas")
+        return self._ui_text("문화유적분포지도", "distribution_map")
+
     def _run_optional_outputs(
         self,
         settings,
@@ -2114,29 +2162,18 @@ class ArchDistribution:
             settings.get("output_directory") or ""
         ).strip()
         if not output_directory:
-            message = "선택 출력이 켜졌지만 저장 폴더가 비어 있습니다."
+            message = self._ui_text(
+                "선택 출력이 켜졌지만 저장 폴더가 비어 있습니다.",
+                "Choose an output folder to save the selected files.",
+            )
             self.log(f"⚠️ {message}")
             return {"paths": [], "errors": [message]}
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        workflow_label = (
-            "매장유산유존지역"
-            if workflow == "preservation_area"
-            else "문화유적분포지도"
-        )
+        workflow_label = self._artifact_workflow_label(workflow)
         base_name = normalize_filename(
             f"ArchDistribution_{workflow_label}_{timestamp}"
         )
-        output_layers = self._artifact_output_layers(output_group)
-        output_summaries = [
-            self._artifact_layer_summary(layer, kind=kind)
-            for layer, kind in output_layers
-        ]
-        input_summaries = self._artifact_input_summaries(
-            settings,
-            workflow,
-        )
-        input_checksums = self._artifact_input_checksums(input_summaries)
         artifact_paths = []
         artifact_errors = []
         gpkg_layers = []
@@ -2144,6 +2181,13 @@ class ArchDistribution:
 
         try:
             if save_archive:
+                output_layers = self._artifact_output_layers(output_group)
+                output_summaries = [
+                    self._artifact_layer_summary(layer, kind=kind)
+                    for layer, kind in output_layers
+                ]
+                input_summaries = self._artifact_input_summaries(settings, workflow)
+                input_checksums = self._artifact_input_checksums(input_summaries)
                 prepared = prepare_artifact_paths(
                     output_directory,
                     base_name,
@@ -2206,7 +2250,7 @@ class ArchDistribution:
                     for path in layout_result["paths"]:
                         self.log(f"  -> 출력: {path}")
                 except Exception as exc:
-                    artifact_errors.append(f"인쇄조판: {exc}")
+                    artifact_errors.append(f"{self._ui_text('인쇄조판', 'Print layout')}: {exc}")
                     self.log(f"⚠️ 인쇄조판 출력 실패: {exc}")
 
             if export_table:
@@ -2221,7 +2265,7 @@ class ArchDistribution:
                     for path in table_paths:
                         self.log(f"주변유적 현황표 저장: {path}")
                 except Exception as exc:
-                    artifact_errors.append(f"현황표: {exc}")
+                    artifact_errors.append(f"{self._ui_text('현황표', 'Site inventory')}: {exc}")
                     self.log(f"⚠️ 주변유적 현황표 저장 실패: {exc}")
 
             if save_archive and manifest_path is not None:
@@ -2273,6 +2317,7 @@ class ArchDistribution:
                 manifest = build_run_manifest(
                     plugin_version=get_plugin_version(),
                     git_commit=build_info.get("git_commit"),
+                    build_dirty=build_info.get("dirty"),
                     workflow=workflow,
                     settings=settings,
                     input_layers=input_summaries,
@@ -2319,7 +2364,7 @@ class ArchDistribution:
             # These are optional post-commit artifacts. The successful QGIS
             # result group must remain available even if a filesystem or
             # exporter error occurs.
-            artifact_errors.append(f"선택 결과 저장: {exc}")
+            artifact_errors.append(f"{self._ui_text('선택 결과 저장', 'Optional exports')}: {exc}")
             self.log(f"⚠️ 선택 결과 저장 중 오류: {exc}")
 
         if artifact_errors:
@@ -2402,8 +2447,7 @@ class ArchDistribution:
                         group["direction"] = compass_direction(
                             point.x() - study_point[1].x(),
                             point.y() - study_point[1].y(),
-                            getattr(self.dlg, "ui_lang", "ko")
-                            if getattr(self, "dlg", None) else "ko",
+                            self._ui_language(),
                         )
                 distance = feature["DIST_M"]
                 if distance not in (None, "") and str(distance) != "NULL":
@@ -2443,13 +2487,13 @@ class ArchDistribution:
         base_name,
     ):
         """Write the report-style nearby-site table as HWPX and CSV."""
-        language = (
-            getattr(self.dlg, "ui_lang", "ko")
-            if getattr(self, "dlg", None) else "ko"
-        )
+        language = self._ui_language()
         groups = self._site_table_groups(output_group)
         if not groups:
-            self.log("현황표: 번호가 부여된 유적이 없어 저장하지 않습니다.")
+            self.log(self._ui_text(
+                "현황표: 번호가 부여된 유적이 없어 저장하지 않습니다.",
+                "Site inventory skipped because there are no numbered sites.",
+            ))
             return []
         header, rows = build_site_table(groups, language)
         study_layer = QgsProject.instance().mapLayer(
@@ -2483,12 +2527,13 @@ class ArchDistribution:
                 "시대·성격·소재지는 여러 기록을 합친 값이므로 보고서 수록 전 "
                 "원자료와 대조해 검수하십시오."
             )
+        suffix = self._ui_text("현황표", "site_inventory")
         hwpx_path = prepare_output_path(
-            output_directory, f"{base_name}_현황표", extension="hwpx",
+            output_directory, f"{base_name}_{suffix}", extension="hwpx",
             unique=True,
         )
         csv_path = prepare_output_path(
-            output_directory, f"{base_name}_현황표", extension="csv",
+            output_directory, f"{base_name}_{suffix}", extension="csv",
             unique=True,
         )
         write_hwpx(
@@ -2513,11 +2558,7 @@ class ArchDistribution:
         if not output_directory:
             return None
         try:
-            label = (
-                "매장유산유존지역"
-                if workflow == "preservation_area"
-                else "문화유적분포지도"
-            )
+            label = self._artifact_workflow_label(workflow)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             path = prepare_output_path(
                 output_directory,
@@ -2536,6 +2577,7 @@ class ArchDistribution:
             manifest = build_run_manifest(
                 plugin_version=get_plugin_version(),
                 git_commit=build_info.get("git_commit"),
+                build_dirty=build_info.get("dirty"),
                 workflow=workflow,
                 settings=settings,
                 input_layers=inputs,
@@ -3719,9 +3761,10 @@ class ArchDistribution:
             if scan_index % 500 == 0:
                 progress = getattr(self, "_active_progress", None)
                 if progress:
-                    progress.setLabelText(
-                        "중복 판정을 위한 공간 인덱스를 만드는 중입니다..."
-                    )
+                    progress.setLabelText(self._ui_text(
+                        "중복 판정을 위한 공간 인덱스를 만드는 중입니다...",
+                        "Building the spatial index for duplicate detection…",
+                    ))
                     QCoreApplication.processEvents()
                     if progress.wasCanceled():
                         layer.rollBack()
@@ -3729,7 +3772,7 @@ class ArchDistribution:
             role = str(feature[indexes["SOURCE_ROLE"]] or ROLE_OTHER)
             uid = str(feature[indexes["SRC_UID"]] or f"feature:{feature.id()}")
             geom = QgsGeometry(feature.geometry())
-            if not geom.isGeosValid():
+            if not geom.isEmpty() and not geom.isGeosValid():
                 fixed = geom.makeValid()
                 if fixed and not fixed.isEmpty():
                     geom = fixed
@@ -3738,11 +3781,6 @@ class ArchDistribution:
                     invalid_fixed += 1
 
             features[feature.id()] = feature
-            metric_geom = matching_context.to_analysis_geometry(
-                geom,
-                layer.crs(),
-            )
-            geometries[feature.id()] = metric_geom
             record = {
                 "uid": uid,
                 "role": role,
@@ -3797,6 +3835,13 @@ class ArchDistribution:
                 ).content_fingerprint
             record["fingerprint"] = stored_fingerprint
             records[feature.id()] = record
+            if geom.isEmpty():
+                continue
+            metric_geom = matching_context.to_analysis_geometry(
+                geom,
+                layer.crs(),
+            )
+            geometries[feature.id()] = metric_geom
             indexed_feature = QgsFeature(feature)
             indexed_feature.setGeometry(metric_geom)
             spatial_index.addFeature(indexed_feature)
@@ -3808,6 +3853,7 @@ class ArchDistribution:
             )
 
         ruleset = load_matching_rules()
+        evaluate = make_candidate_evaluator(ruleset)
         tolerance = float(
             ruleset["thresholds"]["exact_name_distance_m"]
         )
@@ -3818,15 +3864,18 @@ class ArchDistribution:
             if scan_index % 250 == 0:
                 progress = getattr(self, "_active_progress", None)
                 if progress:
-                    progress.setLabelText(
-                        "자료 종류별 중복 후보를 비교하는 중입니다..."
-                    )
+                    progress.setLabelText(self._ui_text(
+                        "자료 종류별 중복 후보를 비교하는 중입니다...",
+                        "Comparing possible duplicates across source roles…",
+                    ))
                     QCoreApplication.processEvents()
                     if progress.wasCanceled():
                         raise ProcessingCancelled()
             if record["role"] == ROLE_PROTECTION_ZONE:
                 continue
-            geom = geometries[feature_id]
+            geom = geometries.get(feature_id)
+            if geom is None:
+                continue
             search_rect = QgsRectangle(geom.boundingBox())
             search_rect.grow(tolerance)
             for other_id in spatial_index.intersects(search_rect):
@@ -3850,6 +3899,8 @@ class ArchDistribution:
                 try:
                     intersects = geom.intersects(other_geom)
                     distance = 0.0 if intersects else geom.distance(other_geom)
+                    if not math.isfinite(distance) or distance < 0:
+                        continue
                     centroid_distance = geom.centroid().distance(
                         other_geom.centroid()
                     )
@@ -3879,41 +3930,34 @@ class ArchDistribution:
                     coverage_right = 0.0
                     iou = 0.0
                     area_ratio = 0.0
-                    if intersects:
+                    if intersects and geometry_pair == "polygon_polygon":
                         intersection = geom.intersection(other_geom)
+                        left_area = geom.area()
+                        right_area = other_geom.area()
+                        min_area = min(left_area, right_area)
                         if (
                             intersection
                             and not intersection.isEmpty()
+                            and min_area > 0
                         ):
-                            left_area = geom.area()
-                            right_area = other_geom.area()
                             intersection_area = intersection.area()
-                            min_area = min(left_area, right_area)
-                            max_area = max(left_area, right_area)
-                            if min_area > 0 and intersection_area > 0:
-                                coverage_left = intersection_area / left_area
-                                coverage_right = intersection_area / right_area
-                                overlap_ratio = intersection_area / min_area
-                                union_area = (
-                                    left_area + right_area - intersection_area
-                                )
-                                iou = (
-                                    intersection_area / union_area
-                                    if union_area > 0 else 0.0
-                                )
-                                area_ratio = min_area / max_area
-                            else:
-                                # Point/line candidates remain reviewable but
-                                # the ruleset forbids their automatic merge.
-                                overlap_ratio = 1.0
-                                coverage_left, coverage_right = (
-                                    self._non_areal_coverage(
-                                        geom,
-                                        other_geom,
-                                        left_family,
-                                        right_family,
-                                    )
-                                )
+                            coverage_left = intersection_area / left_area
+                            coverage_right = intersection_area / right_area
+                            overlap_ratio = intersection_area / min_area
+                            union_area = (
+                                left_area + right_area - intersection_area
+                            )
+                            iou = (
+                                intersection_area / union_area
+                                if union_area > 0 else 0.0
+                            )
+                            area_ratio = min_area / max(left_area, right_area)
+                    elif intersects:
+                        coverage_left, coverage_right = (
+                            self._non_areal_coverage(
+                                geom, other_geom, left_family, right_family,
+                            )
+                        )
                 except Exception as exc:
                     self.log(
                         "⚠️ 중복 후보 도형 비교 실패: "
@@ -3921,7 +3965,7 @@ class ArchDistribution:
                     )
                     continue
 
-                evaluated = evaluate_candidate(
+                evaluated = evaluate(
                     record,
                     other,
                     intersects=intersects,
@@ -3935,12 +3979,19 @@ class ArchDistribution:
                     centroid_distance=centroid_distance,
                     boundary_distance=boundary_distance,
                     geometry_pair=geometry_pair,
-                    rules=ruleset,
                     designated_parts=designated_parts,
                 )
                 if not evaluated:
                     continue
                 item = evaluated.as_dict()
+                if geometry_pair != "polygon_polygon":
+                    item["overlap_ratio"] = None
+                    item["iou"] = None
+                    item["area_ratio"] = None
+                elif intersects and overlap_ratio == 0.0:
+                    # A common edge or vertex supports review, but cannot
+                    # preselect a merge or link as a nearby namesake.
+                    item["auto_apply"] = False
                 item.update({
                     "left_role": record["role"],
                     "left_source": record["source"],
@@ -4634,6 +4685,8 @@ class ArchDistribution:
                 if not feature.hasGeometry():
                     continue
                 geometry = QgsGeometry(feature.geometry())
+                if geometry.isEmpty():
+                    continue
                 if not geometry.isGeosValid():
                     fixed = geometry.makeValid()
                     if fixed and not fixed.isEmpty():
@@ -4704,6 +4757,7 @@ class ArchDistribution:
             layer_records[layer.id()] = records
 
         ruleset = load_matching_rules()
+        evaluate = make_candidate_evaluator(ruleset)
         tolerance = float(ruleset["thresholds"]["exact_name_distance_m"])
         candidates = []
         usable_layers = [
@@ -4736,6 +4790,8 @@ class ArchDistribution:
                                 0.0 if intersects
                                 else left_geometry.distance(right_geometry)
                             )
+                            if not math.isfinite(distance) or distance < 0:
+                                continue
                             centroid_distance = left_geometry.centroid().distance(
                                 right_geometry.centroid()
                             )
@@ -4743,41 +4799,45 @@ class ArchDistribution:
                                 left_geometry,
                                 right_geometry,
                             )
+                            coverage_left, coverage_right = (
+                                self._non_areal_coverage(
+                                    left_geometry,
+                                    right_geometry,
+                                    left_family,
+                                    right_family,
+                                )
+                                if intersects else (0.0, 0.0)
+                            )
                         except Exception as exc:
                             self.log(
                                 "⚠️ 형상 계열 간 후보 비교 실패: "
                                 f"{left['name']} ↔ {right['name']} ({exc})"
                             )
                             continue
-                        # Intersection area has no comparable denominator across
-                        # unlike dimensions.  A binary topological intersection
-                        # keeps the pair reviewable, while evaluate_candidate's
-                        # geometry gate prevents automatic action.
-                        overlap_ratio = 1.0 if intersects else 0.0
+                        # Across unlike dimensions only directional containment
+                        # provides coverage evidence.
                         geometry_pair = "_".join((
                             family_names.get(left_family, "unknown"),
                             family_names.get(right_family, "unknown"),
                         ))
-                        evaluated = evaluate_candidate(
+                        evaluated = evaluate(
                             left,
                             right,
                             intersects=intersects,
-                            overlap_ratio=overlap_ratio,
+                            overlap_ratio=0.0,
                             distance=distance,
                             preset=preset,
-                            coverage_left=0.0,
-                            coverage_right=0.0,
-                            iou=0.0,
-                            area_ratio=0.0,
+                            coverage_left=coverage_left,
+                            coverage_right=coverage_right,
                             centroid_distance=centroid_distance,
                             boundary_distance=boundary_distance,
                             geometry_pair=geometry_pair,
-                            rules=ruleset,
                             designated_parts=designated_parts,
                         )
                         if not evaluated:
                             continue
                         item = evaluated.as_dict()
+                        item["overlap_ratio"] = None
                         # Cross-family evidence always requires an explicit
                         # human decision, regardless of preset or score.
                         item["auto_apply"] = False
@@ -4928,6 +4988,8 @@ class ArchDistribution:
         rules = {uid: set() for uid in entries}
         scores = {uid: 0.0 for uid in entries}
         statuses = {}
+        component_parents = set()
+        component_children = set()
         for uid, entry in entries.items():
             feature = entry["feature"]
             indexes = entry["indexes"]
@@ -4986,13 +5048,22 @@ class ArchDistribution:
             union(parent, left_uid, right_uid)
             if relation_type == "same_entity":
                 union(entity_parent, left_uid, right_uid)
+            elif relation_type == "parent_child":
+                parent_uid = item.get("representative_uid")
+                if parent_uid in {left_uid, right_uid}:
+                    component_parents.add(parent_uid)
+                    component_children.add(
+                        right_uid if parent_uid == left_uid else left_uid
+                    )
             statuses[left_uid] = STATUS_USER_MERGED
             statuses[right_uid] = STATUS_USER_MERGED
 
-        def representative(component):
+        def representative(component, *, prefer_parent=False):
             return min(
                 component,
                 key=lambda uid: (
+                    prefer_parent and uid in component_children,
+                    prefer_parent and uid not in component_parents,
                     -source_priority(entries[uid]["role"]),
                     uid,
                 ),
@@ -5010,7 +5081,7 @@ class ArchDistribution:
         for component in number_components.values():
             if len(component) < 2:
                 continue
-            rep_uid = representative(component)
+            rep_uid = representative(component, prefer_parent=True)
             rep_entry = entries[rep_uid]
             rep_feature = rep_entry["feature"]
             rep_indexes = rep_entry["indexes"]
@@ -5158,9 +5229,10 @@ class ArchDistribution:
             if scan_index % 500 == 0:
                 progress = getattr(self, "_active_progress", None)
                 if progress:
-                    progress.setLabelText(
-                        "현상변경 허용구간 공간 인덱스를 만드는 중입니다..."
-                    )
+                    progress.setLabelText(self._ui_text(
+                        "현상변경 허용구간 공간 인덱스를 만드는 중입니다...",
+                        "Indexing permitted alteration zones…",
+                    ))
                     QCoreApplication.processEvents()
                     if progress.wasCanceled():
                         raise ProcessingCancelled()
@@ -5597,9 +5669,10 @@ class ArchDistribution:
                 if scan_index % 500 == 0:
                     progress = getattr(self, "_active_progress", None)
                     if progress:
-                        progress.setLabelText(
-                            f"{layer.name()} 도곽 후보를 확인하는 중입니다..."
-                        )
+                        progress.setLabelText(self._ui_text(
+                            f"{layer.name()} 도곽 후보를 확인하는 중입니다...",
+                            f"Finding features within the map extent in '{layer.name()}'…",
+                        ))
                         QCoreApplication.processEvents()
                         if progress.wasCanceled():
                             raise ProcessingCancelled()
@@ -5967,10 +6040,14 @@ class ArchDistribution:
                     )
                     QMessageBox.warning(
                         self.dlg,
-                        "동일 자료 중복 선택",
-                        f"'{layer.name()}'과 '{previous_name}'의 도곽 내 "
-                        "내용이 동일합니다.\n중복 번호를 막기 위해 "
-                        f"'{layer.name()}'은 처리에서 제외합니다.",
+                        self._ui_text("동일 자료 중복 선택", "Identical source layers"),
+                        self._ui_text(
+                            f"'{layer.name()}'과 '{previous_name}'의 도곽 내 "
+                            "내용이 동일합니다.\n중복 번호를 막기 위해 "
+                            f"'{layer.name()}'은 처리에서 제외합니다.",
+                            f"'{layer.name()}' and '{previous_name}' contain the same features within "
+                            f"the map extent. '{layer.name()}' will be skipped to avoid duplicate numbers.",
+                        ),
                     )
                     self._record_excluded_layer(
                         layer,
@@ -7231,7 +7308,7 @@ class ArchDistribution:
         field_name=None,
     ):
         """Create a configurable four-category preservation-action renderer."""
-        if layer.geometryType() != 2:
+        if layer.geometryType() != Qgis.GeometryType.Polygon:
             return None
 
         if field_name and layer.fields().indexFromName(field_name) < 0:
@@ -7241,12 +7318,11 @@ class ArchDistribution:
             return None
 
         field_idx = layer.fields().indexFromName(field_name)
-        source_values = {
-            normalize_preservation_action(value)
-            for value in layer.uniqueValues(field_idx)
-        }
-        source_values.discard("")
-        if not source_values.intersection(PRESERVATION_ACTION_STYLES):
+        source_values = {}
+        for value in layer.uniqueValues(field_idx):
+            action = normalize_preservation_action(value)
+            source_values.setdefault(action, []).append(value)
+        if not source_values.keys() & PRESERVATION_ACTION_STYLES.keys():
             return None
 
         resolved_styles = {
@@ -7285,21 +7361,28 @@ class ArchDistribution:
                 'outline_width': str(stroke_width),
                 'outline_width_unit': 'MM',
             })
-            categories.append(QgsRendererCategory(action, symbol, action))
+            values = [action] + sorted(
+                value for value in source_values.get(action, []) if value != action
+            )
+            category_value = values if len(values) > 1 else action
+            label = preservation_action_label(action, self._ui_language())
+            categories.append(QgsRendererCategory(category_value, symbol, label))
 
-        unknown_values = sorted(
-            source_values.difference(PRESERVATION_ACTION_STYLES)
-        )
-        for value in unknown_values:
+        for action in sorted(source_values.keys() - PRESERVATION_ACTION_STYLES.keys()):
             symbol = QgsFillSymbol.createSimple({
                 'color': fill_rgba('#D9D9D9'),
                 'outline_color': '#FF0000',
                 'outline_width': str(stroke_width),
                 'outline_width_unit': 'MM',
             })
-            categories.append(
-                QgsRendererCategory(value, symbol, f"기타: {value}")
+            # A null category gives QGIS a fallback symbol for blank values.
+            values = sorted(source_values[action]) if action else None
+            label = (
+                self._ui_text(f"기타: {action}", f"Other: {action}")
+                if action
+                else self._ui_text("보존조치 미확인", "Unknown preservation action")
             )
+            categories.append(QgsRendererCategory(values, symbol, label))
 
         self.log(
             f"보존조치 4종 범례 적용: {field_name} "
@@ -7307,33 +7390,47 @@ class ArchDistribution:
         )
         return QgsCategorizedSymbolRenderer(field_name, categories)
 
-    def apply_heritage_style(self, layer, style, font_size=DEFAULT_LABEL_FONT_SIZE, font_family=DEFAULT_LABEL_FONT_FAMILY):
+    def apply_heritage_style(
+        self, layer, style, font_size=DEFAULT_LABEL_FONT_SIZE,
+        font_family=DEFAULT_LABEL_FONT_FAMILY, *, preserve_renderer=False,
+    ):
         """Apply complex symbology and labeling to heritage layer."""
         rgb_fill = QColor(style['fill_color'])
         rgba_fill = f"{rgb_fill.red()},{rgb_fill.green()},{rgb_fill.blue()},{int(style['opacity'] * 255)}"
 
-        renderer = self.create_preservation_action_renderer(
-            layer,
-            style['stroke_width'],
-            action_styles=style.get("preservation_action_styles"),
-            opacity=style.get("opacity", 1.0),
-            field_name=style.get("preservation_action_field"),
-        )
-        if renderer is None:
+        renderer = None
+        if not preserve_renderer and style.get("preservation_action_field"):
+            renderer = self.create_preservation_action_renderer(
+                layer,
+                style['stroke_width'],
+                action_styles=style.get("preservation_action_styles"),
+                opacity=style.get("opacity", 1.0),
+                field_name=style["preservation_action_field"],
+            )
+        if not preserve_renderer and renderer is None:
             renderer = self.create_designation_role_renderer(layer, style)
         symbol = None
-        if renderer is None and layer.geometryType() == 2:  # Polygon
+        geometry_type = layer.geometryType()
+        if not preserve_renderer and renderer is None and geometry_type == Qgis.GeometryType.Polygon:
             symbol = QgsFillSymbol.createSimple({
                 'color': rgba_fill,
                 'outline_color': style['stroke_color'],
                 'outline_width': str(style['stroke_width']),
                 'outline_width_unit': 'MM'
             })
-        elif renderer is None and layer.geometryType() == 1:  # Line
+        elif not preserve_renderer and renderer is None and geometry_type == Qgis.GeometryType.Line:
             symbol = QgsLineSymbol.createSimple({
                 'color': style['stroke_color'],
                 'width': str(style['stroke_width']),
                 'width_unit': 'MM'
+            })
+        elif not preserve_renderer and renderer is None and geometry_type == Qgis.GeometryType.Point:
+            symbol = QgsMarkerSymbol.createSimple({
+                'name': 'circle',
+                'color': rgba_fill,
+                'outline_color': style['stroke_color'],
+                'outline_width': str(style['stroke_width']),
+                'outline_width_unit': 'MM',
             })
 
         if symbol:
@@ -7363,6 +7460,7 @@ class ArchDistribution:
         font.setPointSize(font_size)
 
         text_format.setFont(font)
+        text_format.setSize(font_size)
         text_format.setColor(QColor(0, 0, 0))  # Black text
 
         # Add a buffer (halo) - Removed for Illustrator compatibility as requested
@@ -7375,8 +7473,10 @@ class ArchDistribution:
         label_settings.setFormat(text_format)
 
         # Placement
-        if layer.geometryType() == 2:  # Polygon
+        if geometry_type == Qgis.GeometryType.Polygon:
             label_settings.placement = Qgis.LabelPlacement.Horizontal
+        elif geometry_type == Qgis.GeometryType.Line:
+            label_settings.placement = Qgis.LabelPlacement.Line
         else:
             label_settings.placement = Qgis.LabelPlacement.AroundPoint
 

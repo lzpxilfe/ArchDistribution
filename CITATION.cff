@@ -6,7 +6,7 @@ authors:
   - alias: "lzpxilfe(balguljang2)"
 repository-code: "https://github.com/lzpxilfe/ArchDistribution"
 url: "https://github.com/lzpxilfe/ArchDistribution"
-version: 1.0.5
+version: 1.0.6
 license: GPL-2.0-or-later
 abstract: >
   A QGIS plugin for reproducible, human-in-the-loop production of

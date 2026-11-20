@@ -7,6 +7,7 @@ from pathlib import Path
 try:
     from qgis.PyQt.QtCore import QVariant
     from qgis.core import (
+        QgsCategorizedSymbolRenderer,
         QgsApplication,
         QgsFeature,
         QgsField,
@@ -14,6 +15,8 @@ try:
         QgsPointXY,
         QgsProject,
         QgsRectangle,
+        QgsRenderContext,
+        QgsSingleSymbolRenderer,
         QgsVectorLayer,
     )
 
@@ -121,6 +124,51 @@ class QgisPreservationIntegrationTests(unittest.TestCase):
                 symbol.symbolLayer(0).strokeColor().name(),
                 "#ff0000",
             )
+
+    def test_action_aliases_and_missing_values_draw_in_their_workflow(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:5186", "가상 자료", "memory")
+        provider = layer.dataProvider()
+        provider.addAttributes([
+            QgsField("번호", QVariant.Int),
+            QgsField("보존조치", QVariant.String),
+        ])
+        layer.updateFields()
+        features = []
+        actions = ["시굴", "시굴조사", None, "", "미분류"]
+        for number, action in enumerate(actions, start=1):
+            feature = QgsFeature(layer.fields())
+            feature.setAttributes([number, action])
+            feature.setGeometry(QgsGeometry.fromRect(QgsRectangle(0, 0, 10, 10)))
+            features.append(feature)
+        provider.addFeatures(features)
+
+        plugin = self.make_plugin()
+        style = {
+            "fill_color": "#ffffff", "stroke_color": "#ff0000",
+            "stroke_width": 0.3, "opacity": 1.0,
+        }
+        plugin.apply_heritage_style(layer, style, font_size=14)
+        self.assertIsInstance(layer.renderer(), QgsSingleSymbolRenderer)
+        self.assertEqual(layer.labeling().settings().format().size(), 14)
+
+        style["preservation_action_field"] = "보존조치"
+        plugin.apply_heritage_style(layer, style)
+        renderer = layer.renderer()
+        self.assertIsInstance(renderer, QgsCategorizedSymbolRenderer)
+        context = QgsRenderContext()
+        renderer.startRender(context, layer.fields())
+        try:
+            feature_colors = {}
+            for feature in layer.getFeatures():
+                symbol = renderer.originalSymbolForFeature(feature, context)
+                self.assertIsNotNone(symbol)
+                feature_colors[feature["번호"]] = symbol.color().name()
+            self.assertEqual(
+                feature_colors,
+                {1: "#f5ffd2", 2: "#f5ffd2", 3: "#d9d9d9", 4: "#d9d9d9", 5: "#d9d9d9"},
+            )
+        finally:
+            renderer.stopRender(context)
 
     def test_renumber_keeps_match_decisions_and_number_groups(self):
         layer = QgsVectorLayer(

@@ -1,3 +1,4 @@
+import csv
 import gc
 import json
 import sys
@@ -5,6 +6,8 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 try:
@@ -16,6 +19,7 @@ try:
         QgsFeature,
         QgsField,
         QgsGeometry,
+        QgsLayoutItemLegend,
         QgsLayoutItemMap,
         QgsProject,
         QgsRectangle,
@@ -259,6 +263,19 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
             },
         )
 
+    def test_geopackage_preserves_number_suffix_for_long_layer_names(self):
+        group, spatial, audit = self._make_temporary_output_group()
+        base = "synthetic_layer_" + "x" * 70
+        spatial.setName(base + "_a")
+        audit.setName(base + "_b")
+        target = self.output_directory / "layer-name-collision.gpkg"
+
+        exported = self.plugin._write_output_group_to_gpkg(group, target)
+        names = [item["gpkg_layer"] for item in exported]
+        self.assertEqual(names, [base[:60], base[:58] + "_2"])
+        for name in names:
+            self._open_gpkg_layer(target, name)
+
     def test_exports_report_size_layout_to_jpg_and_pdf(self):
         # A real post-processing layout always has the just-created result
         # group available to the project map theme.
@@ -415,7 +432,6 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
         manifest = json.loads(
             paths_by_suffix[".json"].read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["plugin"]["version"], "1.0.5")
         self.assertEqual(
             manifest["plugin"]["version"],
             self.get_plugin_version(),
@@ -484,6 +500,61 @@ class QgisOptionalOutputsIntegrationTests(unittest.TestCase):
         self.assertEqual(result["paths"], [])
         self.assertEqual(len(result["errors"]), 1)
         self.assertIn("저장 폴더", result["errors"][0])
+
+    def test_table_only_export_skips_input_fingerprinting(self):
+        output_group, _spatial, _audit = self._make_temporary_output_group()
+        settings = {
+            "export_site_table": True,
+            "output_directory": str(self.output_directory),
+        }
+        paths = [
+            str(self.output_directory / f"table.{extension}")
+            for extension in ("hwpx", "csv")
+        ]
+        with (
+            patch.object(self.plugin, "_artifact_input_checksums") as checksums,
+            patch.object(self.plugin, "_export_site_table", return_value=paths),
+        ):
+            result = self.plugin._run_optional_outputs(
+                settings, output_group, QgsGeometry(),
+                QgsCoordinateReferenceSystem("EPSG:5186"), "distribution_map",
+                datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc),
+            )
+        self.assertEqual(result, {"paths": paths, "errors": []})
+        checksums.assert_not_called()
+
+    def test_english_exports_use_translated_names_and_headings(self):
+        self.plugin.dlg = SimpleNamespace(ui_lang="en")
+        output_group, _spatial, _audit = self._make_temporary_output_group()
+        settings = self._distribution_layout_settings(self.output_directory)
+        settings.update({"export_site_table": True, "export_layout_pdf": True})
+        extent = QgsGeometry.fromRect(
+            QgsRectangle(200000, 450000, 204000, 456000)
+        )
+        groups = [{"number": 1, "name": "가상 유적", "records": []}]
+        with patch.object(self.plugin, "_site_table_groups", return_value=groups):
+            result = self.plugin._run_optional_outputs(
+                settings, output_group, extent,
+                QgsCoordinateReferenceSystem("EPSG:5186"), "distribution_map",
+                datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(result["errors"], [])
+        paths = {Path(path).suffix: Path(path) for path in result["paths"]}
+        self.assertEqual(set(paths), {".csv", ".hwpx", ".pdf"})
+        self.assertTrue(all("distribution_map" in path.name for path in paths.values()))
+        self.assertIn("site_inventory", paths[".csv"].stem)
+        with paths[".csv"].open(encoding="utf-8-sig", newline="") as stream:
+            heading, site = csv.reader(stream)
+        self.assertEqual(heading[:3], ["No.", "Site", "Period"])
+        self.assertEqual(site[:2], ["1", "가상 유적"])
+        legends = [
+            item
+            for layout in self.project.layoutManager().layouts()
+            for item in layout.items()
+            if isinstance(item, QgsLayoutItemLegend)
+        ]
+        self.assertEqual([legend.title() for legend in legends], ["Legend"])
 
     def test_uppercase_shapefile_sidecars_are_discovered(self):
         dataset = self.output_directory / "HERITAGE.SHP"

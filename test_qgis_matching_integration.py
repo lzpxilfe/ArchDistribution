@@ -93,7 +93,8 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         features = []
         for row in rows:
             feature = QgsFeature(layer.fields())
-            feature.setGeometry(QgsGeometry.fromWkt(row["wkt"]))
+            if row.get("wkt"):
+                feature.setGeometry(QgsGeometry.fromWkt(row["wkt"]))
             feature["유적명"] = row["name"]
             feature["SRC_NAME"] = row["name"]
             feature["HERITAGE_CODE"] = row.get("code", "")
@@ -206,7 +207,15 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         }
         self.assertEqual(numbers, {1, 2, 3})
 
-    def consolidate_cross_family_pair(self, decision):
+    def consolidate_cross_family_pair(
+        self,
+        decision,
+        *,
+        designated_parts="separate",
+        designation_name=None,
+        designation_type="Point",
+        designation_wkt="POINT(200050 450050)",
+    ):
         project = QgsProject.instance()
         project.clear()
         study = QgsVectorLayer("Polygon?crs=EPSG:5186", "study", "memory")
@@ -217,16 +226,16 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         study.dataProvider().addFeature(study_feature)
         study.updateExtents()
         project.addMapLayer(study)
-        point = self.make_family_source(
-            "Point",
-            "designated_points",
-            "공주 교차형상 유적",
-            "POINT(200050 450050)",
+        designation = self.make_family_source(
+            designation_type,
+            "designations",
+            designation_name or "가상 솔내산성",
+            designation_wkt,
         )
         polygon = self.make_family_source(
             "Polygon",
             "distribution_polygons",
-            "공주 교차형상 유적",
+            "가상 솔내산성",
             (
                 "POLYGON((200000 450000,200100 450000,200100 450100,"
                 "200000 450100,200000 450000))"
@@ -241,22 +250,26 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         def provider(candidates):
             observed.extend(candidates)
             return [
-                {**candidate, "decision": decision}
+                {
+                    **candidate,
+                    "decision": decision or candidate["recommended_decision"],
+                }
                 for candidate in candidates
             ]
 
         result = plugin.consolidate_heritage_layers(
-            [point.id(), polygon.id()],
+            [designation.id(), polygon.id()],
             QgsGeometry.fromRect(
                 QgsRectangle(199000, 449000, 201000, 451000)
             ),
             study,
             project.layerTreeRoot().addGroup("sources"),
             source_roles={
-                point.id(): self.roles["designated"],
+                designation.id(): self.roles["designated"],
                 polygon.id(): self.roles["distribution"],
             },
             matching_decision_provider=provider,
+            designated_parts=designated_parts,
         )
         return plugin, study, result, observed
 
@@ -269,6 +282,11 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         self.assertIn(
             observed[0]["geometry_pair"],
             {"point_polygon", "polygon_point"},
+        )
+        self.assertIsNone(observed[0]["overlap_ratio"])
+        self.assertEqual(
+            {observed[0]["coverage_left"], observed[0]["coverage_right"]},
+            {0.0, 1.0},
         )
         self.assertEqual(len(result["main_layers"]), 2)
         cross_audit = result["audit_layers"][-1]
@@ -339,6 +357,69 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         ]
         self.assertEqual({feature["번호"] for feature in numbered}, {1})
         self.assertEqual(sum(feature["LABEL_OK"] for feature in numbered), 1)
+
+    def test_contained_designated_part_obeys_numbering_choice_after_review(self):
+        for policy, recommendation, number_count in (
+            ("separate", "link", 2),
+            ("join", "merge", 1),
+        ):
+            for geometry_type, wkt in (
+                ("Point", "POINT(200050 450050)"),
+                ("LineString", "LINESTRING(200040 450040,200060 450060)"),
+            ):
+                with self.subTest(policy=policy, geometry_type=geometry_type):
+                    _plugin, _study, result, candidates = (
+                        self.consolidate_cross_family_pair(
+                            None,
+                            designated_parts=policy,
+                            designation_name="가상 솔내산성 팔각정",
+                            designation_type=geometry_type,
+                            designation_wkt=wkt,
+                        )
+                    )
+                    self.assertEqual(len(candidates), 1)
+                    candidate = candidates[0]
+                    self.assertEqual(
+                        candidate["rule"], "component_within_parent",
+                    )
+                    self.assertEqual(
+                        candidate["recommended_decision"], recommendation,
+                    )
+                    self.assertFalse(candidate["auto_apply"])
+                    features = [
+                        next(layer.getFeatures())
+                        for layer in result["main_layers"]
+                    ]
+                    self.assertEqual(
+                        len({feature["NUMBER_KEY"] for feature in features}),
+                        number_count,
+                    )
+                    self.assertEqual(
+                        len({feature["SITE_ENTITY_KEY"] for feature in features}),
+                        2,
+                    )
+                    if policy == "join":
+                        representatives = [
+                            feature for feature in features if feature["IS_REP"]
+                        ]
+                        self.assertEqual(len(representatives), 1)
+                        parent = representatives[0]
+                        self.assertEqual(
+                            parent["SOURCE_ROLE"], self.roles["distribution"],
+                        )
+                        self.assertEqual(
+                            candidate["representative_uid"], parent["SRC_UID"],
+                        )
+
+    def test_point_on_polygon_boundary_is_not_treated_as_contained(self):
+        _plugin, _study, _result, candidates = self.consolidate_cross_family_pair(
+            self.keep_decision,
+            designation_wkt="POINT(200050 450000)",
+        )
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["geometry_relation"], "near")
+        self.assertEqual(candidates[0]["coverage_left"], 0.0)
+        self.assertEqual(candidates[0]["coverage_right"], 0.0)
 
     def test_parent_child_merge_shares_number_but_not_entity(self):
         layer = self.make_layer([
@@ -522,6 +603,62 @@ class QgisMatchingIntegrationTests(unittest.TestCase):
         self.assertEqual(captured[0]["rule"], "exact_name_within_50m")
         self.assertLessEqual(captured[0]["distance"], 50)
         self.assertEqual(result["main"].featureCount(), 1)
+
+    def test_edge_or_vertex_contact_is_zero_overlap_and_review_only(self):
+        for adjacent in (
+            "POLYGON((10 0,20 0,20 10,10 10,10 0))",
+            "POLYGON((10 10,20 10,20 20,10 20,10 10))",
+        ):
+            with self.subTest(adjacent=adjacent):
+                layer = self.make_layer([
+                    {
+                        "uid": "origin",
+                        "role": self.roles["designated"],
+                        "name": "가상 솔내산성",
+                        "wkt": "POLYGON((0 0,10 0,10 10,0 10,0 0))",
+                    },
+                    {
+                        "uid": "adjacent",
+                        "role": self.roles["distribution"],
+                        "name": "가상 솔내산성",
+                        "wkt": adjacent,
+                    },
+                ])
+
+                def keep(candidates):
+                    self.assertEqual(len(candidates), 1)
+                    self.assertFalse(candidates[0]["auto_apply"])
+                    self.assertEqual(candidates[0]["overlap_ratio"], 0.0)
+                    self.assertEqual(candidates[0]["geometry_relation"], "near")
+                    return [{**candidates[0], "decision": "keep"}]
+
+                result = self.plugin_class(None).apply_source_aware_matching(
+                    layer, preset="automation", decision_provider=keep,
+                )
+                self.assertEqual(result["main"].featureCount(), 2)
+                self.assertEqual(
+                    next(result["audit"].getFeatures())["OVERLAP"], 0.0,
+                )
+
+    def test_missing_geometry_is_preserved_without_a_matching_candidate(self):
+        layer = self.make_layer([
+            {
+                "uid": "mapped",
+                "role": self.roles["designated"],
+                "name": "가상 솔내산성",
+                "wkt": "POLYGON((0 0,10 0,10 10,0 10,0 0))",
+            },
+            {
+                "uid": "unmapped",
+                "role": self.roles["distribution"],
+                "name": "가상 솔내산성",
+            },
+        ])
+        result = self.plugin_class(None).apply_source_aware_matching(layer)
+
+        self.assertFalse(layer.isEditable())
+        self.assertEqual(result["candidate_count"], 0)
+        self.assertEqual(result["main"].featureCount(), 2)
 
     def test_contained_polygons_record_boundary_not_geometry_distance(self):
         layer = self.make_layer([

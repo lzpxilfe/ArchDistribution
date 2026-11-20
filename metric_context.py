@@ -119,11 +119,46 @@ def _validated_crs(crs: Any, role: str):
 
 
 def _is_projected_metre_crs(crs: Any) -> bool:
+    if not crs.isValid():
+        return False
+    horizontal = crs.horizontalCrs()
     return (
-        crs.isValid()
-        and not crs.isGeographic()
-        and crs.mapUnits() == Qgis.DistanceUnit.Meters
+        horizontal.type() in {Qgis.CrsType.Projected, Qgis.CrsType.DerivedProjected}
+        and horizontal.mapUnits() == Qgis.DistanceUnit.Meters
     )
+
+
+def _uses_distorting_map_projection(crs: Any) -> bool:
+    horizontal = crs.horizontalCrs()
+    method = horizontal.projectionAcronym().lower()
+    if not method:
+        # Some custom definitions return an empty acronym.
+        method = next(
+            (token[6:] for token in horizontal.toProj().split()
+             if token.startswith("+proj=")),
+            "",
+        )
+    return method in {"merc", "webmerc", "eqc"}
+
+
+def _is_analysis_crs(crs: Any) -> bool:
+    return _is_projected_metre_crs(crs) and not _uses_distorting_map_projection(crs)
+
+
+def validate_analysis_crs(crs: Any):
+    """Return a copied CRS suitable for planar measurement in metres."""
+    analysis = _validated_crs(crs, "Analysis")
+    if not _is_projected_metre_crs(analysis):
+        raise MetricContextError(
+            "Analysis CRS must be a projected CRS whose map unit is metre."
+        )
+    if _uses_distorting_map_projection(analysis):
+        raise MetricContextError(
+            "Mercator (including Web Mercator) and equirectangular projections "
+            "are unsuitable for analysis. Use automatic local UTM selection "
+            "or choose a regional projected CRS."
+        )
+    return analysis
 
 
 def _default_transform_context():
@@ -211,11 +246,11 @@ class MetricContext:
     ) -> "MetricContext":
         """Build a metric context.
 
-        A projected metre source CRS is retained unchanged.  Geographic and
-        non-metric projected sources require a representative centroid in
-        source coordinates; it is transformed to WGS 84 and selects the local
-        UTM CRS.  ``analysis_crs`` is the advanced override and is accepted
-        only when it is a projected metre CRS.
+        A suitable projected metre source CRS is retained unchanged.
+        Other inputs, including Web Mercator, require a representative
+        centroid in source coordinates. It is transformed to WGS 84 to
+        select the local UTM CRS. Explicit analysis overrides must meet the
+        same projection requirements.
         """
 
         source = _validated_crs(source_crs, "Source")
@@ -227,20 +262,16 @@ class MetricContext:
         centroid_lonlat = None
 
         if analysis_crs is not None:
-            analysis = _validated_crs(analysis_crs, "Analysis")
-            if not _is_projected_metre_crs(analysis):
-                raise MetricContextError(
-                    "Analysis CRS must be a projected CRS whose map unit is metre."
-                )
+            analysis = validate_analysis_crs(analysis_crs)
             method = "explicit_projected_metre_crs"
-        elif _is_projected_metre_crs(source):
+        elif _is_analysis_crs(source):
             analysis = QgsCoordinateReferenceSystem(source)
             method = "source_projected_metre_crs"
         else:
             if centroid is None:
                 raise MetricContextError(
                     "A source-coordinate centroid is required to choose a local "
-                    "UTM CRS for geographic or non-metric source data."
+                    "UTM CRS when the source CRS is unsuitable for measurement."
                 )
             source_point = _point_xy(centroid)
             wgs84 = QgsCoordinateReferenceSystem(WGS84_AUTHID)
@@ -256,11 +287,7 @@ class MetricContext:
                 ) from error
             longitude, latitude = wgs84_point.x(), wgs84_point.y()
             authid = local_utm_authid(longitude, latitude)
-            analysis = _validated_crs(authid, "Derived analysis")
-            if not _is_projected_metre_crs(analysis):
-                raise MetricContextError(
-                    f"Derived analysis CRS {authid} is not a projected metre CRS."
-                )
+            analysis = validate_analysis_crs(authid)
             centroid_lonlat = (float(longitude), float(latitude))
             method = "centroid_local_utm"
 
@@ -289,7 +316,7 @@ class MetricContext:
             raise MetricContextError("A QGIS layer is required.")
         source = _validated_crs(layer.crs(), "Layer source")
         centroid = None
-        if analysis_crs is None and not _is_projected_metre_crs(source):
+        if analysis_crs is None and not _is_analysis_crs(source):
             extent = layer.extent()
             if extent is None or extent.isNull():
                 raise MetricContextError(
@@ -458,7 +485,8 @@ class MetricContext:
                 ),
                 "projected": not self.analysis_crs.isGeographic(),
                 "linear_unit": "metre",
-                "metric_guarantee": _is_projected_metre_crs(self.analysis_crs),
+                "measurement_model": "planar_in_analysis_crs",
+                "metric_guarantee": _is_analysis_crs(self.analysis_crs),
             },
         }
 
@@ -470,4 +498,5 @@ __all__ = [
     "local_utm_authid",
     "local_utm_epsg",
     "utm_zone_for_longitude",
+    "validate_analysis_crs",
 ]

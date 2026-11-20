@@ -353,6 +353,7 @@ class ManifestTests(unittest.TestCase):
             workflow="distribution_map",
             status="partial_success",
             git_commit="abc123",
+            build_dirty=True,
             ruleset={"version": "matching-v1", "sha256": "deadbeef"},
             crs_context={
                 "source": "EPSG:4326",
@@ -364,6 +365,7 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(manifest["status"], "partial_success")
         self.assertEqual(manifest["plugin"]["git_commit"], "abc123")
+        self.assertTrue(manifest["plugin"]["build_dirty"])
         self.assertEqual(
             manifest["provenance"]["crs_context"]["analysis"],
             "EPSG:32652",
@@ -401,6 +403,43 @@ class ManifestTests(unittest.TestCase):
         self.assertNotIn("file:///secret", serialized)
         self.assertNotIn(r"C:\private", serialized)
         self.assertGreaterEqual(serialized.count("[LOCAL_PATH_REMOVED]"), 4)
+
+    def test_public_manifest_preserves_crs_names_and_redacts_nested_metadata(self):
+        manifest = build_run_manifest(
+            plugin_version="1.0.5",
+            workflow="distribution_map",
+            settings={
+                "db_url": "postgres://reader:example-password@example.test/db",
+                "custom_file": Path(r"C:\private\custom.gpkg"),
+                "encoding_overrides": {"/home/example/input.shp": "CP949"},
+            },
+            input_layers=[{
+                "name": "지정/등록유산",
+                "layer_id": "file:///private/layer.shp",
+            }],
+            crs_context={
+                "source": {"description": "Korea 2000 / Central Belt 2010"},
+                "analysis": {"description": "WGS 84 / UTM zone 52N"},
+            },
+            processing_stats={"source_summary": {"name": "지정/등록유산"}},
+        )
+
+        serialized = json.dumps(manifest, ensure_ascii=False)
+        for private_text in ("example-password", "custom.gpkg", "/home/example", "private/layer"):
+            self.assertNotIn(private_text, serialized)
+        self.assertEqual(manifest["inputs"][0]["name"], "지정/등록유산")
+        self.assertEqual(
+            manifest["processing"]["statistics"]["source_summary"]["name"],
+            "지정/등록유산",
+        )
+        self.assertEqual(
+            manifest["provenance"]["crs_context"]["source"]["description"],
+            "Korea 2000 / Central Belt 2010",
+        )
+        self.assertEqual(
+            manifest["provenance"]["crs_context"]["analysis"]["description"],
+            "WGS 84 / UTM zone 52N",
+        )
 
 
 class ReproducibilityTests(unittest.TestCase):
@@ -510,6 +549,17 @@ class OutputPathTests(unittest.TestCase):
                     include_gpkg=False,
                     include_manifest=False,
                 )
+
+    def test_long_artifact_paths_keep_the_shared_suffix_on_collisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "test-map-" + "x" * 180
+            first = prepare_artifact_paths(directory, name, unique=True)
+            first["manifest"].touch()
+            second = prepare_artifact_paths(directory, name, unique=True)
+            self.assertTrue(second["gpkg"].stem.endswith("_1"))
+            self.assertEqual(second["manifest"].stem, second["gpkg"].stem + "_run")
+            self.assertLessEqual(len(second["manifest"].name), 120)
+            self.assertNotEqual(second["manifest"], first["manifest"])
 
 
 class AtomicManifestTests(unittest.TestCase):

@@ -1,10 +1,10 @@
 """Conservative encoding detection for legacy DBF attribute tables."""
 
+from codecs import getincrementaldecoder
 from pathlib import Path
 
 
-# dBASE language-driver IDs relevant to Korean public GIS data.  A .cpg file
-# remains authoritative; this is used only when that declaration is absent.
+# dBASE language-driver IDs relevant to Korean public GIS data.
 DBF_LANGUAGE_DRIVER_ENCODINGS = {
     0x79: "CP949",  # Korean (ANSI/OEM Korean in common shapefile writers)
 }
@@ -48,17 +48,14 @@ def declared_shapefile_encoding(shp_path):
     """Return ``(encoding, basis)`` before QGIS reads a shapefile's DBF.
 
     The point of this helper is timing: QGIS must be told about CP949 before
-    callers inspect fields or attributes.  A .cpg declaration wins; absent
-    that, the DBF language driver or a high-confidence byte check is used.
+    callers inspect fields or attributes.  Strong CP949 evidence can correct
+    a stale declaration. Otherwise the .cpg or provider default is used.
     """
     path = Path(shp_path)
     if path.suffix.casefold() != ".shp":
         return None, None
-    # The DBF language driver records the bytes actually stored in the
-    # attribute table.  Some public downloads ship a stale ``UTF-8`` .cpg
-    # next to a CP949 DBF; trusting that sidecar first creates mojibake before
-    # the plugin can inspect the zone values.  A positive CP949 DBF detection
-    # therefore takes precedence over a conflicting sidecar declaration.
+    # Some public downloads ship a stale ``UTF-8`` .cpg next to a CP949 DBF.
+    # A positive CP949 DBF detection takes precedence over that declaration.
     inferred = infer_dbf_encoding(_sidecar_path(path, ".dbf"))
     if inferred == "CP949":
         return inferred, "DBF automatic detection"
@@ -79,27 +76,41 @@ def declared_shapefile_encoding(shp_path):
 def infer_dbf_encoding(dbf_path, *, sample_size=65536):
     """Return a high-confidence DBF encoding or ``None``.
 
-    UTF-8 is never guessed over a valid provider default.  CP949 is selected
-    only when the DBF language-driver explicitly says so, or UTF-8 decoding
-    demonstrably fails while CP949 yields Korean text without replacements.
+    Read at most the DBF header and a bounded sample of complete records.
+    Defer to the provider for ambiguous bytes and correct a Korean driver ID
+    when the character data is valid UTF-8 but cannot be decoded as CP949.
     """
+    limit = max(32, int(sample_size))
+    partial = False
     try:
-        raw = Path(dbf_path).read_bytes()
+        with Path(dbf_path).open("rb") as stream:
+            header = stream.read(32)
+            declared = DBF_LANGUAGE_DRIVER_ENCODINGS.get(header[29]) if len(header) >= 30 else None
+            sample = _dbf_character_sample(stream, header, limit=limit)
+            if sample is None:
+                # Retain a conservative raw fallback for unsupported layouts.
+                stream.seek(0)
+                raw = stream.read(limit + 1)
+                partial = len(raw) > limit
+                sample = raw[:limit]
     except OSError:
         return None
-    if len(raw) >= 30:
-        declared = DBF_LANGUAGE_DRIVER_ENCODINGS.get(raw[29])
-        if declared:
-            return declared
 
-    sample = _dbf_character_sample(raw, sample_size=sample_size)
     try:
-        utf8 = sample.decode("utf-8", errors="replace")
-        cp949 = sample.decode("cp949", errors="replace")
+        # A cutoff inside a final multibyte sequence is not a decode error.
+        utf8 = getincrementaldecoder("utf-8")("replace").decode(sample, final=not partial)
+        cp949 = getincrementaldecoder("cp949")("replace").decode(sample, final=not partial)
     except LookupError:
-        return None
-    utf8_replacements = utf8.count("\ufffd")
+        return declared
+    utf8_replacements = utf8.count("\ufffd") - sample.count(b"\xef\xbf\xbd")
     cp949_replacements = cp949.count("\ufffd")
+    if not utf8_replacements:
+        if declared and not utf8.isascii():
+            # Both encodings can occasionally decode the same bytes. Leave
+            # such a sample to the declaration or provider rather than force CP949.
+            return "UTF-8" if cp949_replacements else None
+        return declared
+
     cp949_hangul = sum("가" <= char <= "힣" for char in cp949)
     # DBF headers contain binary dates, offsets and lengths.  Treating the
     # whole file as text creates a few false CP949 replacement characters and
@@ -108,82 +119,62 @@ def infer_dbf_encoding(dbf_path, *, sample_size=65536):
     # fallback path conservative for damaged/truncated DBFs.
     cp949_error_limit = max(1, utf8_replacements // 100)
     if (
-        utf8_replacements
-        and cp949_replacements <= cp949_error_limit
+        cp949_replacements <= cp949_error_limit
         and cp949_replacements * 8 < utf8_replacements
         and cp949_hangul
     ):
         return "CP949"
-    return None
+    return declared
 
 
-def _dbf_character_sample(raw, *, sample_size=65536):
-    """Extract character-field bytes from valid DBF records.
+def _dbf_character_sample(stream, header, *, limit):
+    """Extract complete character fields from a bounded batch of DBF records.
 
-    Numeric/binary fields and the binary header are deliberately excluded.
-    If the byte sequence is not a structurally valid DBF, return the old raw
-    sample so tiny fixtures and unusual providers retain conservative support.
+    Return None for unsupported layouts, or empty bytes if there is no text.
     """
-    limit = max(32, int(sample_size))
-    if len(raw) < 33:
-        return raw[:limit]
-
-    record_count = int.from_bytes(raw[4:8], "little")
-    header_length = int.from_bytes(raw[8:10], "little")
-    record_length = int.from_bytes(raw[10:12], "little")
-    if (
-        record_count <= 0
-        or header_length < 33
-        or header_length > len(raw)
-        or record_length <= 1
-        or header_length + record_length > len(raw)
-    ):
-        return raw[:limit]
+    if len(header) < 32:
+        return None
+    record_count = int.from_bytes(header[4:8], "little")
+    header_length = int.from_bytes(header[8:10], "little")
+    record_length = int.from_bytes(header[10:12], "little")
+    if header_length < 33 or record_length < 1:
+        return None
+    descriptors = stream.read(header_length - len(header))
+    if len(descriptors) != header_length - len(header):
+        return None
 
     character_fields = []
     field_offset = 1  # deletion flag is the first byte of every DBF record
-    descriptor_offset = 32
-    while descriptor_offset + 32 <= header_length:
-        if raw[descriptor_offset] == 0x0D:
+    for start in range(0, len(descriptors), 32):
+        if descriptors[start] == 0x0D:
             break
-        descriptor = raw[descriptor_offset:descriptor_offset + 32]
-        try:
-            field_type = chr(descriptor[11])
-        except (IndexError, ValueError):
-            return raw[:limit]
-        field_length = int(descriptor[16])
-        if field_length <= 0:
-            return raw[:limit]
-        if field_type == "C":
+        descriptor = descriptors[start:start + 32]
+        if len(descriptor) < 32:
+            return None
+        is_character = descriptor[11] == ord("C")
+        # Shapelib reads both length bytes for character fields. The second
+        # byte is decimal precision in numeric field descriptors instead.
+        field_length = int.from_bytes(descriptor[16:18], "little") if is_character else descriptor[16]
+        if not field_length or field_offset + field_length > record_length:
+            return None
+        if is_character:
             character_fields.append((field_offset, field_length))
         field_offset += field_length
-        descriptor_offset += 32
+    else:
+        return None
+    if not character_fields or not record_count:
+        return b""
 
-    if not character_fields or field_offset > record_length:
-        return raw[:limit]
-
+    # A wide record may exceed the requested sample size. Include one whole
+    # record, never a partial field. Blank or deleted records use budget too.
+    record_limit = min(record_count, max(1, limit // record_length))
+    records = stream.read(record_limit * record_length)
     chunks = []
-    sampled_bytes = 0
-    available_records = min(
-        record_count,
-        max(0, (len(raw) - header_length) // record_length),
-    )
-    for record_index in range(available_records):
-        start = header_length + record_index * record_length
-        record = raw[start:start + record_length]
-        if not record or record[0] == 0x2A:  # deleted record
+    for start in range(0, len(records) - record_length + 1, record_length):
+        if records[start] == 0x2A:
             continue
         for offset, length in character_fields:
-            value = record[offset:offset + length].strip(b" \x00")
-            if not value:
-                continue
-            remaining = limit - sampled_bytes
-            if remaining <= 0:
-                break
-            value = value[:remaining]
-            chunks.append(value)
-            sampled_bytes += len(value)
-        if sampled_bytes >= limit:
-            break
-
-    return b"\n".join(chunks) if chunks else raw[:limit]
+            value = records[start + offset:start + offset + length].strip(b" \x00")
+            if value:
+                chunks.append(value)
+    return b"\n".join(chunks)

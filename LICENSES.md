@@ -9,6 +9,7 @@ applies; third-party components retain their own notices.
 | JOSS paper | `paper/**` | `CC-BY-4.0` | `paper/LICENSE` |
 | Research documentation | `docs/research/**` | `CC-BY-4.0` | `docs/research/LICENSE` |
 | Wholly synthetic validation fixtures authored here | `validation/fixtures/**` | `CC0-1.0` | `validation/fixtures/LICENSE` |
+| Derived terrain in the walkthrough and sample hillshade | `docs/media/quick-start.gif`, `examples/quick-start-hillshade.tif` | Copernicus DEM licence for the terrain imagery | [Terrain attribution and licence](docs/user-guide.md#예제-지형-출처) |
 | Validation code, rules, templates, and result-processing material | Other `validation/**` content | `GPL-2.0-or-later` unless a file says otherwise | Root `LICENSE` |
 | User-supplied and third-party heritage data | Not distributed by this repository | Not granted | Original provider terms |
 

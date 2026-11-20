@@ -37,6 +37,7 @@ DEFAULT_EXCLUSION_RULES_PATH = Path(__file__).with_name(
     "exclusion_rules.json"
 )
 RULE_ITEM_PREFIX = "RULE:"
+_OUTCOME_NOTE_RE = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
 # Audit reasons for records the operator left out in the attribute scan.
 USER_EXCLUDED_NAME = "user_name"
 USER_EXCLUDED_CATEGORY = "user_category"
@@ -115,14 +116,20 @@ def _field_matches(field_name, keywords):
 
 
 def outcome_field_candidates(field_names, rules=None):
-    """Return fields whose names suggest an investigation outcome.
+    """Return recognized outcome fields in the lexicon's priority order.
 
     Callers measure only these fields' distinct values before
     :func:`prepare_layer_plan`, which keeps the check cheap on large layers.
     """
     rules = rules or load_exclusion_rules()
     keywords = (rules.get("outcome") or {}).get("field_keywords") or ()
-    return [name for name in field_names if _field_matches(name, keywords)]
+    aliases = dict.fromkeys(_compact(keyword) for keyword in keywords)
+    priority = {key: index for index, key in enumerate(aliases)}
+    fields = [(name, _compact(name)) for name in field_names]
+    return [name for name, _key in sorted(
+        ((name, key) for name, key in fields if key and key in priority),
+        key=lambda field: priority[field[1]],
+    )]
 
 
 @dataclass(frozen=True)
@@ -135,6 +142,7 @@ class LayerExclusionPlan:
     positive_markers: tuple
     class_fields: tuple
     class_values: tuple
+    negative_note_markers: tuple = ()
 
     @property
     def is_active(self):
@@ -155,6 +163,7 @@ def prepare_layer_plan(
     free-text columns that merely mention "none" are never used.
     """
     rules = rules or load_exclusion_rules()
+    field_names = tuple(field_names)
     enabled = set(enabled_rules or ())
     counts = dict(distinct_value_counts or {})
     outcome = rules.get("outcome") or {}
@@ -162,9 +171,7 @@ def prepare_layer_plan(
     outcome_field = ""
     if outcome.get("id") in enabled:
         limit = int(outcome.get("max_distinct_values", 12))
-        for name in field_names:
-            if not _field_matches(name, outcome.get("field_keywords") or ()):
-                continue
+        for name in outcome_field_candidates(field_names, rules):
             distinct = counts.get(name)
             if distinct is not None and distinct > limit:
                 continue
@@ -202,7 +209,31 @@ def prepare_layer_plan(
         ),
         class_fields=class_fields,
         class_values=tuple(class_values),
+        negative_note_markers=tuple(
+            key for key in (
+                _compact(marker) for marker in outcome.get("negative_note_markers") or ()
+            ) if key
+        ),
     )
+
+
+def _negative_outcome(plan, value):
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    primary, *notes = re.split(r"(?=[(\[])", text, maxsplit=1)
+    key = _compact(primary)
+    if key not in plan.negative_markers or key in plan.positive_markers:
+        return False
+    if not notes:
+        return True
+    if _OUTCOME_NOTE_RE.sub("", notes[0]).strip():
+        return False
+    for paren, bracket in _OUTCOME_NOTE_RE.findall(notes[0]):
+        note = _compact(paren or bracket)
+        if note not in plan.negative_note_markers and any(
+            marker in note for marker in plan.positive_markers
+        ):
+            return False
+    return True
 
 
 def exclusion_reason(plan, attributes):
@@ -214,24 +245,18 @@ def exclusion_reason(plan, attributes):
     if plan is None or not plan.is_active:
         return None
 
-    if plan.outcome_field:
-        value = _compact(attributes[plan.outcome_field])
-        if (
-            value
-            and any(marker in value for marker in plan.negative_markers)
-            and not any(marker in value for marker in plan.positive_markers)
-        ):
-            return plan.outcome_rule
+    if plan.outcome_field and _negative_outcome(
+        plan, attributes[plan.outcome_field],
+    ):
+        return plan.outcome_rule
 
     if plan.class_fields:
         lookup = dict(plan.class_values)
-        for field_name in plan.class_fields:
-            values = category_values(attributes[field_name])
-            if not values:
-                continue
-            classes = {lookup.get(_compact(value)) for value in values}
-            if None not in classes:
-                # Every value of this classification belongs to an enabled
-                # class.  Report the first class in deterministic order.
-                return sorted(classes)[0]
+        classes = {
+            lookup.get(_compact(value))
+            for field_name in plan.class_fields
+            for value in category_values(attributes[field_name])
+        }
+        if classes and None not in classes:
+            return min(classes)
     return None

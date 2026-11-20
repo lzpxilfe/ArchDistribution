@@ -28,6 +28,7 @@ try:
         category_values,
         find_semantic_field,
     )
+    from .source_exclusion import exclusion_reason, load_exclusion_rules, prepare_layer_plan
 except ImportError:
     from attribute_classification import (
         ERA_FIELD_KEYWORDS,
@@ -35,6 +36,7 @@ except ImportError:
         category_values,
         find_semantic_field,
     )
+    from source_exclusion import exclusion_reason, load_exclusion_rules, prepare_layer_plan
 
 
 DEFAULT_TABLE_LEXICON_PATH = Path(__file__).with_name("table_lexicon.json")
@@ -69,8 +71,6 @@ COLUMN_WEIGHTS = (5, 21, 11, 11, 18, 10, 16, 8)
 
 DESIGNATION_FIELD_KEYWORDS = ("지정종목", "종목", "designation")
 AGENCY_FIELD_KEYWORDS = ("조사기관", "기관", "institution", "agency")
-OUTCOME_FIELD_KEYWORDS = ("유적유무", "조사결과", "outcome", "result")
-NEGATIVE_OUTCOME_MARKERS = ("유적없음", "noremains", "none", "absent")
 _PLACEHOLDERS = {"", "n/a", "na", "none", "null", "미상", "-"}
 
 _DIRECTIONS_KO = ("북", "북동", "동", "남동", "남", "남서", "서", "북서")
@@ -261,8 +261,8 @@ _BRACKETS_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 _QUOTES_RE = re.compile("[\"'`‘’“”]")
 _ENUMERATED_START_RE = re.compile(r"^\s*\d+\)")
 _ENUMERATOR_RE = re.compile(r"(?:^|,)\s*\d+\)\s*")
-# CJK ideographs and stand-alone Hangul jamo are what CP949-decoded UTF-8
-# bytes turn into; ordinary Korean text has neither next to a "?".
+# CP949-decoded UTF-8 can produce question-mark runs mixed with ideographs
+# and stand-alone Hangul jamo. A single "?" is also used as a field separator.
 _SUSPICIOUS_RE = re.compile("[\u4e00-\u9fff\u3131-\u318e]")
 
 
@@ -275,9 +275,7 @@ def is_corrupted_text(text):
     printed.
     """
     value = str(text or "")
-    unknown = value.count("?") + value.count("\ufffd")
-    suspicious = len(_SUSPICIOUS_RE.findall(value))
-    return unknown >= 1 and suspicious >= 1 and unknown + suspicious >= 3
+    return "\ufffd" in value or ("??" in value and bool(_SUSPICIOUS_RE.search(value)))
 
 
 def _address_rules(lexicon):
@@ -304,6 +302,9 @@ def _address_rules(lexicon):
     counts = "|".join(
         re.escape(item) for item in config.get("count_suffixes") or [] if item
     )
+    qualifiers = "|".join(
+        re.escape(item) for item in config.get("qualifiers") or [] if item
+    )
     return {
         "config": config,
         "levels": levels,
@@ -313,6 +314,9 @@ def _address_rules(lexicon):
         "placeholders": set(config.get("placeholder_tokens") or []),
         "noise": set(config.get("noise_tokens") or []),
         "count_re": re.compile(rf"^\d+(?:{counts})$") if counts else None,
+        "qualifier_re": re.compile(
+            rf"(?:(?<!\w)|(?<=\d)|(?<=\d번지))(?:{qualifiers})(?!\w)"
+        ) if qualifiers else None,
         "land": set(land),
     }
 
@@ -337,11 +341,8 @@ def _parse_address_item(text, rules):
         extra += int(match.group(1))
     raw = re.sub(r"외\s*\d*\s*" + suffix, " ", raw)
     raw = re.sub(r"(?<=\d)\s*외(?=\s|$)", " ", raw)
-    qualified = False
-    for word in config.get("qualifiers") or []:
-        if word and word in raw:
-            qualified = True
-            raw = raw.replace(word, " ")
+    qualifier_re = rules["qualifier_re"]
+    raw, qualifiers_found = qualifier_re.subn(" ", raw) if qualifier_re else (raw, 0)
     raw = re.sub(r"(\d+)\s*번지\s*(\d+)\s*호", r"\1-\2", raw)
     raw = re.sub(r"산\s+(?=\d)", "산", raw)
     segments = (
@@ -400,7 +401,7 @@ def _parse_address_item(text, rules):
         {
             "places": places,
             "parcels": tuple(dict.fromkeys(parcels)),
-            "qualified": qualified,
+            "qualified": bool(qualifiers_found),
             "extra_parcels": extra if index == 0 else 0,
         }
         for index, (places, parcels) in enumerate(merged.items())
@@ -478,6 +479,16 @@ def summarize_address(addresses, lexicon=None, preferred=None):
     parsed = placed
     if preferred_entries and preferred_entries[0]["places"]:
         base = list(preferred_entries[0]["places"])
+        detailed = base
+        for item in parsed:
+            places = list(item["places"])
+            offset, aligned = _offset_in(base, places)
+            if offset is None or aligned[:len(base) - offset] != base[offset:]:
+                continue
+            expanded = places[:len(places) - len(aligned)] + base[:offset] + aligned
+            if len(expanded) > len(detailed):
+                detailed = expanded
+        base = detailed
     else:
         base = list(max(parsed, key=lambda item: len(item["places"]))[
             "places"
@@ -531,13 +542,25 @@ def summarize_address(addresses, lexicon=None, preferred=None):
         parcels = list(dict.fromkeys(
             parcel for item in full_matches for parcel in item["parcels"]
         ))
-        extra = sum(item["extra_parcels"] for item in full_matches)
         if parcels:
-            others = len(parcels) - 1 + extra
+            # An inventory with the same explicit lots and count may simply
+            # be the representative address repeated in the source records.
+            inventories = {
+                (frozenset(item["parcels"]), item["extra_parcels"])
+                for item in full_matches if item["extra_parcels"]
+            }
+            # The union of explicit lots and each reported total are lower
+            # bounds. Unspecified parcels from different records may overlap.
+            reported_count = max((len(lots) + count for lots, count in inventories), default=0)
+            others = max(len(parcels), reported_count) - 1
+            uncertain = bool(inventories) and (
+                len(inventories) > 1 or next(iter(inventories))[0] != set(parcels)
+            )
             suffix = config.get("parcel_suffix", "필지")
+            minimum = " 이상" if uncertain else ""
             first = re.sub(r"^산(?=\d)", "산 ", parcels[0])
             parcel_text = first + (
-                f" 외 {others}{suffix}" if others else ""
+                f" 외 {others}{suffix}{minimum}" if others else ""
             )
     else:
         qualified = True
@@ -716,16 +739,20 @@ def summarize_group(group, language="ko", lexicon=None):
             f"{len(records)} records" if language == "en"
             else f"{len(records)}건 통합"
         )
-    for record in records:
-        outcome = _field(record, OUTCOME_FIELD_KEYWORDS)
-        value = "".join(str(record.get(outcome) or "").split()).casefold()
-        if outcome and any(
-            marker in value for marker in NEGATIVE_OUTCOME_MARKERS
-        ):
-            remarks.append(
-                "No features found" if language == "en" else "유구 미확인"
-            )
-            break
+    if records:
+        rules = load_exclusion_rules()
+        negative_count = sum(
+            exclusion_reason(prepare_layer_plan(record, ("no_remains",), rules=rules), record)
+            == "no_remains"
+            for record in records
+        )
+        if negative_count:
+            if len(records) == 1:
+                remarks.append("No features found" if language == "en" else "유구 미확인")
+            elif language == "en":
+                remarks.append(f"No features found in {negative_count} of {len(records)} records")
+            else:
+                remarks.append(f"유구 미확인 기록 {negative_count}건")
 
     return [
         str(group.get("number") or ""),
@@ -763,12 +790,22 @@ def build_site_table(groups, language="ko", lexicon=None):
     return header, rows
 
 
+def _spreadsheet_cell(value):
+    if isinstance(value, str):
+        normalized = unicodedata.normalize("NFKC", value).lstrip(" \ufeff")
+        if normalized.startswith(("\t", "\r", "\n")) or normalized.lstrip().startswith(
+            ("=", "+", "-", "@")
+        ):
+            return "'" + value
+    return value
+
+
 def write_csv(path, header, rows):
     """Write a spreadsheet-friendly UTF-8 (BOM) CSV."""
     with open(path, "w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(header)
-        writer.writerows(rows)
+        writer.writerow(_spreadsheet_cell(value) for value in header)
+        writer.writerows((_spreadsheet_cell(value) for value in row) for row in rows)
     return path
 
 
@@ -870,13 +907,17 @@ def _para_pr(para_id, horizontal):
     )
 
 
+_XML_INVALID_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]")
+
+
 def _xml_escape(text, quote=False):
     """Escape text for an XML element, or a double-quoted attribute.
 
     The table only writes XML, so the standard library's XML readers are not
     needed for this.
     """
-    text = str(text).replace("&", "&amp;").replace("<", "&lt;")
+    text = _XML_INVALID_RE.sub("", str(text))
+    text = text.replace("&", "&amp;").replace("<", "&lt;")
     text = text.replace(">", "&gt;")
     if quote:
         text = text.replace('"', "&quot;")

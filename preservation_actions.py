@@ -23,6 +23,13 @@ PRESERVATION_ACTION_STYLES = {
     },
 }
 
+_ACTION_LABELS_EN = {
+    "현상보존": "Preserve in place",
+    "정밀발굴조사": "Full excavation",
+    "시굴조사": "Trial excavation",
+    "표본조사": "Sampling survey",
+}
+
 PRESERVATION_ACTION_FIELD_CANDIDATES = (
     "보존조치",
     "조치내용",
@@ -70,6 +77,11 @@ def normalize_preservation_action(value):
 def preservation_action_style(value):
     """Return the configured legend style for a known action, if any."""
     return PRESERVATION_ACTION_STYLES.get(normalize_preservation_action(value))
+
+
+def preservation_action_label(action, language):
+    """Translate a canonical action for display while preserving source values."""
+    return _ACTION_LABELS_EN.get(action, action) if language == "en" else action
 
 
 def recognized_preservation_actions(values):

@@ -153,7 +153,7 @@ def approved_reference_assets(
                 approved.add(path)
     return approved
 
-def create_plugin_zip():
+def create_plugin_zip(output_path=None):
     plugin_name = "ArchDistribution"
     version = "dev"
     metadata_path = Path("metadata.txt")
@@ -170,9 +170,12 @@ def create_plugin_zip():
     # The folder name INSIDE the zip file must match the plugin package name
     zip_root_name = plugin_name
 
-    # Save to Desktop
     desktop_path = Path.home() / "Desktop"
-    zip_filename = desktop_path / f"{plugin_name}-{version}.zip"
+    zip_filename = (
+        Path(output_path)
+        if output_path is not None
+        else desktop_path / f"{plugin_name}-{version}.zip"
+    )
 
     # Try to get files from git
     git_files = get_git_files()

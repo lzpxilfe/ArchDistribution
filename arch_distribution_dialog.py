@@ -1,5 +1,6 @@
 import html
 import json
+import math
 import os
 from pathlib import Path
 
@@ -8,7 +9,9 @@ from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QListWidgetItem, QColorDialog
 from qgis.core import (
     Qgis,
+    QgsApplication,
     QgsCoordinateReferenceSystem,
+    QgsFeatureRequest,
     QgsProject,
 )
 from qgis.gui import (
@@ -30,9 +33,11 @@ from .attribute_classification import (
 from .preservation_actions import (
     PRESERVATION_ACTION_FIELD_CANDIDATES,
     PRESERVATION_ACTION_STYLES,
+    preservation_action_label,
     recognized_preservation_actions,
 )
 from .map_legend_styles import normalize_change_zone_code
+from .metric_context import MetricContextError, validate_analysis_crs
 from .local_reference_assets import resolve_local_reference_asset
 from .shapefile_encoding import declared_shapefile_encoding
 from .source_exclusion import (
@@ -53,7 +58,6 @@ from .heritage_matching import (
     ROLE_LOCAL_DESIGNATED,
     ROLE_NATIONAL_DESIGNATED,
     ROLE_PROTECTION_ZONE,
-    SOURCE_ROLE_LABELS,
     SOURCE_ROLE_ORDER,
     detect_source_role,
     source_role_label,
@@ -156,8 +160,8 @@ def detect_ui_language():
     if pref in ("ko", "en"):
         return pref
 
-    locale = str(QtCore.QSettings().value("locale/userLocale", "ko")).lower()
-    return "en" if locale.startswith("en") else "ko"
+    locale = QgsApplication.locale() or QtCore.QLocale().name()
+    return "ko" if locale.casefold().startswith("ko") else "en"
 
 
 class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
@@ -376,6 +380,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnBufferColor.clicked.connect(lambda: self.pick_color('buffer'))
 
         self.btnAddBuffer.clicked.connect(self.add_buffer_to_list)
+        self.editBufferDistance.returnPressed.connect(self.add_buffer_to_list)
         self.listBuffers.itemDoubleClicked.connect(self.remove_buffer_from_list)
 
         self.chkBufferKmLabels = QtWidgets.QCheckBox()
@@ -489,6 +494,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnUncheckHeritage.clicked.connect(lambda: self.set_batch_check(self.listHeritageLayers, False))
 
         # Run signal
+        self.btnRun.setAutoDefault(False)
         self.btnRun.clicked.connect(self.emit_run_requested)
         self.buttonBox.rejected.connect(self.reject)  # Close button
 
@@ -506,18 +512,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.btnPresetReport.clicked.connect(lambda: self.apply_preset(*PRESET_REPORT))
         self.btnPresetA4.clicked.connect(lambda: self.apply_preset(*PRESET_A4))
 
-        # Initialize layers
-        self.populate_layers()
-
-        # [NEW] Load Reference Data
         self.reference_data = {}
-        self.load_reference_data()
-
+        self.reference_data_normalized = {}
+        self.smart_patterns = {"noise": [], "artifacts": {}}
+        self._reference_data_loaded = False
+        self.populate_layers()
         self._arrange_sections_by_workflow()
-
-        # [NEW] Global Scroll Implementation
-        # User requested: Title bar fixed, but Tabs + Logs + Run Button all scrollable together.
         self.make_global_scrollable()
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.resize(
+                min(self.width(), max(320, available.width() - 48)),
+                min(self.height(), max(400, available.height() - 72)),
+            )
 
     def _arrange_sections_by_workflow(self):
         """Order the sections in the order an operator decides them.
@@ -555,6 +563,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.vTab1.insertWidget(index, widget)
         for index, widget in enumerate(style_sections):
             self.vTab2.insertWidget(index, widget)
+        self.groupDuplicatePolicy.layout().removeWidget(self.lblPreviousResultInputWarning)
+        self.vTab1.insertWidget(1, self.lblPreviousResultInputWarning)
         # Each rule sits with the setting it depends on.
         if hasattr(self, "gSpecs") and hasattr(self, "chkExcludeExtentSlivers"):
             self.gSpecs.addWidget(
@@ -1013,7 +1023,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         return self._crs_definition(self.projectionAnalysisCrs.crs())
 
     def _analysis_crs_override_error(self):
-        """Validate that an explicit analysis CRS measures in metres."""
+        """Validate the selected CRS before starting either workflow."""
         if not self.chkOverrideAnalysisCrs.isChecked():
             return None
         crs = self.projectionAnalysisCrs.crs()
@@ -1022,12 +1032,16 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 "고급 분석 좌표계를 선택해 주세요.",
                 "Select an advanced analysis CRS.",
             )
-        if crs.isGeographic() or crs.mapUnits() != Qgis.DistanceUnit.Meters:
+        try:
+            validate_analysis_crs(crs)
+        except MetricContextError:
             return self._t(
-                "분석 좌표계는 미터 단위의 투영좌표계여야 합니다. "
-                "잘 모르겠으면 고급 설정을 해제해 자동 선택을 사용하세요.",
-                "The analysis CRS must be a projected CRS measured in metres. "
-                "If unsure, disable the override and use automatic selection.",
+                "미터 단위의 지역 투영좌표계를 선택하세요. 웹 메르카토르 등 "
+                "메르카토르와 정거원통도법은 분석에 사용할 수 없습니다. "
+                "확실하지 않으면 자동 선택을 사용하세요.",
+                "Select a regional projected CRS measured in metres. "
+                "Mercator (including Web Mercator) and equirectangular "
+                "projections are unsuitable. Use automatic selection if unsure.",
             )
         return None
 
@@ -1137,10 +1151,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblPreservationEncoding = QtWidgets.QLabel()
         self.comboPreservationEncoding = QtWidgets.QComboBox()
         self.comboPreservationEncoding.addItem(
-            self._t(
-                "자동(DBF/.cpg/공급자)",
-                "Automatic (DBF/.cpg/provider)",
-            ),
+            self._automatic_encoding_label(),
             "",
         )
         self.comboPreservationEncoding.addItem("UTF-8", "UTF-8")
@@ -1258,8 +1269,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         )
 
         self.preservationColorButtons = {}
+        self.preservationActionLabels = {}
         for row, action in enumerate(PRESERVATION_STYLE_ORDER, start=1):
-            action_label = QtWidgets.QLabel(action)
+            action_label = QtWidgets.QLabel()
+            self.preservationActionLabels[action] = action_label
             fill_button = QtWidgets.QPushButton()
             outline_button = QtWidgets.QPushButton()
             fill_button.setMinimumWidth(115)
@@ -1395,20 +1408,23 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self._on_workflow_changed(0)
 
     def _detect_preservation_field(self, layer):
-        """Return a schema-and-value verified action field for the selected layer."""
-        if not layer or layer.type() != 0 or layer.geometryType() != 2:
-            return None
-        field_names = [field.name() for field in layer.fields()]
+        """Return the first verified action field and its recognized values."""
+        if (
+            not layer or layer.type() != Qgis.LayerType.Vector
+            or layer.geometryType() != Qgis.GeometryType.Polygon
+        ):
+            return None, ()
+        checked = set()
+        fields = layer.fields()
         for keyword in PRESERVATION_ACTION_FIELD_CANDIDATES:
-            for field_name in field_names:
-                if keyword.casefold() not in field_name.casefold():
+            for index, field in enumerate(fields):
+                if index in checked or keyword.casefold() not in field.name().casefold():
                     continue
-                field_idx = layer.fields().indexFromName(field_name)
-                if field_idx >= 0 and recognized_preservation_actions(
-                    layer.uniqueValues(field_idx)
-                ):
-                    return field_name
-        return None
+                checked.add(index)
+                actions = recognized_preservation_actions(layer.uniqueValues(index))
+                if actions:
+                    return field.name(), actions
+        return None, ()
 
     def _set_legal_layer_controls_visible(self, enabled):
         """Expand legal inputs only when the operator explicitly enables them."""
@@ -1435,7 +1451,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             # their own.  Prefer the field whose actual values most often
             # match the official 1–8 / 2-x / 3-x zone vocabulary.
             zone_counts = {}
-            for feature_index, feature in enumerate(layer.getFeatures()):
+            request = QgsFeatureRequest().setFlags(Qgis.FeatureRequestFlag.NoGeometry)
+            for feature_index, feature in enumerate(layer.getFeatures(request)):
                 if feature_index >= 250:
                     break
                 for field in layer.fields():
@@ -1492,7 +1509,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self._t("자동 인식", "Auto detect"),
             None,
         )
-        detected = self._detect_preservation_field(layer)
+        detected, actions = self._detect_preservation_field(layer)
+        self._preservation_detection = detected, actions
         if layer:
             for field in layer.fields():
                 self.comboPreservationActionField.addItem(
@@ -1506,19 +1524,24 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.comboPreservationActionField.setCurrentIndex(
                 max(0, detected_index)
             )
-            actions = recognized_preservation_actions(
-                layer.uniqueValues(layer.fields().indexFromName(detected))
+        self.comboPreservationActionField.blockSignals(False)
+        self._update_preservation_detection_text()
+
+    def _update_preservation_detection_text(self):
+        detected, actions = self._preservation_detection
+        if detected:
+            labels = ", ".join(
+                preservation_action_label(action, self.ui_lang)
+                for action in sorted(actions)
             )
             self.lblPreservationDetection.setText(
                 self._t(
-                    f"✓ 자동 확인: {detected} "
-                    f"({', '.join(sorted(actions))})",
-                    f"Verified automatically: {detected} "
-                    f"({', '.join(sorted(actions))})",
+                    f"✓ 자동 확인: {detected} ({labels})",
+                    f"Detected field: {detected} ({labels})",
                 )
             )
             self.lblPreservationDetection.setStyleSheet("color:#188038;")
-        elif layer:
+        elif self.comboPreservationLayer.currentLayer():
             self.lblPreservationDetection.setText(
                 self._t(
                     "자동 확인되지 않았습니다. 실제 보존조치 값이 들어 있는 "
@@ -1536,7 +1559,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
             )
             self.lblPreservationDetection.setStyleSheet("color:#666;")
-        self.comboPreservationActionField.blockSignals(False)
 
     def _save_preservation_encoding_override(self, _index):
         layer = self.comboPreservationLayer.currentLayer()
@@ -1617,13 +1639,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 "매장유산 유존지역 전용 작업입니다. 사용자가 선택한 "
                 "폴리곤만 처리하며, 원본 속성을 모두 보존한 채 같은 사업명은 "
                 "하나의 번호로 묶고 보존조치별 도형은 따로 유지합니다.",
-                "Dedicated preservation-area workflow. It processes only the "
-                "selected polygon, preserves all source attributes, assigns one "
-                "number per project name, and keeps action geometries separate.",
+                "Map buried-heritage areas recorded under Korea's preservation "
+                "actions. Records with the same project name share a number, "
+                "and each action keeps its own boundary.",
             )
         )
         self.groupPreservationInput.setTitle(
-            self._t("전용 입력", "Dedicated Input")
+            self._t("전용 입력", "Input Layers")
         )
         self.lblPreservationLayer.setText(
             self._t("유존지역 폴리곤:", "Preservation polygon:")
@@ -1631,8 +1653,9 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblPreservationEncoding.setText(
             self._t("문자 인코딩:", "Text encoding:")
         )
+        self.comboPreservationEncoding.setToolTip(self._encoding_tooltip())
         self.lblPreservationActionField.setText(
-            self._t("보존조치 필드:", "Action field:")
+            self._t("보존조치 필드:", "Preservation action field:")
         )
         self.groupPreservationExtent.setTitle(
             self._t("도곽 기준", "Map Extent")
@@ -1640,7 +1663,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self.lblPreservationStudyArea.setText(
             self._t(
                 "기준 조사구역:",
-                "Study-area baseline:",
+                "Study-area polygon:",
             )
         )
         self.comboPreservationStudyArea.setToolTip(
@@ -1674,7 +1697,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
         )
         self.groupPreservationStyle.setTitle(
-            self._t("보존조치 4종 스타일", "Four Action Styles")
+            self._t("보존조치 4종 스타일", "Preservation Action Styles")
         )
         self.lblPreservationActionHeader.setText(
             self._t("보존조치", "Action")
@@ -1714,6 +1737,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 "boundaries remain separate so each category keeps its color.",
             )
         )
+        for action, label in self.preservationActionLabels.items():
+            label.setText(preservation_action_label(action, self.ui_lang))
+        self.comboPreservationEncoding.setItemText(0, self._automatic_encoding_label())
+        self.comboPreservationActionField.setItemText(0, self._t("자동 인식", "Auto detect"))
+        self._update_preservation_detection_text()
 
         current_sort = self.comboPreservationSortOrder.currentIndex()
         self.comboPreservationSortOrder.blockSignals(True)
@@ -1738,74 +1766,131 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if index == 1:
             self.btnRun.setText(
                 self._t(
-                    "▶ 매장유산 유존지역 생성",
+                    "유존지역 지도 만들기",
                     "Generate Preservation Areas",
                 )
             )
         else:
             self.btnRun.setText(
                 self._t(
-                    "▶ 분석 및 지도 생성 실행",
-                    "Run Analysis / Generate Map",
+                    "분포지도 만들기",
+                    "Generate Distribution Map",
                 )
             )
 
     def make_global_scrollable(self):
-        """ Wraps the main content (Tabs, Logs, Buttons) in a single QScrollArea. """
+        """Keep the options and run actions accessible while the form scrolls."""
+        self.formScroll = QtWidgets.QScrollArea()
+        self.formScroll.setWidgetResizable(True)
+        self.formScroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        content = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        # 1. Create a ScrollArea and Container
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Only vertical scroll
+        for widget in (
+            self.groupOutputArtifacts, self.workflowTabs, self.groupMetricCrs,
+            self.groupLog,
+        ):
+            self.vMain.removeWidget(widget)
+            layout.addWidget(widget)
+        layout.addStretch()
+        self.formScroll.setWidget(content)
 
-        container = QtWidgets.QWidget()
-        container_layout = QtWidgets.QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)  # Tight fit
+        controls = QtWidgets.QHBoxLayout()
+        self.btnAdvancedSettings = QtWidgets.QToolButton()
+        self.btnOutputSettings = QtWidgets.QToolButton()
+        for button in (self.btnAdvancedSettings, self.btnOutputSettings):
+            button.setCheckable(True)
+            button.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            controls.addWidget(button)
+        controls.addStretch()
+        footer_index = self.vMain.indexOf(self.hFinal)
+        self.vMain.insertLayout(footer_index, controls)
+        self.vMain.insertWidget(footer_index + 1, self.formScroll, 1)
+        self.btnAdvancedSettings.toggled.connect(self._set_advanced_settings_visible)
+        self.btnOutputSettings.toggled.connect(self._set_output_settings_visible)
+        for checkbox in (
+            self.chkSaveGpkgManifest, self.chkExportLayoutJpg,
+            self.chkExportLayoutPdf, self.chkExportSiteTable,
+        ):
+            checkbox.toggled.connect(self._retranslate_workflow_settings)
 
-        # 2. Identify widgets to move (Tabs, Log, Buttons)
-        # Note: 'vMain' layout contains: Header, TabWidget, GroupLog, hFinal (Layout)
-        # We want to keep Header in vMain, but move the rest to container.
+        self.btnAdvancedSettings.setChecked(bool(
+            self._analysis_crs_override_definition()
+            or self.comboMatchPreset.currentData() != PRESET_BALANCED
+            or self.comboDesignatedParts.currentData() != DESIGNATED_PARTS_SEPARATE
+            or not self.chkReuseReviewDecisions.isChecked()
+        ))
+        self._set_advanced_settings_visible(self.btnAdvancedSettings.isChecked())
+        self._set_output_settings_visible(False)
+        self._retranslate_workflow_settings()
 
-        if not hasattr(self, 'vMain'):
-            return
-
-        # Move the outer workflow tabs (or the legacy inner tabs as fallback).
-        content_tabs = (
-            self.workflowTabs
-            if hasattr(self, "workflowTabs")
-            else self.tabWidget
+    def _set_advanced_settings_visible(self, visible):
+        sections = (
+            self.groupDuplicatePolicy, self.groupLegalLayers,
+            self.groupSmartFilter, self.groupSym, self.groupLabelStyle,
+            self.groupPreservationStyle, self.lblPreservationLabelFontSize,
+            self.spinPreservationLabelFontSize, self.lblPreservationLabelFont,
+            self.comboPreservationLabelFont,
+            self.groupMetricCrs, self.lb2, self.comboBufferStyle,
+            self.spinBufferWidth, self.lbWidthUnit, self.btnBufferColor,
+            self.chkBufferKmLabels,
         )
-        self.vMain.removeWidget(content_tabs)
-        container_layout.addWidget(content_tabs)
+        for section in sections:
+            section.setVisible(visible)
+        self.btnAdvancedSettings.setArrowType(
+            QtCore.Qt.ArrowType.DownArrow if visible else QtCore.Qt.ArrowType.RightArrow
+        )
 
-        if hasattr(self, "groupMetricCrs"):
-            self.vMain.removeWidget(self.groupMetricCrs)
-            container_layout.addWidget(self.groupMetricCrs)
+    def _set_output_settings_visible(self, visible):
+        self.groupOutputArtifacts.setVisible(visible)
+        self.btnOutputSettings.setArrowType(
+            QtCore.Qt.ArrowType.DownArrow if visible else QtCore.Qt.ArrowType.RightArrow
+        )
+        if visible:
+            self.formScroll.verticalScrollBar().setValue(0)
 
-        if hasattr(self, "groupOutputArtifacts"):
-            self.vMain.removeWidget(self.groupOutputArtifacts)
-            container_layout.addWidget(self.groupOutputArtifacts)
-
-        # Move GroupLog
-        if hasattr(self, 'groupLog'):
-            self.vMain.removeWidget(self.groupLog)
-            container_layout.addWidget(self.groupLog)
-
-        # Move hFinal Layout (Run Button Box)
-        if hasattr(self, 'hFinal'):
-            self.vMain.removeItem(self.hFinal)
-            container_layout.addLayout(self.hFinal)
-
-        # 3. Add Container to ScrollArea
-        scroll.setWidget(container)
-
-        # 4. Add ScrollArea to vMain
-        self.vMain.addWidget(scroll)
+    def _retranslate_workflow_settings(self):
+        self.btnAdvancedSettings.setText(self._t("세부 설정", "Advanced settings"))
+        self.btnAdvancedSettings.setToolTip(self._t(
+            "자료 역할·중복 판정, 지정·보호구역, 속성 제외, 지도 스타일과 분석 좌표계를 표시합니다. 접어도 설정은 적용됩니다.",
+            "Show source roles, matching, legal layers, exclusions, styling, and analysis CRS. Settings apply when collapsed.",
+        ))
+        output_count = sum(checkbox.isChecked() for checkbox in (
+            self.chkSaveGpkgManifest, self.chkExportLayoutJpg,
+            self.chkExportLayoutPdf, self.chkExportSiteTable,
+        ))
+        output_text = self._t("파일 저장", "Save files")
+        if output_count:
+            output_text = self._t(
+                f"파일 저장 ({output_count}개 선택)",
+                f"Save files ({output_count} selected)",
+            )
+        self.btnOutputSettings.setText(output_text)
+        self.btnOutputSettings.setToolTip(self._t(
+            "GeoPackage, JPG, PDF, 주변유적 현황표 저장 설정을 표시합니다.",
+            "Show settings for saving a GeoPackage, JPG, PDF, or nearby-site table.",
+        ))
 
     def _t(self, ko_text, en_text):
         """Small runtime translator for KR/EN without changing UI layout."""
         return en_text if self.ui_lang == "en" else ko_text
+
+    def _automatic_encoding_label(self):
+        return self._t("자동(DBF/.cpg/공급자)", "Automatic detection")
+
+    def _encoding_tooltip(self):
+        return self._t(
+            "자동은 DBF 문자 바이트를 우선 확인하고 .cpg와 공급자 설정을 "
+            "함께 사용합니다. 직접 선택은 예외 자료에만 사용하세요.",
+            "For shapefiles, automatic detection checks DBF text bytes and the "
+            ".cpg declaration. Override it if the text is garbled.",
+        )
+
+    def _update_role_tooltip(self, combo):
+        detected = combo.property("detected_role")
+        label = source_role_label(detected, self.ui_lang)
+        combo.setToolTip(self._t(f"자동 판정: {label}", f"Detected source role: {label}"))
 
     def _stabilize_data_panel_layout(self):
         """Keep the layer-selection lists wide and hide the optional study-area hint."""
@@ -1836,30 +1921,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def _apply_static_ui_translation(self):
         """Translate Qt-Designer widgets at runtime while keeping .ui structure intact."""
-        self.setWindowTitle(
-            self._t(
-                "ArchDistribution - 프리미엄 분포지도 엔진",
-                "ArchDistribution - Premium Distribution Map Engine",
-            )
-        )
-        if hasattr(self, "lSub"):
-            self.lSub.setText(
-                self._t(
-                    "고고학 분포지도 제작 최적화 솔루션",
-                    "Optimized solution for archaeological distribution mapping",
-                )
-            )
+        self.setWindowTitle("ArchDistribution")
+        close_button = self.buttonBox.button(QtWidgets.QDialogButtonBox.StandardButton.Close)
+        close_button.setText(self._t("닫기", "Close"))
 
         if hasattr(self, "tabWidget"):
             if self.tabWidget.count() > 0:
-                self.tabWidget.setTabText(0, self._t("1. 데이터 및 구획(Spec)", "1. Data & Layout (Spec)"))
+                self.tabWidget.setTabText(0, self._t("데이터·도곽", "Data and Layout"))
             if self.tabWidget.count() > 1:
-                self.tabWidget.setTabText(1, self._t("2. 스타일 및 분석(Style)", "2. Style & Analysis (Style)"))
+                self.tabWidget.setTabText(1, self._t("스타일·분석", "Style and Analysis"))
 
         if hasattr(self, "groupData"):
-            self.groupData.setTitle(self._t("입력 레이어 제어 (Input Layers)", "Input Layer Controls"))
+            self.groupData.setTitle(self._t("입력 레이어", "Input Layers"))
         if hasattr(self, "groupSpecs"):
-            self.groupSpecs.setTitle(self._t("출력 도곽 및 축척 (Print Specifications)", "Output Extent / Scale"))
+            self.groupSpecs.setTitle(self._t("출력 도곽과 축척", "Output Extent and Scale"))
         if hasattr(self, "groupSym"):
             self.groupSym.setTitle(self._t("레이어별 정밀 심볼 제어 (Detailed Symbology)", "Detailed Symbology"))
         if hasattr(self, "groupBuffer"):
@@ -1880,7 +1955,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 "same order, as reports list previous investigations after sites.",
             ))
         if hasattr(self, "groupLog"):
-            self.groupLog.setTitle(self._t("🚀 진행 상태 로그", "🚀 Progress Log"))
+            self.groupLog.setTitle(self._t("진행 기록", "Run Log"))
 
         if hasattr(self, "ld1"):
             self.ld1.setText(self._t("① 조사지역 선택 (기준):", "① Study area:"))
@@ -1916,8 +1991,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "listTopoLayers"):
             self.listTopoLayers.setToolTip(
                 self._t(
-                    "배경으로 깔릴 수치지형도를 모두 선택하세요 (Shift/Ctrl 드래그 가능).",
-                    "Select all topo layers for background (Shift/Ctrl multi-select supported).",
+                    "배경에 쓸 수치지형도를 체크합니다. 배경이 필요 없으면 비워 둡니다.",
+                    "Check any topographic layers to use as a background.",
                 )
             )
         if hasattr(self, "listHeritageLayers"):
@@ -1966,6 +2041,11 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
             )
 
+        self.lp0.setText(self._t("용지 규격", "Paper presets"))
+        self.ls1u.setText("mm")
+        self.ls2u.setText("mm")
+        self.ls3u.setText("mm")
+        self.ls1op.setText(self._t("% (불투명도)", "% (opacity)"))
         if hasattr(self, "lp1"):
             self.lp1.setText(self._t("도면 가로(W):", "Paper width (W):"))
         if hasattr(self, "lp1u"):
@@ -2101,9 +2181,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "lnScaleInfo"):
             self.lnScaleInfo.setText(self._t("⚠ 현재 축척:", "⚠ Current scale:"))
 
-        if hasattr(self, "btnRun"):
-            self.btnRun.setText(self._t("▶ 분석 및 지도 생성 실행", "Run Analysis / Generate Map"))
-
         if hasattr(self, "btnHelp"):
             self.btnHelp.setToolTip(self._t("사용 가이드 및 PDF 반출 도움말", "User guide and export tips"))
 
@@ -2188,8 +2265,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     "map label. Re-run the <b>original designated, "
                     "distribution, excavation, and surface-survey layers</b> "
                     "to change a decision. To keep decisions and change only "
-                    "the order, use <b>[Renumber active result]</b> on the "
-                    "Style tab.",
+                    "the order, select <b>Renumber this result</b> under "
+                    "<b>Style and Analysis</b>.",
                 )
             )
             self.btnMatchingRulesHelp.setText(
@@ -2281,7 +2358,13 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     max(0, combo.findData(role_value))
                 )
                 combo.blockSignals(False)
+                self._update_role_tooltip(combo)
 
+            for combo in self.layerEncodingCombos.values():
+                combo.setItemText(0, self._automatic_encoding_label())
+                combo.setToolTip(self._encoding_tooltip())
+
+            self._retranslate_result_labels()
             self._update_previous_result_guidance()
 
         if hasattr(self, "groupPreviousResult"):
@@ -2395,12 +2478,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             self.lblMetricCrsHelp.setText(
                 self._t(
-                    "<b>기본값: 자동 선택.</b> 미터 투영 원본은 그대로 쓰고, "
-                    "경위도·피트 자료는 조사 중심의 지역 UTM으로 측정합니다. "
+                    "<b>기본값: 자동 선택.</b> 측정에 적합한 미터 투영 원본은 "
+                    "그대로 사용합니다. 경위도·피트·웹 메르카토르 자료는 "
+                    "조사구역 중심의 지역 UTM으로 측정합니다. "
                     "도곽·버퍼·거리·면적·미세조각 기준에 공통 적용됩니다.",
-                    "<b>Default: automatic.</b> A projected-metre source is kept; "
-                    "geographic or foot-based data use local UTM at the study "
-                    "centroid. This applies to extent, buffer, distance, area, "
+                    "<b>Default: automatic.</b> A suitable projected-metre "
+                    "source is kept. Geographic, foot-based, and Web Mercator "
+                    "data use local UTM at the study centre. This applies to "
+                    "extent, buffer, distance, area, "
                     "and micro-fragment measurements.",
                 )
             )
@@ -2436,19 +2521,18 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     "항목은 번호에서 빠지고 06_중복_검수/제외_기록에 남습니다. "
                     "[규칙] 항목은 무형·동산·유적없음·자연유산처럼 기록 유형 "
                     "전체에 적용됩니다.",
-                    "Lists periods and characters from the source fields (names "
-                    "as a fallback). Unchecked periods/characters and checked "
-                    "rows below are left out of numbering and kept in "
-                    "06_중복_검수/제외_기록. [Rule] rows apply to a whole record "
-                    "type such as intangible, movable, no remains or natural.",
+                    "Scan selected layers for periods and site types, using "
+                    "names when those fields are absent. Unchecked periods "
+                    "and types and checked exclusions are left out of "
+                    "numbering and preserved in the excluded-records audit layer.",
                 )
             )
         if hasattr(self, "btnSmartScan"):
             self.btnSmartScan.setText(self._t("속성 분류 실행", "Run Attribute Scan"))
         if hasattr(self, "lblEra"):
-            self.lblEra.setText(self._t("시대", "Era"))
+            self.lblEra.setText(self._t("시대", "Period"))
         if hasattr(self, "lblType"):
-            self.lblType.setText(self._t("성격", "Type"))
+            self.lblType.setText(self._t("성격", "Site type"))
         if hasattr(self, "lblExclusion"):
             self.lblExclusion.setText(self._t(
                 "제외 목록 (체크 = 번호에서 제외):",
@@ -2458,25 +2542,27 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if hasattr(self, "groupLegalLayers"):
             self.groupLegalLayers.setTitle(self._t(
                 "국가유산청 법정 레이어 사용 (체크 시 펼침)",
-                "Use NHA legal layers (check to expand)",
+                "Use Korean statutory heritage layers",
             ))
             self.groupLegalLayers.setToolTip(self._t(
                 "현상변경·지정유산·보호구역이 필요한 작업에서만 체크하고, 각 레이어는 사용자가 직접 선택합니다.",
-                "Enable only when legal layers are needed; select every input manually.",
+                "Add official Korean alteration, designation, or protection "
+                "layers. Select each source layer yourself.",
             ))
         if hasattr(self, "lblZoneLayer"):
             self.lblZoneLayer.setText(self._t(
                 "현상변경 허용기준 레이어:",
-                "Current-change standard layer:",
+                "Alteration limits layer:",
             ))
         if hasattr(self, "lblZoneField"):
+            self.comboZoneField.setItemText(0, self._t("자동 감지", "Auto detect"))
             self.lblZoneField.setText(self._t(
                 "구역 분류 필드:",
                 "Zone category field:",
             ))
             self.comboZoneField.setToolTip(self._t(
                 "반드시 1구역, 2-1구역, 3-4구역 같은 값이 실제로 들어 있는 필드를 선택하세요. NAME 등 설명 필드를 고르면 단색으로 보일 수 있습니다.",
-                "Select the field that actually contains values such as Zone 1, 2-1, or 3-4. Selecting a descriptive NAME field can produce a single colour.",
+                "Select the field with Korean alteration zone codes such as 1, 2-1, or 3-4.",
             ))
         if hasattr(self, "lblNationalDesignatedLayer"):
             self.lblNationalDesignatedLayer.setText(self._t(
@@ -2495,19 +2581,19 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 "시도지정유산 보호구역:", "Provincial protection zone:",
             ))
         if hasattr(self, "chkClipZoneToBuffer"):
-            self.chkClipZoneToBuffer.setText(self._t("버퍼 범위 내 자르기 (반경 내만 표시)", "Clip to buffer extent (inside radius only)"))
+            self.chkClipZoneToBuffer.setText(self._t("버퍼 범위 내 자르기 (반경 내만 표시)", "Clip alteration zones to the buffer"))
             self.chkClipZoneToBuffer.setToolTip(
                 self._t(
                     "체크 시, 도곽 전체가 아닌 조사 반경(가장 큰 버퍼) 내의 현상변경허용기준만 남기고 나머지는 잘라냅니다.",
-                    "Keep only zone features inside the largest survey buffer (instead of full extent).",
+                    "Show only the parts of the alteration zones inside the largest buffer.",
                 )
             )
         if hasattr(self, "chkRestrictToBuffer"):
-            self.chkRestrictToBuffer.setText(self._t("버퍼 범위 외 유적 제외 (감추기)", "Exclude sites outside buffer (hide)"))
+            self.chkRestrictToBuffer.setText(self._t("버퍼 범위 외 유적 제외 (감추기)", "Hide sites outside the buffer"))
             self.chkRestrictToBuffer.setToolTip(
                 self._t(
                     "체크 시: 최외곽 버퍼 바깥의 유적은 번호를 매기지 않고 지도에서 숨깁니다. (지표조사 등)\n체크 해제 시: 모든 유적에 번호를 매깁니다. (일반조사 등)",
-                    "Checked: hide/unnumber sites outside the outermost buffer.\nUnchecked: number all sites.",
+                    "Limit displayed and numbered sites to the largest buffer around the study area.",
                 )
             )
         if hasattr(self, "chkExcludeExtentSlivers"):
@@ -2545,6 +2631,8 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.btnIncludeSel.setText(self._t("선택 항목 포함 (해제)", "Include selected (uncheck)"))
             self.btnIncludeSel.setToolTip(self._t("선택한 항목들의 체크를 해제합니다. (지도에 포함됨)", "Uncheck selected items (included on map)"))
 
+        self._retranslate_scan_results()
+
         if hasattr(self, "lblUiLang"):
             self.lblUiLang.setText("Language:")
         if hasattr(self, "comboUiLang"):
@@ -2562,6 +2650,12 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         self._retranslate_workflow_widgets()
         if hasattr(self, "workflowTabs"):
             self._on_workflow_changed(self.workflowTabs.currentIndex())
+        if hasattr(self, "btnAdvancedSettings"):
+            self._retranslate_workflow_settings()
+        if self.comboStudyArea.count():
+            self.comboStudyArea.setItemText(
+                0, self._t("조사지역 폴리곤 선택", "Select a study-area polygon")
+            )
 
     def _on_language_combo_changed(self, _index):
         selected = str(self.comboUiLang.currentData())
@@ -2575,14 +2669,6 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         QtCore.QSettings().setValue(LANG_PREF_KEY, selected)
         self.ui_lang = detect_ui_language()
         self._retranslate_dynamic_widgets()
-        QtWidgets.QMessageBox.information(
-            self,
-            self._t("언어 설정", "Language Setting"),
-            self._t(
-                "언어 설정이 저장되었습니다.\n현재 창에 즉시 반영됩니다.",
-                "Language preference has been saved.\nIt has been applied to the current dialog.",
-            ),
-        )
 
     def set_list_check_state(self, list_widget, checked):
         """Batch set check state for selected items in a list widget."""
@@ -2606,9 +2692,17 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def emit_run_requested(self):
         """Validates settings and emits the run signal."""
+        if (
+            self.workflowTabs.currentIndex() == 0
+            and self.editBufferDistance.text().strip()
+            and not self.add_buffer_to_list()
+        ):
+            return
         settings = self.get_settings()
         analysis_crs_error = self._analysis_crs_override_error()
         if analysis_crs_error:
+            self.btnAdvancedSettings.setChecked(True)
+            self.formScroll.ensureWidgetVisible(self.groupMetricCrs)
             QtWidgets.QMessageBox.warning(
                 self,
                 self._t("좌표계 오류", "CRS Error"),
@@ -2639,11 +2733,29 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.run_requested.emit(settings)
             return
 
-        if not settings['study_area_id']:
+        study_layer = QgsProject.instance().mapLayer(settings['study_area_id'])
+        if not study_layer or not study_layer.isValid():
+            self.tabWidget.setCurrentWidget(self.tabData)
+            self.formScroll.ensureWidgetVisible(self.comboStudyArea)
+            self.comboStudyArea.setFocus()
             QtWidgets.QMessageBox.warning(
                 self,
                 self._t("입력 오류", "Input Error"),
-                self._t("조사지역 레이어를 선택해 주세요.", "Please select a study-area layer."),
+                self._t("조사지역 폴리곤을 선택해 주세요.", "Select a study-area polygon."),
+            )
+            return
+        if not settings["buffers"] and (
+            settings["restrict_to_buffer"]
+            or (settings["zone_layer_id"] and settings["clip_zone_to_buffer"])
+        ):
+            self._focus_buffer_input()
+            QtWidgets.QMessageBox.warning(
+                self,
+                self._t("입력 오류", "Input Error"),
+                self._t(
+                    "버퍼 범위로 결과를 제한하려면 버퍼 거리를 추가하거나 해당 옵션을 해제해 주세요.",
+                    "Add a buffer distance or turn off the option to limit results to the buffer.",
+                ),
             )
             return
         previous_results = self._checked_previous_result_layers()
@@ -2655,6 +2767,30 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         ):
             return
         self.run_requested.emit(settings)
+        self._refresh_distribution_results()
+
+    def _refresh_distribution_results(self):
+        """Drop inputs removed by the run and offer its new result for renumbering."""
+        project = QgsProject.instance()
+        item_role = QtCore.Qt.ItemDataRole.UserRole
+        study_area_id = self.comboStudyArea.currentData()
+        for index in reversed(range(1, self.comboStudyArea.count())):
+            if project.mapLayer(self.comboStudyArea.itemData(index)) is None:
+                self.comboStudyArea.removeItem(index)
+        if study_area_id and project.mapLayer(study_area_id) is None:
+            self.comboStudyArea.setCurrentIndex(0)
+        for widget in (self.listTopoLayers, self.listHeritageLayers):
+            for index in reversed(range(widget.count())):
+                if project.mapLayer(widget.item(index).data(item_role)) is None:
+                    widget.takeItem(index)
+        for row in reversed(range(self.tableLayerRoles.rowCount())):
+            layer_id = self.tableLayerRoles.item(row, 0).data(item_role)
+            if project.mapLayer(layer_id) is None:
+                self.layerRoleCombos.pop(layer_id, None)
+                self.layerEncodingCombos.pop(layer_id, None)
+                self.tableLayerRoles.removeRow(row)
+        self._populate_previous_result_layers()
+        self._update_previous_result_guidance()
 
     def log(self, message):
         """Append a message to the log window and scroll to bottom."""
@@ -2680,7 +2816,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.lblCurrentScale.setText(
                 self._t(
                     f"1:{scale} (유적 삭제 후 확인!)",
-                    f"1:{scale} (verify after deleting features)",
+                    f"1:{scale}",
                 )
             )
 
@@ -2701,11 +2837,28 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def add_buffer_to_list(self):
         dist = self.editBufferDistance.text().strip()
-        if dist:
-            parsed = self._parse_buffer_value(dist)
-            if parsed is not None:
-                self.listBuffers.addItem(str(parsed))
-                self.editBufferDistance.clear()
+        if not dist:
+            return False
+        parsed = self._parse_buffer_value(dist)
+        if parsed is None:
+            self._focus_buffer_input()
+            QtWidgets.QMessageBox.warning(
+                self,
+                self._t("버퍼 거리 오류", "Invalid Buffer Distance"),
+                self._t(
+                    "버퍼 거리를 0보다 큰 미터 값으로 입력해 주세요. 예: 500",
+                    "Enter a buffer distance greater than zero in metres, such as 500.",
+                ),
+            )
+            return False
+        self.listBuffers.addItem(str(parsed))
+        self.editBufferDistance.clear()
+        return True
+
+    def _focus_buffer_input(self):
+        self.tabWidget.setCurrentWidget(self.tabStyle)
+        self.formScroll.ensureWidgetVisible(self.editBufferDistance)
+        self.editBufferDistance.setFocus()
 
     def apply_preset(self, w, h):
         self.spinWidth.setValue(w)
@@ -2740,12 +2893,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         result = {
             "kind": "not_result",
             "current_schema": False,
-            "feature_count": 0,
         }
         if not layer or layer.type() != 0:
             return result
 
-        result["feature_count"] = max(0, int(layer.featureCount()))
         field_map = self._result_field_map(layer)
         layer_name = str(layer.name() or "")
         compact_name = layer_name.replace(" ", "").casefold()
@@ -2843,12 +2994,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         return result
 
     def _is_previous_distribution_result(self, layer):
-        if (
-            not layer
-            or self._detect_preservation_field(layer)
-        ):
+        if self._classify_result_layer(layer)["kind"] != "main":
             return False
-        return self._classify_result_layer(layer)["kind"] == "main"
+        field, _ = self._detect_preservation_field(layer)
+        return field is None
 
     def _checked_previous_result_layers(self):
         layers = []
@@ -2904,26 +3053,61 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         )
         self.lblPreviousResultInputWarning.show()
 
-    def _populate_previous_result_layers(self):
+    def _set_result_input_label(self, item, name):
+        item.setText(self._t(
+            f"{name}  [이전 대표 결과]",
+            f"{name}  [existing representative result]",
+        ))
+        item.setToolTip(self._t(
+            "번호 정리만 필요하면 원본 입력으로 체크하지 말고 "
+            "스타일 탭의 '기존 결과 후속 작업'을 사용하세요.",
+            "To update numbering only, use Existing Result Follow-up under "
+            "Style and Analysis.",
+        ))
+
+    def _result_picker_label(self, name, count):
+        return self._t(f"{name} ({count:,}개 도형)", f"{name} ({count:,} features)")
+
+    def _retranslate_result_labels(self):
+        project = QgsProject.instance()
+        role = QtCore.Qt.ItemDataRole.UserRole
+        for index in range(self.listHeritageLayers.count()):
+            item = self.listHeritageLayers.item(index)
+            if item.data(role + 1):
+                layer = project.mapLayer(item.data(role))
+                if layer:
+                    self._set_result_input_label(item, layer.name())
+
+        combo = self.comboPreviousResultLayer
+        for index in range(combo.count()):
+            layer = project.mapLayer(combo.itemData(index))
+            if layer:
+                count = combo.itemData(index, role + 1)
+                combo.setItemText(index, self._result_picker_label(layer.name(), count))
+
+    def _populate_previous_result_layers(self, result_layers=None):
         if not hasattr(self, "comboPreviousResultLayer"):
             return
         previous_id = self.comboPreviousResultLayer.currentData()
         self.comboPreviousResultLayer.blockSignals(True)
         self.comboPreviousResultLayer.clear()
 
-        result_layers = [
-            layer
-            for layer in QgsProject.instance().mapLayers().values()
-            if self._is_previous_distribution_result(layer)
-        ]
-        result_layers.sort(key=lambda layer: layer.name().casefold())
+        if result_layers is None:
+            result_layers = [
+                layer
+                for layer in QgsProject.instance().mapLayers().values()
+                if self._is_previous_distribution_result(layer)
+            ]
+        result_layers = sorted(result_layers, key=lambda layer: layer.name().casefold())
         for layer in result_layers:
+            count = layer.featureCount()
             self.comboPreviousResultLayer.addItem(
-                self._t(
-                    f"{layer.name()} ({layer.featureCount():,}개 도형)",
-                    f"{layer.name()} ({layer.featureCount():,} features)",
-                ),
+                self._result_picker_label(layer.name(), count),
                 layer.id(),
+            )
+            self.comboPreviousResultLayer.setItemData(
+                self.comboPreviousResultLayer.count() - 1, count,
+                QtCore.Qt.ItemDataRole.UserRole + 1,
             )
         if previous_id:
             previous_index = self.comboPreviousResultLayer.findData(
@@ -2932,6 +3116,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             if previous_index >= 0:
                 self.comboPreviousResultLayer.setCurrentIndex(previous_index)
         self.comboPreviousResultLayer.blockSignals(False)
+        self.groupPreviousResult.setVisible(bool(result_layers))
         self._update_previous_result_status()
 
     def _update_previous_result_status(self, _index=None):
@@ -2946,10 +3131,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             self.lblPreviousResultStatus.setText(
                 self._t(
                     "프로젝트에서 호환되는 대표 결과를 찾지 못했습니다. "
-                    "ArchDistribution 1.0.5 결과 레이어를 불러오면 자동으로 "
+                    "호환되는 ArchDistribution 결과 레이어를 불러오면 자동으로 "
                     "표시됩니다.",
-                    "No compatible representative result was found. Load an "
-                    "ArchDistribution 1.0.5 result layer and it will appear "
+                    "No compatible representative result was found. Load a "
+                    "compatible ArchDistribution result layer and it will appear "
                     "here automatically.",
                 )
             )
@@ -3129,40 +3314,38 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def populate_layers(self):
         self.comboStudyArea.clear()
+        self.comboStudyArea.addItem(self._t("조사지역 폴리곤 선택", "Select a study-area polygon"), None)
         self.listTopoLayers.clear()
         self.listHeritageLayers.clear()
 
-        layers = list(QgsProject.instance().mapLayers().values())
+        project = QgsProject.instance()
         generated_ids = set()
-        root = QgsProject.instance().layerTreeRoot()
+        root = project.layerTreeRoot()
         for group_name in ("ArchDistribution_결과물", "ArchDistribution_작업중"):
             group = root.findGroup(group_name)
-            if group is None:
-                continue
-            for node in group.findLayers():
-                node_layer = node.layer()
-                if node_layer is not None and not (
-                    self._is_previous_distribution_result(node_layer)
-                ):
-                    generated_ids.add(node.layerId())
-        for layer in layers:
-            if layer.type() == 0:  # VectorLayer
-                # A CP949 DBF must be reloaded before field inspection and
-                # combo/list labels are constructed.  Waiting until the Run
-                # button is pressed leaves already-decoded mojibake in the
-                # field selector, which makes automatic zone detection fail.
-                self._apply_automatic_shapefile_encoding(layer)
-                # Skip this plugin's own outputs (they live in its result or
-                # staging group) and processing intermediates.  A name test
-                # alone hid users' own "조사구역"/"발굴조사구역" layers.
-                l_name = layer.name()
-                if layer.id() in generated_ids or any(
-                    keyword in l_name
-                    for keyword in ('_Copy', 'Consolidated', 'Dissolved')
-                ):
+            if group is not None:
+                generated_ids.update(node.layerId() for node in group.findLayers())
+        previous_results = []
+        for layer in project.mapLayers().values():
+            if layer.type() == Qgis.LayerType.Vector and layer.isValid() and layer.isSpatial():
+                # Group membership identifies generated layers regardless of
+                # their names. Representative results can be reprocessed.
+                generated = layer.id() in generated_ids
+                if generated and self._classify_result_layer(layer)["kind"] != "main":
                     continue
 
-                self.comboStudyArea.addItem(layer.name(), layer.id())
+                # Decode DBF values before inspecting fields and layer roles.
+                self._apply_automatic_shapefile_encoding(layer)
+                preservation_field, _ = self._detect_preservation_field(layer)
+                is_previous_result = preservation_field is None and (
+                    generated or self._classify_result_layer(layer)["kind"] == "main"
+                )
+                if generated and not is_previous_result:
+                    continue
+                if is_previous_result:
+                    previous_results.append(layer)
+                if layer.geometryType() == Qgis.GeometryType.Polygon and not is_previous_result:
+                    self.comboStudyArea.addItem(layer.name(), layer.id())
 
                 item_topo = QListWidgetItem(layer.name())
                 item_topo.setData(QtCore.Qt.ItemDataRole.UserRole, layer.id())
@@ -3173,32 +3356,15 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 # Keep confidently detected preservation datasets out of the
                 # legacy heritage list. They remain available in the dedicated
                 # polygon selector, preventing accidental workflow mixing.
-                if not self._detect_preservation_field(layer):
+                if preservation_field is None:
                     item_heritage = QListWidgetItem(layer.name())
                     item_heritage.setData(QtCore.Qt.ItemDataRole.UserRole, layer.id())
-                    is_previous_result = (
-                        self._is_previous_distribution_result(layer)
-                    )
                     item_heritage.setData(
                         QtCore.Qt.ItemDataRole.UserRole + 1,
                         is_previous_result,
                     )
                     if is_previous_result:
-                        item_heritage.setText(
-                            self._t(
-                                f"{layer.name()}  [이전 대표 결과]",
-                                f"{layer.name()}  [existing representative result]",
-                            )
-                        )
-                        item_heritage.setToolTip(
-                            self._t(
-                                "번호 정리만 필요하면 원본 입력으로 체크하지 말고 "
-                                "스타일 탭의 '기존 결과 후속 작업'을 사용하세요.",
-                                "For number cleanup only, do not select this as "
-                                "source data; use Existing Result Follow-up on "
-                                "the Style tab.",
-                            )
-                        )
+                        self._set_result_input_label(item_heritage, layer.name())
                     item_heritage.setFlags(
                         item_heritage.flags()
                         | QtCore.Qt.ItemFlag.ItemIsUserCheckable
@@ -3206,34 +3372,20 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     item_heritage.setCheckState(QtCore.Qt.CheckState.Unchecked)
                     self.listHeritageLayers.addItem(item_heritage)
         self._select_likely_study_area()
-        self._populate_previous_result_layers()
+        self._populate_previous_result_layers(previous_results)
         self._populate_layer_role_table()
         self._update_previous_result_guidance()
 
     def _select_likely_study_area(self):
-        """Preselect a polygon layer whose name says it is the survey area.
-
-        Only a convenience: the operator still confirms the choice.  Without
-        a matching name the first polygon layer is preferred over a line
-        layer, which can never be a study area.
-        """
+        """Suggest a study area only when one polygon has a matching name."""
         keywords = ("조사지역", "조사구역", "조사대상", "사업부지", "사업지구",
-                    "study", "survey area", "project area")
-        best = None
-        for index in range(self.comboStudyArea.count()):
-            layer = QgsProject.instance().mapLayer(
-                self.comboStudyArea.itemData(index)
-            )
-            if layer is None or layer.type() != 0 or layer.geometryType() != 2:
-                continue
-            name = layer.name().casefold()
-            if any(keyword in name for keyword in keywords):
-                best = index
-                break
-            if best is None:
-                best = index
-        if best is not None:
-            self.comboStudyArea.setCurrentIndex(best)
+                    "study area", "survey area", "project area")
+        matches = [
+            index for index in range(1, self.comboStudyArea.count())
+            if any(keyword in self.comboStudyArea.itemText(index).casefold() for keyword in keywords)
+        ]
+        if len(matches) == 1:
+            self.comboStudyArea.setCurrentIndex(matches[0])
 
     @staticmethod
     def _apply_automatic_shapefile_encoding(layer):
@@ -3253,12 +3405,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if not selected:
             source = str(layer.source() or "").split("|", 1)[0]
             if source.casefold().startswith("file://"):
-                source = source[7:]
+                source = QtCore.QUrl(source).toLocalFile()
             selected, _basis = declared_shapefile_encoding(Path(source))
         if not selected:
             return None
         try:
             provider = layer.dataProvider()
+            if provider.encoding().casefold() == selected.casefold():
+                return selected
             # Set both layer and provider encodings before reload.  Calling
             # only one API can leave old DBF strings cached in QGIS.
             layer.setProviderEncoding(selected)
@@ -3310,21 +3464,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             for role in SOURCE_ROLE_ORDER:
                 combo.addItem(source_role_label(role, self.ui_lang), role)
             combo.setCurrentIndex(max(0, combo.findData(detected)))
-            combo.setToolTip(
-                self._t(
-                    f"자동 판정: {SOURCE_ROLE_LABELS[detected]}",
-                    f"Detected: {source_role_label(detected, 'en')}",
-                )
-            )
+            combo.setProperty("detected_role", detected)
+            self._update_role_tooltip(combo)
             self.tableLayerRoles.setCellWidget(row, 1, combo)
             self.layerRoleCombos[layer_id] = combo
 
             encoding_combo = QtWidgets.QComboBox()
             encoding_combo.addItem(
-                self._t(
-                    "자동(DBF/.cpg/공급자)",
-                    "Automatic (DBF/.cpg/provider)",
-                ),
+                self._automatic_encoding_label(),
                 "",
             )
             encoding_combo.addItem("UTF-8", "UTF-8")
@@ -3338,7 +3485,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 max(0, encoding_combo.findData(saved_encoding))
             )
 
-            def save_encoding(_index, target_layer=layer, widget=encoding_combo):
+            def save_encoding(_index, target_id=layer_id, widget=encoding_combo):
+                target_layer = QgsProject.instance().mapLayer(target_id)
+                if target_layer is None:
+                    return
                 selected = str(widget.currentData() or "").strip()
                 if selected:
                     target_layer.setCustomProperty(
@@ -3350,14 +3500,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                     )
 
             encoding_combo.currentIndexChanged.connect(save_encoding)
-            encoding_combo.setToolTip(self._t(
-                "자동은 DBF 문자 바이트를 우선 확인하고 .cpg와 공급자 "
-                "설정을 함께 사용합니다. 직접 선택은 예외 자료에만 "
-                "사용하세요.",
-                "Automatic checks DBF text bytes first, then .cpg and the "
-                "provider setting. Use a manual choice only for exceptional "
-                "sources.",
-            ))
+            encoding_combo.setToolTip(self._encoding_tooltip())
             self.tableLayerRoles.setCellWidget(row, 2, encoding_combo)
             self.layerEncodingCombos[layer_id] = encoding_combo
 
@@ -3666,12 +3809,16 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
         if not text:
             return None
         try:
-            return float(text)
+            value = float(text)
         except ValueError:
             return None
+        return value if math.isfinite(value) and value > 0 else None
 
     def load_reference_data(self):
         """Load explicit or verified legacy-local classification assets."""
+        if self._reference_data_loaded:
+            return
+        self._reference_data_loaded = True
         plugin_dir = os.path.dirname(__file__)
         json_path, reference_source = resolve_local_reference_asset(
             plugin_dir,
@@ -3745,6 +3892,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
             return
 
+        self.load_reference_data()
         found_eras = set()
         found_types = set()
         found_exclusions = set()  # Store unique names to exclude
@@ -3753,6 +3901,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
         total_feats = 0
         matched_feats = 0
+        request = QgsFeatureRequest().setFlags(Qgis.FeatureRequestFlag.NoGeometry)
 
         for lid in heritage_layer_ids:
             layer = QgsProject.instance().mapLayer(lid)
@@ -3848,7 +3997,7 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
 
             layer_feats = 0
             layer_matched = 0
-            for feat in layer.getFeatures():
+            for feat in layer.getFeatures(request):
                 layer_feats += 1
                 total_feats += 1
                 name = str(feat[name_field] or "") if name_field else ""
@@ -3940,7 +4089,10 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
                 f"  - {layer_matched} classified out of {layer_feats} features",
             ))
 
-        self.log(self._t(f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.", f"✅ Scan complete: {matched_feats}/{total_feats} matched."))
+        self.log(self._t(
+            f"✅ 전체 스캔 완료: 총 {matched_feats}/{total_feats} 건 매칭됨.",
+            f"Attribute scan complete: {matched_feats:,} of {total_feats:,} records classified.",
+        ))
 
         # Populate List - Era
         if found_eras:
@@ -3974,21 +4126,14 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             count = rule_hits.get(rule_id, 0)
             if not count:
                 continue
-            item = QListWidgetItem(self._t(
-                f"[규칙] {label_ko} ({count:,}건)",
-                f"[Rule] {label_en} ({count:,})",
-            ))
+            item = QListWidgetItem()
             item.setData(QtCore.Qt.ItemDataRole.UserRole, f"{RULE_ITEM_PREFIX}{rule_id}")
+            item.setData(QtCore.Qt.ItemDataRole.UserRole + 1, (label_ko, label_en, count))
             item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
                 QtCore.Qt.CheckState.Checked if default else QtCore.Qt.CheckState.Unchecked
             )
-            item.setToolTip(self._t(
-                "체크하면 해당 규칙에 걸린 기록을 번호에서 제외하고 "
-                "06_중복_검수/제외_기록에 보존합니다.",
-                "Checked records are left out of numbering and kept in "
-                "06_중복_검수/제외_기록.",
-            ))
+            self._translate_exclusion_rule(item)
             self.listExclusions.addItem(item)
         if rule_hits:
             self.log(self._t(
@@ -4024,6 +4169,30 @@ class ArchDistributionDialog(QtWidgets.QDialog, FORM_CLASS):
             )
         elif not rule_hits:
             self.listExclusions.addItem(self._t("(제외 대상 없음)", "(No exclusion candidates)"))
+
+    def _translate_exclusion_rule(self, item):
+        label_ko, label_en, count = item.data(QtCore.Qt.ItemDataRole.UserRole + 1)
+        item.setText(self._t(f"[규칙] {label_ko} ({count:,}건)", f"[Rule] {label_en} ({count:,})"))
+        item.setToolTip(self._t(
+            "체크하면 해당 규칙에 걸린 기록을 번호에서 제외하고 "
+            "06_중복_검수/제외_기록에 보존합니다.",
+            "Checking this rule leaves matching records out of numbering and "
+            "keeps them in the excluded-records audit layer.",
+        ))
+
+    def _retranslate_scan_results(self):
+        role = QtCore.Qt.ItemDataRole.UserRole
+        for widget, empty_label in (
+            (self.listEras, self._t("(시대 정보 없음)", "(No period data)")),
+            (self.listTypes, self._t("(유형 정보 없음)", "(No type data)")),
+            (self.listExclusions, self._t("(제외 대상 없음)", "(No exclusion candidates)")),
+        ):
+            if widget.count() == 1 and widget.item(0).data(role) is None:
+                widget.item(0).setText(empty_label)
+        for index in range(self.listExclusions.count()):
+            item = self.listExclusions.item(index)
+            if item.data(role + 1):
+                self._translate_exclusion_rule(item)
 
     def _exclusion_list_entries(self):
         """Return ``(data, checked)`` for every reviewable exclusion row."""
@@ -4092,8 +4261,8 @@ code { color:#7b2d2d; }
 <div class="lead">
 <b>Overlap alone never merges records.</b> Every nearby pair is judged in
 three steps: how the <b>names</b> relate, how the <b>footprints</b> relate,
-and which <b>registers</b> the records come from. Nothing is deleted:
-records left out of the label stay in <code>06_중복_검수</code> and in
+and which <b>registers</b> the records come from. Records left out of the map
+labels remain in the audit layers and the preserved source attributes in
 <code>SRC_JSON</code>.
 </div>
 
@@ -4121,7 +4290,7 @@ partial overlap · touching or within 50 m.</p>
 <tr><th>Choice</th><th>Map number</th><th>Source records</th></tr>
 <tr><td><b>Keep separate</b></td><td>Each keeps its own number</td><td>All kept; no relation recorded</td></tr>
 <tr><td><b>Link only</b></td><td>Each keeps its own number</td><td>All kept; recorded as related records</td></tr>
-<tr><td><b>Merge numbering identity</b></td><td>One shared <code>NUMBER_KEY</code> and one label</td>
+<tr><td><b>Share one map number</b></td><td>One shared <code>NUMBER_KEY</code> and one label</td>
 <td>Records left out of the label stay in the audit layer</td></tr>
 </table>
 
@@ -4129,7 +4298,7 @@ partial overlap · touching or within 50 m.</p>
 <table>
 <tr><th>Situation</th><th>Initial choice</th><th>Map result</th></tr>
 <tr><td>Same name inside one register (spacing/alias variants, split pieces)</td>
-<td>Merge numbering identity (automatic)</td><td>One number; every piece stays drawn</td></tr>
+<td>Share one map number (automatic)</td><td>One number; every piece stays drawn</td></tr>
 <tr><td>A part (numbered tomb, building, item) inside its named site</td>
 <td>Merge into the site (automatic)</td><td>The site keeps the number; the part is kept in the audit layer.
 An excavated part is <b>linked</b> and keeps its number</td></tr>
@@ -4164,9 +4333,8 @@ not overlapping but within 50 m</td><td>Merge (automatic)</td>
 <p>After [Run Attribute Scan] the exclusion list shows <b>[Rule]</b> rows with
 counts. Defaults follow published reports: intangible and location-less
 movable heritage are excluded; "no remains" investigations and natural
-heritage are kept unless you tick them. Excluded records are kept in
-<code>06_중복_검수/제외_기록</code> with the rule that removed them, and so
-are records you leave out by unticking a period/type or ticking a name.</p>
+heritage are kept unless you tick them. The excluded-records audit layer keeps
+each excluded record and the reason it was left out of numbering.</p>
 
 <div class="warning"><b>Renumbering is not duplicate re-analysis.</b>
 Renumber-only keeps decisions and recalculates order, distance and label
@@ -4309,37 +4477,26 @@ audit table <code>NAME_REL</code>, <code>GEOM_REL</code>, <code>RULE</code> ·
 
     def show_help(self):
         """Display User Guide and Export Tips."""
+        self.load_reference_data()
         examples = self._get_noise_keyword_examples()
-        noise_examples = ", ".join(f"<code>{kw}</code>" for kw in examples)
+        noise_examples = ", ".join(f"<code>{html.escape(kw)}</code>" for kw in examples)
         if self.ui_lang == "en":
             help_text = """
 <h3>User Guide</h3>
 <hr>
-<b>[Workflow — follow the screen from top to bottom]</b><br>
+<b>Make a distribution map</b><br>
 <ol>
-<li><b>Load layers:</b> study area (polygon), topographic maps and heritage layers.
-Regional downloads may be loaded together; a record repeated by two adjacent
-downloads is recognised as one record.</li>
-<li><b>Data tab ① Input layers:</b> choose the study area, topographic maps and nearby-heritage layers.</li>
-<li><b>② Source roles and duplicates:</b> check each layer's role (designated, distribution map,
-excavation, surface survey…) and the matching mode. <i>Balanced</i> is the recommended default.</li>
-<li><b>③ Legal layers (optional):</b> change-zone, designated areas and protection zones as official legend layers.</li>
-<li><b>④ Attribute scan and exclusions:</b> [Run Attribute Scan] lists periods and characters
-from the source fields and proposes <b>[Rule]</b> exclusions with counts.</li>
-<li><b>⑤ Print extent and scale:</b> paper size, scale, and the map-edge fragment rule.</li>
-<li><b>Style tab:</b> symbols, label font, buffers (with "hide outside buffer"), numbering order.</li>
-<li><b>Optional outputs:</b> GeoPackage + manifest, print layout JPG/PDF, and the
-<b>nearby-site table (HWPX, CSV)</b>.</li>
-<li><b>Run</b> and review the duplicate candidates. Filter by relation and use
-"apply recommended" for a whole group.</li>
-<li><b>Follow-up:</b> after edits, renumber in Style tab › Existing Result Follow-up.</li>
+<li>Under <b>Data and Layout</b>, choose a study-area polygon and check the heritage and background layers you need. Set the paper size and scale.</li>
+<li>Under <b>Style and Analysis</b>, set buffer distances and numbering order as needed. To update numbering on an existing map, use <b>Existing Result Follow-up</b>.</li>
+<li>Open <b>Advanced settings</b> for source roles, matching, legal layers, attribute exclusions, symbols, labels, and the analysis CRS. Open <b>Save files</b> to choose GeoPackage with a manifest, JPG, PDF, or a nearby-site table (HWPX and CSV).</li>
+<li>Select <b>Generate Distribution Map</b> and review the duplicate candidates when prompted.</li>
 </ol>
 <b>[How duplicates are judged]</b><br>
 Names are compared after normalising spacing, brackets, Roman numerals and
-omitted prefixes. Footprints are compared by containment and overlap. A part
-(numbered tomb, building) inside its named site joins the site's number;
-numbered siblings (tomb 1 / tomb 2) are never merged; overlap alone never
-merges. See <b>Matching rules explained</b> for the full table.<br><br>
+omitted prefixes. Footprints are compared by containment and overlap. By default,
+a designated part inside its named site keeps its own number and the plugin can
+record the relationship. You can choose to share the parent site's number under
+<b>Advanced settings</b>. See <b>View matching rules</b> for examples.<br><br>
 <b>[Surface surveys]</b><br>
 Surveys redraw, extend or split mapped sites. Such revisions are classified
 ("survey revision", "survey zone in site") and recommended, but a survey record
@@ -4347,17 +4504,20 @@ is never removed automatically.<br><br>
 <b>[Record exclusion rules]</b><br>
 Intangible and location-less movable heritage are excluded by default;
 "no remains" investigations and natural heritage are kept unless ticked.
-Excluded records stay in <b>06_중복_검수/제외_기록</b>.<br><br>
+Excluded records stay in the excluded-records audit layer.<br><br>
 <b>[Nearby-site table]</b><br>
-Columns: No., site (designation in brackets), period, character, location,
+Columns: No., site (designation in brackets), period, site type, location,
 distance/direction, source, remarks. Periods from several records are ordered
 and unbroken runs become ranges (e.g. Three Kingdoms-Joseon); addresses are
 merged to the shared regions and lots ("… 12 and 1 other lot"). The HWPX file
 opens in Hangul and is a draft to check.<br><br>
-<b>[Zone option]</b><br>
-A change-zone layer is split and styled by code. "Clip to buffer" keeps only the largest buffer.<br><br>
+<b>[Korean statutory heritage layers]</b><br>
+Load an official alteration limits layer to draw its zones by code. The optional
+clip shows only the portions inside your largest analysis buffer. The legal
+boundaries come from the supplied statutory layers.<br><br>
 <b>[Buried heritage preservation areas]</b><br>
-Use the dedicated tab; action colours, width and opacity are saved.<br><br>
+Use the dedicated tab for datasets with Korea's preservation-action codes.
+Action colors, outline width and fill opacity are saved.<br><br>
 <b>[Name-based suggestions]</b><br>
 With an approved <code>smart_patterns.json</code>, names containing noise words are suggested. Example: {noise_examples}<br><br>
 <b>[Other registers and countries]</b><br>
@@ -4373,28 +4533,18 @@ attributes, numbers and table cells remains the user's responsibility.<br><br>
             help_text = """
 <h3>사용 가이드 및 유의사항</h3>
 <hr>
-<b>[작업 순서 — 화면 위에서 아래로]</b><br>
+<b>분포지도 만들기</b><br>
 <ol>
-<li><b>레이어 준비:</b> 조사지역(폴리곤), 수치지형도, 주변유적 레이어를 불러옵니다.
-국가유산청 자료를 지역별로 여러 파일 받아 함께 불러와도 됩니다. 경계에 걸쳐 두
-파일에 모두 들어 있는 유적은 같은 기록으로 처리합니다.</li>
-<li><b>데이터 탭 ① 입력 레이어:</b> 조사지역, 수치지형도, 주변 유적 레이어를 고릅니다.</li>
-<li><b>② 자료 역할 및 중복 판정:</b> 레이어마다 자동 판정된 역할(지정유산·분포지도·발굴·지표 등)과
-판정 모드를 확인합니다. 처음에는 <b>균형형</b>을 권장합니다.</li>
-<li><b>③ 국가유산청 법정 레이어(필요 시):</b> 현상변경·지정구역·보호구역을 공식 범례 레이어로 그립니다.</li>
-<li><b>④ 유적 속성 분류·제외:</b> [속성 분류 실행]을 누르면 원본의 시대·성격 값으로 목록을 만들고,
-번호에서 뺄 기록 유형을 <b>[규칙]</b> 항목으로 건수와 함께 제안합니다.</li>
-<li><b>⑤ 출력 도곽 및 축척:</b> 판형·축척과 도곽 경계 미세 조각 제외를 정합니다.</li>
-<li><b>스타일 탭:</b> 심볼, 라벨 글꼴, 버퍼(버퍼 밖 숨김 포함), 번호 부여 순서를 정합니다.</li>
-<li><b>선택 저장:</b> GeoPackage+실행정보, 인쇄조판 JPG/PDF, <b>주변유적 현황표(HWPX·CSV)</b>.</li>
-<li><b>실행</b> 후 중복 후보 검토창에서 관계별로 걸러 보고, 묶음 단위로 ‘권장 적용’을 쓸 수 있습니다.</li>
-<li><b>후속 작업:</b> 결과를 고친 뒤에는 스타일 탭의 [기존 결과 후속 작업]에서 번호만 다시 매깁니다.</li>
+<li><b>데이터·도곽</b>에서 조사지역 폴리곤을 고르고 필요한 주변 유적과 배경 레이어를 체크합니다. 판형과 축척을 정합니다.</li>
+<li><b>스타일·분석</b>에서 필요한 버퍼 거리와 번호 순서를 정합니다. 기존 지도의 번호만 바꾸려면 <b>기존 결과 후속 작업</b>을 사용합니다.</li>
+<li><b>세부 설정</b>에서 자료 역할과 중복 판정, 지정·보호구역, 속성 제외, 지도 스타일과 분석 좌표계를 조정합니다. <b>파일 저장</b>에서 GeoPackage와 실행정보, JPG, PDF, 주변유적 현황표(HWPX·CSV)를 선택합니다.</li>
+<li><b>분포지도 만들기</b>를 누르고 검토창이 열리면 중복 후보를 확인합니다.</li>
 </ol>
 <b>[중복을 판단하는 방식]</b><br>
 이름은 띄어쓰기·괄호 속 별칭·로마숫자·행정구역 생략을 정리한 뒤 비교하고,
-범위는 포함·중첩 관계로 비교합니다. 상위 유적 안의 부분(개별 호분·건물·전각)은
-상위 유적 번호로 묶고, 번호가 다른 형제(1호·2호, I·II지역)는 묶지 않으며,
-겹침만으로는 절대 합치지 않습니다. 자세한 표는 <b>[판정 기준 쉽게 보기]</b>를 보세요.<br><br>
+범위는 포함·중첩 관계로 비교합니다. 기본값은 상위 유적 안의 지정·등록유산에
+별도 번호를 주고 관계를 기록하는 방식입니다. 상위 유적과 번호를 공유하려면
+<b>세부 설정</b>에서 선택하세요. 사례는 <b>판정 기준 쉽게 보기</b>에서 확인할 수 있습니다.<br><br>
 <b>[지표조사 자료]</b><br>
 지표조사는 분포지도 유적을 바탕으로 범위를 다시 긋거나 넓히거나 나눕니다.
 이런 관계를 ‘지표조사 재조사’, ‘유적 안의 조사구역’으로 분류해 권장안을 보여주지만,

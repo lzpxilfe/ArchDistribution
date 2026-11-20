@@ -363,25 +363,42 @@ def _parse_name_cached(value, signature):
     )
 
 
+@dataclass(frozen=True)
+class NameParser:
+    """A reusable naming lexicon identified by its configuration."""
+
+    signature: str
+
+    def parse(self, value):
+        return _parse_name_cached(
+            "" if value is None else str(value), self.signature,
+        )
+
+
+def prepare_name_parser(rules=None):
+    """Capture the naming lexicon once for a sequence of comparisons."""
+    return NameParser(_lexicon_signature(name_lexicon(rules)))
+
+
 def parse_name(value, rules=None):
     """Return comparison keys for a display name."""
-    signature = _lexicon_signature(name_lexicon(rules))
-    return _parse_name_cached("" if value is None else str(value), signature)
+    return prepare_name_parser(rules).parse(value)
 
 
-def is_placeholder_name(value, rules=None, generic_keys=()):
+def is_placeholder_name(value, rules=None, generic_keys=(), *, parser=None):
     """Return whether a name identifies only a zone, not a place.
 
     Survey reports label their own sub-areas "Area 1", "Zone A-4" or with a
     generic type word.  Such a label carries no identity of its own; inside a
     named site it can only be a part of that site.
     """
-    parsed = parse_name(value, rules)
+    parser = parser or prepare_name_parser(rules)
+    parsed = parser.parse(value)
     if not parsed.key:
         return True
     if parsed.key in set(generic_keys or ()):
         return True
-    compiled = _compiled_lexicon(_lexicon_signature(name_lexicon(rules)))
+    compiled = _compiled_lexicon(parser.signature)
     return all(compiled["token_re"].match(token) for token in parsed.tokens) or (
         parsed.base in set(generic_keys or ())
     )
@@ -475,7 +492,7 @@ def _trailing_cores(parsed, thresholds, generic):
             yield core
 
 
-def name_relation(left, right, rules=None, generic_keys=()):
+def name_relation(left, right, rules=None, generic_keys=(), *, parser=None):
     """Classify how two display names relate.
 
     The labels are ordered from strongest to weakest identity evidence:
@@ -497,8 +514,9 @@ def name_relation(left, right, rules=None, generic_keys=()):
         None of the above.
     """
     thresholds = relation_thresholds(rules)
-    parsed_left = parse_name(left, rules)
-    parsed_right = parse_name(right, rules)
+    parser = parser or prepare_name_parser(rules)
+    parsed_left = parser.parse(left)
+    parsed_right = parser.parse(right)
     if not parsed_left.key or not parsed_right.key:
         return NAME_UNRELATED
     if parsed_left.key == parsed_right.key:

@@ -17,7 +17,6 @@ import os
 import platform
 from pathlib import Path
 import re
-import sys
 import tempfile
 import unicodedata
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Union
@@ -100,7 +99,10 @@ _WINDOWS_ABSOLUTE_PATH_RE = re.compile(
 )
 _UNC_ABSOLUTE_PATH_RE = re.compile(r"(?<![\\])\\\\[^\r\n]*")
 _POSIX_ABSOLUTE_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9:/])/(?!/)[^\r\n]*"
+    r"""(?x)
+    (?: \A\s*/ | (?<![\w:/])(?: ~/ | /[^/\s"'<>|]+/ ) )
+    (?![/\s])[^\r\n]*
+    """
 )
 
 
@@ -184,48 +186,35 @@ def redact_local_paths(value: Any) -> str:
 
 def sanitize_public_value(value: Any) -> Any:
     """Recursively redact credentials and embedded local paths."""
-    safe_value = safe_json_value(value)
-    if isinstance(safe_value, Mapping):
-        return {
-            str(key): (
-                REDACTED_VALUE
-                if _is_sensitive_key(key)
-                else sanitize_public_value(item)
-            )
-            for key, item in safe_value.items()
-        }
-    if isinstance(safe_value, list):
-        return [sanitize_public_value(item) for item in safe_value]
-    if isinstance(safe_value, str):
-        return redact_local_paths(safe_value)
-    return safe_value
+    return _sanitize_public_json(safe_json_value(value))
 
 
 def sanitize_public_settings(value: Any, *, key: str = "") -> Any:
     """Remove local paths from settings stored in a public run manifest."""
+    return _sanitize_public_json(safe_json_value(value), settings=True, key=key)
+
+
+def _sanitize_public_json(value: Any, *, settings: bool = False, key: str = "") -> Any:
+    if settings:
+        normalized_key = re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
+        path_key = (
+            normalized_key.endswith(("path", "paths", "directory", "folder"))
+            or normalized_key in {"output_dir", "input_dir"}
+        )
+        if path_key and value not in (None, "", REDACTED_VALUE):
+            return LOCAL_PATH_REMOVED
     if isinstance(value, Mapping):
-        result = {}
-        for item_key, item_value in value.items():
-            string_key = str(item_key)
-            result[string_key] = (
-                REDACTED_VALUE
-                if _is_sensitive_key(string_key)
-                else sanitize_public_settings(
-                    item_value,
-                    key=string_key,
-                )
+        return {
+            redact_local_paths(item_key): _sanitize_public_json(
+                item, settings=settings, key=item_key
             )
-        return result
-    normalized_key = re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
-    path_key = (
-        normalized_key.endswith(("path", "paths", "directory", "folder"))
-        or normalized_key in {"output_dir", "input_dir"}
-    )
-    if path_key and value not in (None, ""):
-        return LOCAL_PATH_REMOVED
-    if isinstance(value, (list, tuple)):
-        return [sanitize_public_settings(item, key=key) for item in value]
-    return safe_json_value(value)
+            for item_key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_public_json(item, settings=settings, key=key) for item in value]
+    if isinstance(value, str):
+        return redact_local_paths(value)
+    return value
 
 
 def _semantic_settings(value: Any) -> Any:
@@ -599,6 +588,8 @@ def normalize_layer_summary(
                 value = int(value)
             except (TypeError, ValueError):
                 value = safe_json_value(value)
+        elif public and field_name in {"name", "layer_id"} and isinstance(value, str):
+            value = redact_local_paths(value)
         else:
             value = safe_json_value(value)
         summary[field_name] = value
@@ -672,6 +663,7 @@ def build_run_manifest(
     local_timezone: Optional[tzinfo] = None,
     plugin_name: str = DEFAULT_PLUGIN_NAME,
     git_commit: Optional[str] = None,
+    build_dirty: Optional[bool] = None,
     ruleset: Optional[Mapping[str, Any]] = None,
     runtime_environment: Optional[Mapping[str, Any]] = None,
     crs_context: Optional[Mapping[str, Any]] = None,
@@ -794,6 +786,8 @@ def build_run_manifest(
             "public_manifest": bool(public_manifest),
         },
     }
+    if build_dirty is not None:
+        manifest["plugin"]["build_dirty"] = bool(build_dirty)
     manifest["semantic_sha256"] = deterministic_content_hash({
         "plugin": manifest["plugin"],
         "workflow": manifest["workflow"],
@@ -900,11 +894,9 @@ def prepare_output_path(
         suffix = candidate.suffix
         counter = 1
         while candidate.exists():
-            candidate = base_directory / "{}_{}{}".format(
-                base_stem,
-                counter,
-                suffix,
-            )
+            ending = f"_{counter}{suffix}"
+            available = 120 - len(ending)
+            candidate = base_directory / f"{base_stem[:available].rstrip(' .')}{ending}"
             counter += 1
     return candidate
 
@@ -934,20 +926,20 @@ def prepare_artifact_paths(
 
     counter = 0
     while True:
-        candidate_stem = stem if counter == 0 else "{}_{}".format(stem, counter)
+        serial = f"_{counter}" if counter else ""
+        reserved = len("_run.json" if include_manifest else ".gpkg") + len(serial)
+        candidate_stem = stem[:120 - reserved].rstrip(" .") + serial
         paths: Dict[str, Path] = {}
         if include_gpkg:
             paths["gpkg"] = prepare_output_path(
                 directory,
-                candidate_stem,
-                extension="gpkg",
+                f"{candidate_stem}.gpkg",
                 create_directory=False,
             )
         if include_manifest:
             paths["manifest"] = prepare_output_path(
                 directory,
-                "{}_run".format(candidate_stem),
-                extension="json",
+                f"{candidate_stem}_run.json",
                 create_directory=False,
             )
         if not unique or not any(path.exists() for path in paths.values()):

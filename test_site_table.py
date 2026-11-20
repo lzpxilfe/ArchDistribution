@@ -14,6 +14,7 @@ from site_table import (
     is_corrupted_text,
     parse_address_cell,
     summarize_address,
+    summarize_group,
     summarize_periods,
     write_csv,
     write_hwpx,
@@ -50,7 +51,9 @@ class PeriodCellTests(unittest.TestCase):
         self.assertEqual(summarize_periods(["Bronze Age"]), "Bronze Age")
         self.assertEqual(summarize_periods(["怨??ㅼ????"]), "")
         self.assertTrue(is_corrupted_text("怨??ㅼ????"))
+        self.assertTrue(is_corrupted_text("\ufffd"))
         self.assertFalse(is_corrupted_text("가상리 12-3번지?나상리 4"))
+        self.assertFalse(is_corrupted_text("假想?"))
 
 
 class AddressCellTests(unittest.TestCase):
@@ -73,6 +76,24 @@ class AddressCellTests(unittest.TestCase):
         self.assertEqual(entry["extra_parcels"], 85)
         entry = parse_address_cell("산 142-1 · 답 529-4 번지 일대")[0]
         self.assertEqual(entry["parcels"], ("산142-1", "529-4"))
+
+    def test_address_qualifiers_preserve_place_names(self):
+        for name in ("가상부근리", "일원빛동"):
+            with self.subTest(name=name):
+                address = f"가상도 가상시 {name} 12번지일원"
+                entry = parse_address_cell(address)[0]
+                self.assertEqual(entry["places"], ("가상도", "가상시", name))
+                self.assertEqual(entry["parcels"], ("12",))
+                self.assertTrue(entry["qualified"])
+
+    def test_summary_preserves_source_precision_without_double_counting(self):
+        address = "가상도 가상시 가상동 12 외 5필지"
+        self.assertEqual(summarize_address([address], preferred=address), address)
+        self.assertEqual(summarize_address([address], preferred="가상도 가상시"), address)
+        self.assertEqual(
+            summarize_address([address, "가상도 가상시 가상동 13 외 3필지"]),
+            f"{address} 이상",
+        )
 
     def test_region_levels_come_from_suffixes(self):
         entry = parse_address_cell("가상통합특별시 가상구 가상동 1")[0]
@@ -143,6 +164,12 @@ class TableTests(unittest.TestCase):
         self.assertEqual(second[5], "북동 350m")
         self.assertIn("2건 통합", second[7])
 
+    def test_outcome_remark_distinguishes_unconfirmed_from_missing_outcomes(self):
+        records = [{"조사결과": "Non-excavated"}, {"유적유무": "기록없음"}]
+        self.assertNotIn("유구 미확인", summarize_group({"records": records})[-1])
+        records.append({"유적유무": "유적없음"})
+        self.assertIn("유구 미확인 기록 1건", summarize_group({"records": records})[-1])
+
     def test_clockwise_azimuth_starts_north(self):
         self.assertEqual(clockwise_azimuth(0, 1), 0)
         self.assertEqual(clockwise_azimuth(1, 0), 90)
@@ -161,7 +188,7 @@ class TableTests(unittest.TestCase):
         header, rows = build_site_table(self.groups)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "table.hwpx"
-            write_hwpx(str(path), header, rows, subtitle="가상 조사지역")
+            write_hwpx(str(path), header, rows, subtitle="가상\x00 조사지역")
             with zipfile.ZipFile(path) as archive:
                 names = archive.namelist()
                 self.assertEqual(names[0], "mimetype")
@@ -179,6 +206,7 @@ class TableTests(unittest.TestCase):
             self.assertIn('rowCnt="3"', section)
             self.assertIn('repeatHeader="1"', section)
             self.assertIn("나상 유적 &amp; &lt;확인&gt;", section)
+            self.assertIn("가상 조사지역", section)
 
     def test_csv_has_bom_for_spreadsheets(self):
         header, rows = build_site_table(self.groups)
@@ -188,6 +216,14 @@ class TableTests(unittest.TestCase):
             self.assertTrue(path.read_bytes().startswith(b"\xef\xbb\xbf"))
             with open(path, encoding="utf-8-sig", newline="") as handle:
                 self.assertEqual(len(list(csv.reader(handle))), 3)
+
+    def test_csv_marks_formula_like_text_as_literal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "table.csv"
+            write_csv(path, ["유적명", "출전", "비고", "번호"], [["-가상", " ＠가상", "\t가상", -1]])
+            with open(path, encoding="utf-8-sig", newline="") as handle:
+                _, row = csv.reader(handle)
+        self.assertEqual(row, ["'-가상", "' ＠가상", "'\t가상", "-1"])
 
 
 if __name__ == "__main__":

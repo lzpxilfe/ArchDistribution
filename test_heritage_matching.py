@@ -30,6 +30,7 @@ from heritage_matching import (
     excavation_area_review_family,
     is_generic_name,
     load_matching_rules,
+    make_candidate_evaluator,
     matching_rules_metadata,
     selected_content_fingerprint,
 )
@@ -555,6 +556,43 @@ class DesignatedPartChoiceTests(unittest.TestCase):
 
 
 class CrossRegisterRelationTests(unittest.TestCase):
+    def test_designated_part_on_the_same_footprint_obeys_numbering_choice(self):
+        child = record("d1", ROLE_LOCAL_DESIGNATED, "가상산성 광복루")
+        parent = record("m1", ROLE_DISTRIBUTION, "가상 가상산성")
+        for left, right in ((child, parent), (parent, child)):
+            separate = evaluate_candidate(left, right, **IDENTICAL)
+            self.assertEqual(separate.recommended_decision, DECISION_LINK)
+            self.assertEqual(separate.representative_uid, parent["uid"])
+            joined = evaluate_candidate(
+                left, right, designated_parts=DESIGNATED_PARTS_JOIN, **IDENTICAL
+            )
+            self.assertEqual(joined.recommended_decision, DECISION_MERGE)
+            self.assertEqual(joined.representative_uid, parent["uid"])
+
+    def test_same_parcel_suffix_cannot_make_different_parcels_one_site(self):
+        match = evaluate_candidate(
+            record("m1", ROLE_DISTRIBUTION, "가상리 49 - 6번지 단독주택 신축부지 내 유적"),
+            record("d1", ROLE_LOCAL_DESIGNATED, "가상리 189-6번지 단독주택 신축부지 내 유적"),
+            preset=PRESET_AUTOMATION,
+            **IDENTICAL,
+        )
+        self.assertEqual(match.recommended_decision, DECISION_LINK)
+        self.assertFalse(match.auto_apply)
+
+    def test_qualified_generic_and_missing_names_cannot_auto_merge(self):
+        for left_name, right_name in (
+            ("유적(추정)", "유적(가칭)"),
+            ("가마지", "가마지"),
+            (float("nan"), "NaN"),
+        ):
+            match = evaluate_candidate(
+                record("m1", ROLE_DISTRIBUTION, left_name),
+                record("d1", ROLE_LOCAL_DESIGNATED, right_name),
+                preset=PRESET_AUTOMATION,
+                **IDENTICAL,
+            )
+            self.assertFalse(match and match.auto_apply)
+
     def test_shared_stem_alone_is_linked_not_merged(self):
         # "<place> fortress" inside "<place> temple" are two sites.
         match = evaluate_candidate(
@@ -691,6 +729,23 @@ class MatchingRuleSetTests(unittest.TestCase):
         second = load_matching_rules()
 
         self.assertEqual(second["thresholds"]["review_overlap_ratio"], 0.25)
+
+    def test_prepared_evaluator_uses_a_snapshot_of_custom_name_rules(self):
+        rules = load_matching_rules()
+        left = record("mapped", ROLE_DISTRIBUTION, "Mireton Earthwork")
+        right = record("designated", ROLE_LOCAL_DESIGNATED, "Mireton Earthwork")
+        prepared = make_candidate_evaluator(rules)
+        original = evaluate_candidate(left, right, rules=rules, **IDENTICAL)
+
+        rules["generic_names"].append("Mireton Site")
+        rules["name_lexicon"]["equivalent_suffixes"].append(["earthwork", "site"])
+        changed = evaluate_candidate(left, right, rules=rules, **IDENTICAL)
+        prepared_changed = make_candidate_evaluator(rules)
+
+        self.assertTrue(original.auto_apply)
+        self.assertFalse(changed.auto_apply)
+        self.assertEqual(prepared(left, right, **IDENTICAL), original)
+        self.assertEqual(prepared_changed(left, right, **IDENTICAL), changed)
 
 
 class DuplicateFingerprintTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 """Interactive review dialog for source-aware duplicate candidates."""
 
 import logging
+from html import escape
 
 from qgis.PyQt import QtCore, QtWidgets
 
@@ -33,11 +34,20 @@ RULE_LABELS = {
     "normalized_name_and_overlap": "표기 정규화 후 동일 명칭 + 공간 중첩",
     "normalized_name_within_50m": "표기 정규화 후 동일 명칭 + 50m 이내",
     "affix_omitted_name_and_overlap": "행정구역 등 앞말 생략 명칭 + 동일 범위",
+    "affix_omitted_name_within_50m": "행정구역 등 앞말 생략 명칭 + 가까운 위치",
+    "exact_generic_name_and_overlap": "같은 일반 명칭 + 공간 중첩",
+    "normalized_generic_name_and_overlap": "표기 정규화 후 같은 일반 명칭 + 공간 중첩",
+    "affix_omitted_generic_name_and_overlap": "앞말을 생략한 일반 명칭 + 공간 중첩",
+    "exact_generic_name_within_distance": "같은 일반 명칭 + 가까운 위치",
+    "normalized_generic_name_within_distance": "표기 정규화 후 같은 일반 명칭 + 가까운 위치",
+    "affix_omitted_generic_name_within_distance": "앞말을 생략한 일반 명칭 + 가까운 위치",
     "same_register_duplicate": "같은 자료 안의 동일 명칭 중복",
     "same_register_affix_duplicate": "같은 자료 안의 앞말 생략 중복",
     "component_within_parent": "상위 유적 안의 부분(유구·건물·호수)",
     "co_located_footprint": "같은 범위에 그려진 여러 기록",
     "excavation_area_suffix_spatial_review": "발굴 구역 번호(I·II지역) 인접",
+    "survey_revision_same_site": "같은 유적의 지표조사 기록 갱신 후보",
+    "survey_zone_within_site": "유적 범위 안의 조사 구역",
 }
 PAIR_KIND_LABELS_EN = {
     "designated_distribution": "Designated/registered ↔ Distribution",
@@ -49,20 +59,39 @@ PAIR_KIND_LABELS_EN = {
     "excavation_area_parts": "Excavation area parts",
 }
 RULE_LABELS_EN = {
-    "exact_name_and_overlap": "Exact name + overlap",
-    "exact_name_within_50m": "Exact name + within 50 m",
-    "name_containment_and_overlap": "Contained name + overlap",
-    "fuzzy_name_and_overlap": "Similar name + overlap",
-    "strong_overlap_and_address": "Strong overlap + same address",
-    "project_name_and_overlap": "Related project name + overlap",
-    "normalized_name_and_overlap": "Same name after normalisation + overlap",
-    "normalized_name_within_50m": "Same name after normalisation + within 50 m",
-    "affix_omitted_name_and_overlap": "Name with omitted leading qualifier + same footprint",
-    "same_register_duplicate": "Duplicate name within one register",
-    "same_register_affix_duplicate": "Duplicate with omitted qualifier within one register",
-    "component_within_parent": "Part (feature, building, numbered item) inside its site",
-    "co_located_footprint": "Several records drawn on one footprint",
-    "excavation_area_suffix_spatial_review": "Adjacent excavation area numbers (I/II)",
+    "exact_name_and_overlap": "Same name and overlapping footprints",
+    "exact_name_within_50m": "Same name at nearby locations",
+    "name_containment_and_overlap": "One name contains the other, with overlapping footprints",
+    "fuzzy_name_and_overlap": "Similar names and overlapping footprints",
+    "strong_overlap_and_address": "Strong overlap and the same address",
+    "project_name_and_overlap": "Related project name and overlapping footprints",
+    "normalized_name_and_overlap": "Same normalized name and overlapping footprints",
+    "normalized_name_within_50m": "Same normalized name at nearby locations",
+    "affix_omitted_name_and_overlap": "Name missing a qualifier but drawn in the same area",
+    "affix_omitted_name_within_50m": "Name missing a qualifier at a nearby location",
+    "exact_generic_name_and_overlap": "Same generic name and overlapping footprints",
+    "normalized_generic_name_and_overlap": "Same normalized generic name and overlapping footprints",
+    "affix_omitted_generic_name_and_overlap": "Generic name missing a qualifier, with overlapping footprints",
+    "exact_generic_name_within_distance": "Same generic name at nearby locations",
+    "normalized_generic_name_within_distance": "Same normalized generic name at nearby locations",
+    "affix_omitted_generic_name_within_distance": "Generic name missing a qualifier at a nearby location",
+    "same_register_duplicate": "Duplicate name in the same source register",
+    "same_register_affix_duplicate": "Matching names in one register, one missing a qualifier",
+    "component_within_parent": "Part of a site, located inside the site's footprint",
+    "co_located_footprint": "Several records drawn on the same footprint",
+    "excavation_area_suffix_spatial_review": "Nearby excavation areas with related identifiers",
+    "survey_revision_same_site": "Possible surface-survey update to the same site",
+    "survey_zone_within_site": "Survey area inside a mapped site's footprint",
+}
+DECISION_LABELS_EN = {
+    DECISION_KEEP: "Keep separate",
+    DECISION_LINK: "Link only",
+    DECISION_MERGE: "Share one map number",
+}
+CONFIDENCE_LABELS_EN = {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
 }
 
 LOGGER = logging.getLogger(__name__)
@@ -118,15 +147,13 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
                 "<code>06_중복_검수</code>와 <code>SRC_JSON</code>에 "
                 "보존됩니다. ‘자동추천’은 확정이 아닌 초기 선택이므로 결과 "
                 "생성 전에 바꿀 수 있습니다.",
-                "<b>This dialog does not delete geometry. It decides which "
-                "source represents a numbering identity and map label.</b><br>"
-                "'Keep separate' assigns separate numbers; 'Link only' "
-                "records a relation while keeping separate numbers; and "
-                "'Merge numbering identity' uses one number and one "
-                "representative label. Suppressed geometry and attributes "
-                "remain in <code>06_중복_검수</code> and "
-                "<code>SRC_JSON</code>. An automatic recommendation is only "
-                "the initial choice and can be changed before generation.",
+                "<b>Choose how the paired records appear on the map.</b><br>"
+                "'Keep separate' gives each record its own number. 'Link only' "
+                "records the relation and keeps both numbers. 'Share one map "
+                "number' uses one number and one label. The duplicate review "
+                "group (06) and <b>SRC_JSON</b> retain geometry and "
+                "attributes for audit. You can change preselected decisions "
+                "before creating the map.",
             )
         )
         intro.setWordWrap(True)
@@ -139,9 +166,13 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
 
         toolbar = QtWidgets.QHBoxLayout()
         toolbar.addWidget(QtWidgets.QLabel(
-            self._t("관계 필터:", "Relation filter:")
+            self._t("관계 필터:", "Source pair")
         ))
         self.pair_filter = QtWidgets.QComboBox()
+        self.pair_filter.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.pair_filter.setMinimumContentsLength(12)
         self.pair_filter.addItem(self._t("전체", "All"), "")
         present_kinds = {
             candidate.get("pair_kind") for candidate in self.candidates
@@ -154,58 +185,46 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
         for kind, label in pair_labels.items():
             if kind in present_kinds:
                 self.pair_filter.addItem(label, kind)
-        toolbar.addWidget(self.pair_filter)
+        toolbar.addWidget(self.pair_filter, 1)
 
         self.btn_recommended = QtWidgets.QPushButton(
-            self._t("추천안 적용", "Apply recommendations")
+            self._t("추천안 적용", "Use recommendations")
         )
         self.btn_keep = QtWidgets.QPushButton(
-            self._t("모두 별도 유지", "Keep all separate")
+            self._t("모두 별도 유지", "Keep shown rows separate")
         )
         toolbar.addWidget(self.btn_recommended)
         toolbar.addWidget(self.btn_keep)
+        layout.addLayout(toolbar)
+
+        bulk_toolbar = QtWidgets.QHBoxLayout()
         self.bulk_action = QtWidgets.QComboBox()
-        for decision in (
-            DECISION_KEEP,
-            DECISION_LINK,
-            DECISION_MERGE,
-        ):
-            english_decisions = {
-                DECISION_KEEP: "Keep separate",
-                DECISION_LINK: "Link only",
-                DECISION_MERGE: "Merge numbering identity",
-            }
-            self.bulk_action.addItem(
-                (
-                    english_decisions[decision]
-                    if self.ui_lang == "en"
-                    else DECISION_LABELS[decision]
-                ),
-                decision,
-            )
+        decision_labels = self._t(DECISION_LABELS, DECISION_LABELS_EN)
+        for decision, label in decision_labels.items():
+            self.bulk_action.addItem(label, decision)
         self.btn_bulk_apply = QtWidgets.QPushButton(
             self._t(
                 "현재 관계에 일괄 적용",
-                "Apply to filtered relation",
+                "Apply to shown rows",
             )
         )
-        toolbar.addWidget(self.bulk_action)
-        toolbar.addWidget(self.btn_bulk_apply)
+        bulk_toolbar.addWidget(self.bulk_action)
+        bulk_toolbar.addWidget(self.btn_bulk_apply)
+        bulk_toolbar.addStretch(1)
         self.btn_zoom = QtWidgets.QPushButton(
             self._t(
                 "선택 후보 지도에서 보기",
-                "Show selected candidate on map",
+                "Show on map",
             )
         )
         self.btn_zoom.setEnabled(
             self.zoom_callback is not None and bool(self.candidates)
         )
-        toolbar.addWidget(self.btn_zoom)
-        toolbar.addStretch(1)
+        bulk_toolbar.addWidget(self.btn_zoom)
+        layout.addLayout(bulk_toolbar)
 
         self.summary = QtWidgets.QLabel()
-        toolbar.addWidget(self.summary)
-        layout.addLayout(toolbar)
+        self.summary.setWordWrap(True)
 
         self.table = QtWidgets.QTableWidget(
             len(self.candidates),
@@ -234,28 +253,19 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
         )
         self.table.setSortingEnabled(False)
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeaderItem(8).setToolTip(self._t(
+            "두 도형 중 작은 도형의 면적에 대한 중첩 면적의 비율입니다. "
+            "면적을 비교할 수 없는 경우 —로 표시됩니다.",
+            "Shared area as a percentage of the smaller footprint. "
+            "A dash means area overlap is unavailable.",
+        ))
         layout.addWidget(self.table, 1)
 
+        rule_labels = self._t(RULE_LABELS, RULE_LABELS_EN)
         for row, candidate in enumerate(self.candidates):
             combo = QtWidgets.QComboBox()
-            for decision in (
-                DECISION_KEEP,
-                DECISION_LINK,
-                DECISION_MERGE,
-            ):
-                english_decisions = {
-                    DECISION_KEEP: "Keep separate",
-                    DECISION_LINK: "Link only",
-                    DECISION_MERGE: "Merge numbering identity",
-                }
-                combo.addItem(
-                    (
-                        english_decisions[decision]
-                        if self.ui_lang == "en"
-                        else DECISION_LABELS[decision]
-                    ),
-                    decision,
-                )
+            for decision, label in decision_labels.items():
+                combo.addItem(label, decision)
             default_decision = (
                 candidate.get("recommended_decision")
                 if candidate.get("auto_apply")
@@ -269,8 +279,10 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
             self.action_combos.append(combo)
 
             confidence = candidate.get("confidence", "")
+            if self.ui_lang == "en":
+                confidence = CONFIDENCE_LABELS_EN.get(confidence, confidence)
             if candidate.get("auto_apply"):
-                confidence = f"{confidence} · 자동추천"
+                confidence = f"{confidence} · {self._t('자동추천', 'Auto-selected')}"
             self._set_item(row, 1, confidence)
             self._set_item(
                 row,
@@ -286,28 +298,21 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
             )
             self._set_item(row, 6, candidate.get("right_name", ""))
             self._set_item(row, 7, candidate.get("right_address", ""))
+            overlap = candidate.get("overlap_ratio")
             self._set_item(
                 row,
                 8,
-                f"{float(candidate.get('overlap_ratio', 0)) * 100:.1f}%",
+                f"{float(overlap) * 100:.1f}%" if overlap is not None else "—",
             )
+            distance = candidate.get("distance")
+            distance_unit = self._t("m", " m")
             self._set_item(
                 row,
                 9,
-                f"{float(candidate.get('distance', 0)):.1f}m",
+                f"{float(distance):.1f}{distance_unit}" if distance is not None else "—",
             )
-            self._set_item(
-                row,
-                10,
-                (
-                    RULE_LABELS_EN
-                    if self.ui_lang == "en"
-                    else RULE_LABELS
-                ).get(
-                    candidate.get("rule"),
-                    candidate.get("rule", ""),
-                ),
-            )
+            rule = candidate.get("rule", "")
+            self._set_item(row, 10, rule_labels.get(rule, rule))
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(
@@ -315,6 +320,9 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
         )
         header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        for column, width in ((2, 140), (4, 76), (5, 140), (7, 76), (10, 205)):
+            header.setSectionResizeMode(column, QtWidgets.QHeaderView.ResizeMode.Interactive)
+            self.table.setColumnWidth(column, width)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -331,7 +339,10 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        review_footer = QtWidgets.QHBoxLayout()
+        review_footer.addWidget(self.summary, 1)
+        review_footer.addWidget(buttons)
+        layout.addLayout(review_footer)
 
         self.pair_filter.currentIndexChanged.connect(
             self._apply_pair_filter
@@ -353,6 +364,8 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
     def _set_item(self, row, column, text):
         item = QtWidgets.QTableWidgetItem(str(text or ""))
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+        if item.text():
+            item.setToolTip(f"<span>{escape(item.text())}</span>")
         self.table.setItem(row, column, item)
 
     def _role_and_source(self, candidate, side):
@@ -368,6 +381,7 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
 
     def _apply_pair_filter(self):
         selected = self.pair_filter.currentData()
+        self.pair_filter.setToolTip(self.pair_filter.currentText())
         for row, candidate in enumerate(self.candidates):
             self.table.setRowHidden(
                 row,
@@ -434,9 +448,9 @@ class DuplicateReviewDialog(QtWidgets.QDialog):
             counts[combo.currentData()] += 1
         self.summary.setText(
             (
-                f"Keep {counts[DECISION_KEEP]} · "
+                f"All rows · Keep {counts[DECISION_KEEP]} · "
                 f"Link {counts[DECISION_LINK]} · "
-                f"Merge {counts[DECISION_MERGE]}"
+                f"Share {counts[DECISION_MERGE]}"
                 if self.ui_lang == "en"
                 else (
                     f"별도 {counts[DECISION_KEEP]} · "

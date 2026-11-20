@@ -1,8 +1,44 @@
 # Changelog
 
 All notable changes to ArchDistribution are documented here. This project uses
-plugin version `1.0.5`; research tags do not change the installable plugin
+plugin version `1.0.6`; research tags do not change the installable plugin
 version.
+
+## 1.0.6 — Simpler map setup and more reliable output
+
+- Keep map generation and close actions visible while the form scrolls.
+  The main form starts with layer, extent, buffer, and numbering choices.
+  Advanced settings and file exports open on demand.
+- Prepare matching rules once for each comparison batch. Read only a bounded
+  DBF sample during encoding detection, reuse preservation field lookups,
+  and skip manifest checksums when only report or print files are requested.
+- Keep usable input layers selectable when their names happen to contain
+  `_Copy`, `Consolidated`, or `Dissolved`.
+- Use a local UTM analysis CRS for Web Mercator and other unsuitable inputs.
+  Reject Mercator and equirectangular analysis overrides. Manifests identify
+  distances and areas as planar calculations in the analysis CRS.
+- Matching rules 1.1.1 treat polygon edge contacts as zero areal overlap and
+  use directional evidence for point and line containment. Named designated
+  parts respect the operator's numbering choice on coincident footprints.
+  Uncertain generic names and conflicting lots cannot trigger an automatic
+  merge. Previously saved review decisions need reconfirmation under these rules.
+- Exclusion rules 1.0.1 require a recognized investigation outcome before a
+  no-remains exclusion. Archaeological classifications take precedence over
+  movable-heritage subtype labels for exclusion, and uncertain records remain.
+- Keep ordinary map features visible alongside preservation action records.
+  Use the selected label size and draw blank or alias action values in the
+  preservation-area workflow.
+- Preserve place names and avoid double-counting parcels in nearby-site tables.
+  Export spreadsheet text and HWPX XML safely. Public manifests retain CRS
+  names, mask local paths and credentials in metadata, and mark modified builds.
+- Reserve space for the numbered suffix on long, colliding export names.
+- Let QGIS manage plugin reloading so existing imports do not hold stale
+  dialog or plugin classes.
+- Add a quick-start GIF and synthetic example with a real Copernicus hillshade
+  derived using Hillshade Korea.
+- Expand English support for map setup, duplicate review, progress messages,
+  preservation legends, and export filenames. Keep source values and
+  GeoPackage field names compatible with existing projects.
 
 ## 1.0.5 — Research preparation and duplicate review
 

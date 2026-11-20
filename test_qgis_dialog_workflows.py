@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from unittest import mock
@@ -142,6 +143,155 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(dialog.workflowTabs.currentIndex(), 1)
 
+    def test_english_switch_translates_finished_controls_without_resetting_choices(self):
+        from ArchDistribution.arch_distribution_dialog import LANG_PREF_KEY
+
+        settings = QtCore.QSettings()
+        old_language = settings.value(LANG_PREF_KEY)
+        if old_language is None:
+            self.addCleanup(settings.remove, LANG_PREF_KEY)
+        else:
+            self.addCleanup(settings.setValue, LANG_PREF_KEY, old_language)
+        settings.setValue(LANG_PREF_KEY, "ko")
+
+        layer = QgsVectorLayer("Polygon?crs=EPSG:5186", "Example preservation areas", "memory")
+        layer.dataProvider().addAttributes([
+            QgsField("ACTION", QVariant.String),
+            QgsField("ACTION_MANUAL", QVariant.String),
+        ])
+        layer.updateFields()
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromWkt("POLYGON((0 0,1 0,1 1,0 1,0 0))"))
+        feature.setAttributes(["시굴조사", "정밀발굴조사"])
+        layer.dataProvider().addFeature(feature)
+        QgsProject.instance().addMapLayer(layer)
+        previous = self._add_archdistribution_result("Example result")
+
+        with mock.patch.dict(os.environ, {"ARCHDISTRIBUTION_LANG": ""}):
+            dialog = self.dialog_class()
+            self.addCleanup(dialog.close)
+            dialog.workflowTabs.setCurrentIndex(1)
+            dialog.comboPreservationLayer.setLayer(layer)
+            action_field = dialog.comboPreservationActionField
+            action_field.setCurrentIndex(action_field.findData("ACTION_MANUAL"))
+            self.assertEqual(dialog.preservationActionLabels["시굴조사"].text(), "시굴조사")
+            dialog.comboUiLang.setCurrentIndex(dialog.comboUiLang.findData("en"))
+
+        self.assertEqual(dialog.workflowTabs.currentIndex(), 1)
+        self.assertEqual(action_field.currentData(), "ACTION_MANUAL")
+        self.assertEqual(action_field.itemText(0), "Auto detect")
+        self.assertEqual(dialog.comboPreservationEncoding.itemText(0), "Automatic detection")
+        self.assertIn("Trial excavation", dialog.lblPreservationDetection.text())
+        self.assertEqual(dialog.preservationActionLabels["시굴조사"].text(), "Trial excavation")
+        self.assertEqual(dialog.comboPreviousResultLayer.currentData(), previous.id())
+        self.assertIn("features", dialog.comboPreviousResultLayer.currentText())
+        self.assertIn("Automatic", dialog.layerEncodingCombos[previous.id()].itemText(0))
+
+    def test_advanced_settings_keep_active_values_when_collapsed(self):
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        dialog.btnAdvancedSettings.setChecked(False)
+        self.assertFalse(dialog.groupData.isHidden())
+        self.assertFalse(dialog.groupSpecs.isHidden())
+        self.assertFalse(dialog.groupBuffer.isHidden())
+        self.assertTrue(dialog.groupDuplicatePolicy.isHidden())
+        self.assertTrue(dialog.groupMetricCrs.isHidden())
+        self.assertTrue(dialog.groupPreservationStyle.isHidden())
+        self.assertFalse(dialog.formScroll.isAncestorOf(dialog.btnRun))
+
+        dialog.btnAdvancedSettings.setChecked(True)
+        self.assertFalse(dialog.groupDuplicatePolicy.isHidden())
+        self.assertFalse(dialog.groupMetricCrs.isHidden())
+        self.assertFalse(dialog.groupPreservationStyle.isHidden())
+        dialog.spinHeritageOpacity.setValue(100)
+        dialog.btnAdvancedSettings.setChecked(False)
+        self.assertEqual(dialog.get_settings()["heritage_style"]["opacity"], 1.0)
+        self.assertEqual(
+            [spin.minimum() for spin in (dialog.spinWidth, dialog.spinHeight, dialog.spinScale)],
+            [1, 1, 1],
+        )
+
+    def test_study_area_requires_polygon_and_avoids_arbitrary_default(self):
+        project = QgsProject.instance()
+        polygon = QgsVectorLayer("Polygon?crs=EPSG:5186", "가상 유적", "memory")
+        point = QgsVectorLayer("Point?crs=EPSG:5186", "가상 조사지역", "memory")
+        table = QgsVectorLayer("None", "가상 목록", "memory")
+        project.addMapLayers([polygon, point, table])
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+
+        self.assertIsNone(dialog.comboStudyArea.currentData())
+        self.assertEqual(dialog.comboStudyArea.count(), 2)
+        self.assertEqual(dialog.comboStudyArea.itemData(1), polygon.id())
+        with mock.patch.object(QtWidgets.QMessageBox, "warning") as warning:
+            dialog.emit_run_requested()
+        warning.assert_called_once()
+
+    def test_layer_names_do_not_hide_sources_outside_generated_groups(self):
+        project = QgsProject.instance()
+        sources = [
+            QgsVectorLayer("Polygon?crs=EPSG:5186", name, "memory")
+            for name in ("조사지역_Copy", "Consolidated 원본", "Dissolved 원본")
+        ]
+        project.addMapLayers(sources)
+        generated = QgsVectorLayer("Polygon?crs=EPSG:5186", "임의 이름", "memory")
+        project.addMapLayer(generated, False)
+        project.layerTreeRoot().addGroup("ArchDistribution_결과물").addLayer(generated)
+
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        source_ids = {layer.id() for layer in sources}
+        self.assertEqual(dialog.comboStudyArea.currentData(), sources[0].id())
+        for widget in (dialog.listTopoLayers, dialog.listHeritageLayers):
+            self.assertEqual({
+                widget.item(index).data(Qt.ItemDataRole.UserRole)
+                for index in range(widget.count())
+            }, source_ids)
+
+    def test_buffer_entry_validates_and_keeps_pending_distance_on_run(self):
+        layer = QgsVectorLayer("Polygon?crs=EPSG:5186", "가상 조사지역", "memory")
+        QgsProject.instance().addMapLayer(layer)
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        runs = []
+        dialog.run_requested.connect(runs.append)
+
+        for invalid in ("0", "-500", "nan", "inf"):
+            with self.subTest(invalid=invalid):
+                dialog.editBufferDistance.setText(invalid)
+                with mock.patch.object(QtWidgets.QMessageBox, "warning") as warning:
+                    dialog.emit_run_requested()
+                warning.assert_called_once()
+                self.assertEqual(dialog.listBuffers.count(), 0)
+        self.assertEqual(runs, [])
+
+        dialog.editBufferDistance.setText("500 m")
+        dialog.emit_run_requested()
+        self.assertEqual(runs[0]["buffers"], [500.0])
+        self.assertEqual(dialog.editBufferDistance.text(), "")
+
+    def test_result_picker_refreshes_after_run_replaces_project_layer(self):
+        previous = self._add_archdistribution_result("이전 가상 결과")
+        previous_id = previous.id()
+        study = QgsVectorLayer("Polygon?crs=EPSG:5186", "가상 조사지역", "memory")
+        QgsProject.instance().addMapLayer(study)
+        dialog = self.dialog_class()
+        self.addCleanup(dialog.close)
+        self.assertEqual(dialog.comboPreviousResultLayer.currentData(), previous_id)
+
+        def replace_result(_settings):
+            QgsProject.instance().removeMapLayer(previous_id)
+            encoding = dialog.layerEncodingCombos[previous_id]
+            encoding.setCurrentIndex(encoding.findData("CP949"))
+            new_id.append(self._add_archdistribution_result("새 가상 결과").id())
+
+        new_id = []
+        dialog.run_requested.connect(replace_result)
+        dialog.emit_run_requested()
+        self.assertEqual(dialog.comboPreviousResultLayer.currentData(), new_id[0])
+        self.assertNotIn(previous_id, dialog.layerEncodingCombos)
+        self.assertEqual(dialog.comboStudyArea.currentData(), study.id())
+
     def test_verified_preservation_layer_is_kept_out_of_heritage_list(self):
         layer = QgsVectorLayer(
             "Polygon?crs=EPSG:5186",
@@ -160,15 +310,18 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         layer.dataProvider().addFeature(feature)
         QgsProject.instance().addMapLayer(layer)
 
-        dialog = self.dialog_class()
-        self.addCleanup(dialog.close)
+        with mock.patch.object(layer, "uniqueValues", wraps=layer.uniqueValues) as values:
+            dialog = self.dialog_class()
+            self.addCleanup(dialog.close)
+            self.assertEqual(values.call_count, 1)
+            dialog.comboPreservationLayer.setLayer(layer)
+            self.assertEqual(values.call_count, 2)
 
         heritage_ids = {
             dialog.listHeritageLayers.item(index).data(Qt.ItemDataRole.UserRole)
             for index in range(dialog.listHeritageLayers.count())
         }
         self.assertNotIn(layer.id(), heritage_ids)
-        dialog.comboPreservationLayer.setLayer(layer)
         self.assertEqual(
             dialog.comboPreservationActionField.currentData(),
             "보존조치",
@@ -259,6 +412,7 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         dialog.reference_data_normalized = self.build_reference_name_index(
             dialog.reference_data
         )
+        dialog._reference_data_loaded = True
         layer_item = next(
             dialog.listHeritageLayers.item(index)
             for index in range(dialog.listHeritageLayers.count())
@@ -362,6 +516,7 @@ class QgisDialogWorkflowTests(unittest.TestCase):
         )
 
         runs = []
+        dialog.comboStudyArea.setCurrentIndex(dialog.comboStudyArea.findData(ordinary.id()))
         dialog.run_requested.connect(runs.append)
         with mock.patch.object(
             dialog,

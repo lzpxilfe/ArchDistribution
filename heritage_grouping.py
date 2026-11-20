@@ -9,6 +9,7 @@ _EMPTY_LABELS = {
     "-",
     "n/a",
     "na",
+    "nan",
     "none",
     "null",
     "<null>",
